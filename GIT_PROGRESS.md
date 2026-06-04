@@ -972,17 +972,13 @@ If `git status` is unavailable on the server, this file is still the required gi
 - Do not re-add audit event filters for `trace_id`, `client_ip`, `client_view`, `tenant`, `qname`, `qtype`, or `matched_rule`; they are implemented on admin, runtime, and log-forwarder through the shared store/query parser and covered by no-socket store/parser/admin/runtime tests.
 
 <!-- AUTO:run-context:start -->
-Last automation scan: 2026-06-05T02:21:41+08:00
+Last automation scan: 2026-06-05T02:52:25+08:00
 
-- Latest run log: `/root/anyNS/codex-run-20260605-021552.log`
+- Latest run log: `/root/anyNS/codex-run-20260605-025146.log`
 - Git status: `available`
-- Git detail: `M BACKEND_STORAGE_AND_DOCKER_TEST_PLAN.md
- M CODEX_RUN_CONTEXT.md
+- Git detail: `M CODEX_RUN_CONTEXT.md
  M DEVELOPMENT_LESSONS.md
- M GIT_PROGRESS.md
- M IMPLEMENTATION_STATUS.md
- M tests/acceptance/docker-dns-integration.sh
- M tests/docker/anyns-config.json`
+ M GIT_PROGRESS.md`
 
 Frequent errors to avoid next run:
 - `socket_listen_denied`: Prefer no-socket handler tests and acceptance scripts that SKIP cleanly in socket-restricted environments.
