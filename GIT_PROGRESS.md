@@ -53,7 +53,8 @@ If `git status` is unavailable on the server, this file is still the required gi
 - Current operator run added Docker DNS integration test scaffolding under `tests/docker/` plus `tests/acceptance/docker-dns-integration.sh`. Compose rendering passed, but actual runtime execution skipped because the Docker daemon is not available to the current SSH session.
 - Current Codex run added a deterministic Docker backend fixture container and dedicated Docker integration config. The fixture now feeds HNS runtime-json responses and fake Namecoin Core JSON-RPC responses into the PowerDNS/runtime path without secrets or heavyweight local nodes.
 - Current Codex run extended the deterministic Docker DNS integration script with runtime assertions for HNS `WALLET`, HNS `TYPE262`, and high-entropy `TXT` honeypot failed-queue metrics through the failing honeypot fixture. Docker runtime execution still skips in this environment because the Docker daemon is unavailable, but shell/config/Compose validation and broad Go checks pass.
-- Latest available git commit after this run remains `e9d1e58` (`automation: codex run 20260604-224604`) because a commit attempt failed when `.git/index.lock` could not be created on a read-only filesystem.
+- Current Codex run added `anyns-admin-api` to the deterministic Docker DNS integration topology and extended the script with admin-to-runtime proxy, proxied plugin listing, security denylist, and sinkhole assertions. Docker runtime execution still skips in this environment because the Docker daemon is unavailable, while shell/config/Compose validation and broad Go checks pass.
+- Latest available git commit after this run remains `401bd60` (`automation: codex run 20260604-232212`) because a commit attempt failed when `.git/index.lock` could not be created on a read-only filesystem.
 
 ## Important Changed Files
 
@@ -61,6 +62,9 @@ If `git status` is unavailable on the server, this file is still the required gi
 - `tests/docker/fixtures/backend-fixtures.py`
 - `tests/docker/compose.dns-integration.yml`
 - `tests/acceptance/docker-dns-integration.sh`
+- `BACKEND_STORAGE_AND_DOCKER_TEST_PLAN.md`
+- `IMPLEMENTATION_STATUS.md`
+- `GIT_PROGRESS.md`
 - `BACKEND_STORAGE_AND_DOCKER_TEST_PLAN.md`
 - `IMPLEMENTATION_STATUS.md`
 - `GIT_PROGRESS.md`
@@ -81,6 +85,20 @@ If `git status` is unavailable on the server, this file is still the required gi
 - `tests/acceptance/docker-dns-integration.sh`
 
 ## Verified Commands
+
+- Current Codex run at `2026-06-04 23:18 CST` reported these commands:
+- Current Codex run at `2026-06-04 23:55 CST` reported these commands:
+  - `bash -n tests/acceptance/docker-dns-integration.sh` - PASS.
+  - `docker compose -f tests/docker/compose.dns-integration.yml config` - PASS; rendered `anyns-admin-api`, `anyns-plugin-runtime`, `backend-fixtures`, `pdns-recursor`, `bind-latest`, and `dns-tools` on the isolated `dnsnet` network.
+  - `GOCACHE=/tmp/anyns-go-build go run -buildvcs=false ./cmd/anyns-config-check tests/docker/anyns-config.json` - PASS; output included `plugins:2`, `routes:2`, `admin_proxy_runtime:true`, `runtime_control_url:"http://anyns-plugin-runtime:8081"`, `honeypot_url_configured:true`, and `security_enabled:true`.
+  - `ANYNS_RUN_DOCKER_DNS_INTEGRATION=0 GOCACHE=/tmp/anyns-go-build bash tests/acceptance/docker-dns-integration.sh` - SKIP because Docker daemon is not available: `SKIP: docker daemon is not available`.
+  - `python3 -m py_compile tests/docker/fixtures/backend-fixtures.py` - PASS.
+  - `GOCACHE=/tmp/anyns-go-build go test -buildvcs=false ./...` - PASS.
+  - `GOCACHE=/tmp/anyns-go-build go vet -buildvcs=false ./...` - PASS.
+  - `GOCACHE=/tmp/anyns-go-build go build -buildvcs=false ./cmd/anyns-admin-api ./cmd/anyns-plugin-runtime ./cmd/anyns-log-forwarder` - PASS.
+  - `GOCACHE=/tmp/anyns-go-build bash tests/acceptance/check-local.sh` - PASS with runtime socket smoke SKIP: `listen tcp 127.0.0.1:18081: socket: operation not permitted`.
+  - `date '+%Y-%m-%d %H:%M %Z'` - PASS; output `2026-06-04 23:55 CST`.
+  - `git add BACKEND_STORAGE_AND_DOCKER_TEST_PLAN.md GIT_PROGRESS.md IMPLEMENTATION_STATUS.md tests/acceptance/docker-dns-integration.sh tests/docker/compose.dns-integration.yml && git commit -m "test: extend docker dns admin coverage"` - FAIL because Git could not create `.git/index.lock`: `Read-only file system`.
 
 - Current Codex run at `2026-06-04 23:18 CST` reported these commands:
   - `bash -n tests/acceptance/docker-dns-integration.sh` - PASS.
@@ -677,6 +695,14 @@ If `git status` is unavailable on the server, this file is still the required gi
 
 ## Repeated Errors Observed
 
+- `docker daemon unavailable` appeared once through `tests/acceptance/docker-dns-integration.sh` in the `2026-06-04 23:55 CST` run and was handled by the existing Docker SKIP path:
+  - `SKIP: docker daemon is not available`
+- `socket_listen_denied` appeared once through `tests/acceptance/runtime-smoke.sh` in the `2026-06-04 23:55 CST` run and was handled by the existing acceptance SKIP path:
+  - `listen tcp 127.0.0.1:18081: socket: operation not permitted`
+- No targeted package failure occurred in the `2026-06-04 23:55 CST` run; shell syntax, fixture syntax, config validation, and Compose rendering passed before broad validation.
+- No broad Go test, vet, or build failure occurred in the `2026-06-04 23:55 CST` run.
+- Git commit was attempted once in the `2026-06-04 23:55 CST` run and failed because `.git/index.lock` could not be created on a read-only filesystem. This repeats the known git metadata write failure, so no further commit retry or git repair was attempted.
+- No new recurring error pattern was observed in the `2026-06-04 23:55 CST` run.
 - `docker daemon unavailable` appeared once through `tests/acceptance/docker-dns-integration.sh` in the `2026-06-04 23:18 CST` run and was handled by the existing Docker SKIP path:
   - `SKIP: docker daemon is not available`
 - `socket_listen_denied` appeared once through `tests/acceptance/runtime-smoke.sh` in the `2026-06-04 23:18 CST` run and was handled by the existing acceptance SKIP path:
@@ -736,7 +762,7 @@ If `git status` is unavailable on the server, this file is still the required gi
 
 - First, read `CODEX_RUN_CONTEXT.md` and `DEVELOPMENT_LESSONS.md`; do not repeat checks already marked as environmental SKIP.
 - If Docker daemon access is available, run `ANYNS_RUN_DOCKER_DNS_INTEGRATION=1 GOCACHE=/tmp/anyns-go-build bash tests/acceptance/docker-dns-integration.sh` and fix only the smallest failing service/assertion.
-- If Docker daemon access is still unavailable, extend the Docker integration fixture path only with a new no-secret assertion that is not already scripted; `WALLET`, `TYPE262`, and honeypot failed-queue metric checks are now present.
+- If Docker daemon access is still unavailable, extend the Docker integration fixture path only with a new no-secret assertion that is not already scripted; admin proxy visibility, admin plugin listing, security denylist/sinkhole, `WALLET`, `TYPE262`, and honeypot failed-queue metric checks are now present.
 - If repository metadata writes are available, commit the current dirty working tree with a small message such as `test: extend docker dns integration assertions`; do not attempt git repair unless the same read-only metadata failure persists.
 - Exercise the PowerDNS Recursor Lua hook inside a real PowerDNS container and confirm Lua module availability (`socket.http`, `ltn12`, `cjson.safe`).
 - Run HNS `dns://` backend against a real hsd/hnsd DNS resolver, then verify end-to-end HNS resolution through PowerDNS Recursor.
@@ -770,6 +796,8 @@ If `git status` is unavailable on the server, this file is still the required gi
 - Do not repeatedly try full Docker Compose runtime integration unless Docker daemon availability has changed; `docker compose config` and integration config validation already pass.
 - Do not re-add the deterministic Docker fixture container or dedicated Docker integration config; `backend-fixtures`, HNS runtime-json fixture responses, Namecoin JSON-RPC fixture responses, and the Docker acceptance assertions are now present.
 - Do not re-add Docker integration assertions for HNS `WALLET`, HNS `TYPE262`, or honeypot failed-queue metrics; `tests/acceptance/docker-dns-integration.sh` now scripts those runtime checks against the deterministic fixtures.
+- Do not re-add the Docker integration `anyns-admin-api` service or admin-to-runtime proxy/plugin-list assertions; `tests/docker/compose.dns-integration.yml` and `tests/acceptance/docker-dns-integration.sh` now cover them.
+- Do not re-add Docker integration denylist/sinkhole assertions for `blocked.integration.test` or `sinkhole.integration.test`; they are now scripted against the existing deterministic integration config.
 - Do not retry the failed git commit repeatedly in a read-only `.git` state; wait for automation or repository metadata write access to be restored.
 - Do not spend cycles repairing git metadata unless a task explicitly requires it; keep `GIT_PROGRESS.md` updated instead.
 - Do not rerun full `go test ./...` after every small edit if a targeted package test is failing. Fix the target package first, then run broad validation once.
@@ -816,16 +844,17 @@ If `git status` is unavailable on the server, this file is still the required gi
 - Do not re-add audit event filters for `trace_id`, `client_ip`, `client_view`, `tenant`, `qname`, `qtype`, or `matched_rule`; they are implemented on admin, runtime, and log-forwarder through the shared store/query parser and covered by no-socket store/parser/admin/runtime tests.
 
 <!-- AUTO:run-context:start -->
-Last automation scan: 2026-06-04T23:22:12+08:00
+Last automation scan: 2026-06-04T23:58:23+08:00
 
-- Latest run log: `/root/anyNS/codex-run-20260604-231608.log`
+- Latest run log: `/root/anyNS/codex-run-20260604-235213.log`
 - Git status: `available`
 - Git detail: `M BACKEND_STORAGE_AND_DOCKER_TEST_PLAN.md
  M CODEX_RUN_CONTEXT.md
  M DEVELOPMENT_LESSONS.md
  M GIT_PROGRESS.md
  M IMPLEMENTATION_STATUS.md
- M tests/acceptance/docker-dns-integration.sh`
+ M tests/acceptance/docker-dns-integration.sh
+ M tests/docker/compose.dns-integration.yml`
 
 Frequent errors to avoid next run:
 - `socket_listen_denied`: Prefer no-socket handler tests and acceptance scripts that SKIP cleanly in socket-restricted environments.

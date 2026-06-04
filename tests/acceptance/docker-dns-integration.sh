@@ -47,17 +47,23 @@ tools() {
 tools 'apk add --no-cache bind-tools curl >/dev/null'
 
 for _ in $(seq 1 60); do
-  if tools 'curl -fsS http://anyns-plugin-runtime:8081/healthz >/dev/null' >/dev/null 2>&1; then
+  if tools 'curl -fsS http://anyns-plugin-runtime:8081/healthz >/dev/null && curl -fsS http://anyns-admin-api:8080/healthz >/dev/null' >/dev/null 2>&1; then
     break
   fi
   sleep 1
 done
 
-if ! tools 'curl -fsS http://anyns-plugin-runtime:8081/healthz >/dev/null'; then
-  echo "FAIL: anyns runtime did not become healthy"
-  docker compose -p "$PROJECT" -f "$COMPOSE_FILE" logs --no-color anyns-plugin-runtime backend-fixtures pdns-recursor bind-latest || true
+if ! tools 'curl -fsS http://anyns-plugin-runtime:8081/healthz >/dev/null && curl -fsS http://anyns-admin-api:8080/healthz >/dev/null'; then
+  echo "FAIL: anyns runtime/admin did not become healthy"
+  docker compose -p "$PROJECT" -f "$COMPOSE_FILE" logs --no-color anyns-plugin-runtime anyns-admin-api backend-fixtures pdns-recursor bind-latest || true
   exit 1
 fi
+
+tools 'curl -fsS http://anyns-admin-api:8080/api/v1/control-plane/boundary | tee /tmp/admin-boundary.json'
+tools 'grep -q "\"mode\":\"admin-runtime-proxy\"" /tmp/admin-boundary.json'
+tools 'curl -fsS http://anyns-admin-api:8080/api/v1/plugins | tee /tmp/admin-plugins.json'
+tools 'grep -q "\"name\":\"hns\"" /tmp/admin-plugins.json'
+tools 'grep -q "\"name\":\"namecoin-bit\"" /tmp/admin-plugins.json'
 
 tools 'dig +time=2 +tries=1 @pdns-recursor example.hns A | tee /tmp/pdns-example-hns.txt'
 tools 'grep -q "198.51.100" /tmp/pdns-example-hns.txt'
@@ -89,6 +95,15 @@ tools 'curl -fsS -X POST http://anyns-plugin-runtime:8081/api/v1/resolve -H "Con
 tools 'grep -q "\"action\":\"forward_to_honeypot\"" /tmp/runtime-honeypot.json'
 tools 'curl -fsS http://anyns-plugin-runtime:8081/metrics | tee /tmp/runtime-metrics.txt'
 tools 'grep -q "anyns_honeypot_failed_queue_length{service=\"runtime\"} 1" /tmp/runtime-metrics.txt'
+
+tools 'curl -fsS -X POST http://anyns-plugin-runtime:8081/api/v1/resolve -H "Content-Type: application/json" -d "{\"qname\":\"blocked.integration.test\",\"qtype\":\"A\",\"context\":{\"trace_id\":\"docker-denylist\",\"client_ip\":\"192.0.2.56\",\"client_view\":\"default\",\"tenant\":\"default\"}}" | tee /tmp/runtime-denylist.json'
+tools 'grep -q "\"rcode\":\"SERVFAIL\"" /tmp/runtime-denylist.json'
+tools 'grep -q "\"rule\":\"denylist-domain\"" /tmp/runtime-denylist.json'
+
+tools 'curl -fsS -X POST http://anyns-plugin-runtime:8081/api/v1/resolve -H "Content-Type: application/json" -d "{\"qname\":\"sinkhole.integration.test\",\"qtype\":\"A\",\"context\":{\"trace_id\":\"docker-sinkhole\",\"client_ip\":\"192.0.2.57\",\"client_view\":\"default\",\"tenant\":\"default\"}}" | tee /tmp/runtime-sinkhole.json'
+tools 'grep -q "\"rcode\":\"NOERROR\"" /tmp/runtime-sinkhole.json'
+tools 'grep -q "198.51.100.254" /tmp/runtime-sinkhole.json'
+tools 'grep -q "\"rule\":\"sinkhole-domain\"" /tmp/runtime-sinkhole.json'
 
 tools 'curl -fsS http://anyns-plugin-runtime:8081/api/v1/audit/events?source_plugin=namecoin-bit | tee /tmp/runtime-namecoin-audit.json'
 tools 'grep -q "example.bit" /tmp/runtime-namecoin-audit.json'

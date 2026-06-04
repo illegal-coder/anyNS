@@ -408,8 +408,35 @@ This repository has moved from requirements-only documentation to a runnable fir
   - `wallet.hns` `WALLET` answers.
   - `wallet.hns` `TYPE262` RFC3597-compatible answers.
   - DNS tunneling/high-entropy `TXT` detection flowing to the failing honeypot fixture and surfacing as `anyns_honeypot_failed_queue_length` in runtime metrics.
+- Extended the deterministic Docker DNS integration topology and script with:
+  - `anyns-admin-api` in the isolated Docker network, using the same fixture config and admin-to-runtime proxy default.
+  - Admin health, `/api/v1/control-plane/boundary`, and proxied plugin listing assertions for `hns` and `namecoin-bit`.
+  - Runtime security denylist and sinkhole assertions using the configured `blocked.integration.test` and `sinkhole.integration.test` policies.
 
 ## Latest Validation
+
+Validated on 2026-06-04 23:55 CST after adding the Docker admin API service and security denylist/sinkhole assertions:
+
+```bash
+bash -n tests/acceptance/docker-dns-integration.sh
+docker compose -f tests/docker/compose.dns-integration.yml config
+GOCACHE=/tmp/anyns-go-build go run -buildvcs=false ./cmd/anyns-config-check tests/docker/anyns-config.json
+ANYNS_RUN_DOCKER_DNS_INTEGRATION=0 GOCACHE=/tmp/anyns-go-build bash tests/acceptance/docker-dns-integration.sh
+python3 -m py_compile tests/docker/fixtures/backend-fixtures.py
+GOCACHE=/tmp/anyns-go-build go test -buildvcs=false ./...
+GOCACHE=/tmp/anyns-go-build go vet -buildvcs=false ./...
+GOCACHE=/tmp/anyns-go-build go build -buildvcs=false ./cmd/anyns-admin-api ./cmd/anyns-plugin-runtime ./cmd/anyns-log-forwarder
+GOCACHE=/tmp/anyns-go-build bash tests/acceptance/check-local.sh
+date '+%Y-%m-%d %H:%M %Z'
+```
+
+Results:
+
+- PASS: shell syntax, Docker Compose rendering, Docker integration config validation, fixture Python syntax, broad Go tests, broad Go vet, and service builds.
+- PASS with documented SKIP: `tests/acceptance/check-local.sh` completed while runtime socket smoke skipped because `listen tcp 127.0.0.1:18081` is denied in this sandbox.
+- SKIP: `tests/acceptance/docker-dns-integration.sh` runtime execution because `docker info` reports the Docker daemon is unavailable in this session.
+- Git commit was attempted after validation but failed because `.git/index.lock` could not be created on a read-only filesystem. The latest committed hash remains `401bd60`, and the working tree contains the validated Docker admin/security assertion and ledger updates.
+- No new recurring error pattern was observed; `DEVELOPMENT_LESSONS.md` did not need a manual rule update.
 
 Validated on 2026-06-04 23:18 CST after extending Docker integration assertions for `WALLET` / `TYPE262` and honeypot failed-queue metrics:
 
@@ -1380,6 +1407,6 @@ listen tcp 127.0.0.1:18081: socket: operation not permitted
 - Test the new RIF/RNS JSON-RPC adapter against a live RSK RPC endpoint, actual RNS registry address, and real `.rsk` names, then expand record mapping if live resolver responses require resolver methods beyond direct `addr`, `text`, and `contenthash` calls.
 - Test the new OpenAlias DNS TXT adapter against live DNS TXT records or the selected production DNS-over-HTTP adapter, then expand parsing if real records expose additional standard or ecosystem-specific key-value fields beyond `recipient_address`, `recipient_name`, `tx_description`, `tx_amount`, `tx_payment_id`, `address_signature`, and `checksum`.
 - Test the new ADA Handle public API adapter against live `api.handle.me` responses and real Handles, then expand record mapping if live responses expose additional Cardano address, personalization, or subHandle fields beyond the currently covered address/profile/image fields.
-- Run the new Docker DNS integration fixture stack end to end once Docker daemon access is available.
+- Run the expanded Docker DNS integration fixture stack end to end once Docker daemon access is available.
 - Add HNS `hnsd` / `dns://` Docker profile separately from deterministic fixture tests.
-- Expand Docker DNS integration assertions for security denylist/sinkhole, policy reload, and management auth after the fixture stack can run.
+- Expand Docker DNS integration assertions for policy reload and management auth after the fixture stack can run.

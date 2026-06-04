@@ -84,7 +84,7 @@ Minimum DNS assertions:
    - runs DNS assertions from `dns-tools`,
    - collects logs on failure,
    - skips cleanly if Docker networking is unavailable.
-   - Current scripted assertions cover HNS success, strict HNS `NXDOMAIN`, PowerDNS-routed Namecoin `.bit`, runtime-routed Namecoin subdomain data, HNS `WALLET` and `TYPE262`, BIND-forwarded HNS, ICANN pass-through posture, Namecoin audit events, and honeypot failed-queue metrics through the deterministic failing honeypot fixture.
+  - Current scripted assertions cover HNS success, strict HNS `NXDOMAIN`, PowerDNS-routed Namecoin `.bit`, runtime-routed Namecoin subdomain data, HNS `WALLET` and `TYPE262`, BIND-forwarded HNS, ICANN pass-through posture, admin-to-runtime proxy visibility, proxied admin plugin listing, runtime security denylist/sinkhole policy behavior, Namecoin audit events, and honeypot failed-queue metrics through the deterministic failing honeypot fixture.
 6. Add HNS `hnsd` profile separately from deterministic fixture tests, because live P2P/SPV behavior can be slower and less deterministic.
 7. Continue Namecoin path in two phases:
    - done: deterministic Namecoin JSON-RPC fixture for current adapter,

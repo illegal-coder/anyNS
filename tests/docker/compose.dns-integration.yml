@@ -19,6 +19,23 @@ services:
         aliases:
           - anyns-plugin-runtime
 
+  anyns-admin-api:
+    image: anyns/runtime:integration
+    entrypoint: ["/usr/local/bin/anyns-admin-api"]
+    environment:
+      ANYNS_CONFIG_FILE: /etc/anyns/config.json
+      ANYNS_ADMIN_ADDR: :8080
+      ANYNS_RUNTIME_ADDR: :8081
+      ANYNS_LOG_FORWARDER_ADDR: :8082
+    volumes:
+      - ./anyns-config.json:/etc/anyns/config.json:ro
+    depends_on:
+      - anyns-plugin-runtime
+    networks:
+      dnsnet:
+        aliases:
+          - anyns-admin-api
+
   backend-fixtures:
     image: python:3.12-alpine
     command: ["python", "/fixtures/backend-fixtures.py"]
