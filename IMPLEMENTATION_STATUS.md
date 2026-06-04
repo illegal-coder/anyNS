@@ -404,8 +404,36 @@ This repository has moved from requirements-only documentation to a runnable fir
   - `tests/docker/fixtures/backend-fixtures.py` serves no-secret HNS runtime-json responses, Namecoin `name_show` JSON-RPC responses, and a failing honeypot endpoint for queue tests.
   - `tests/docker/compose.dns-integration.yml` now includes a `backend-fixtures` container and mounts the dedicated integration config instead of the broad sample config.
   - `tests/acceptance/docker-dns-integration.sh` now validates the integration config, asserts strict HNS `NXDOMAIN`, checks PowerDNS-routed `.bit`, checks runtime-routed Namecoin subdomain data, and verifies Namecoin audit events.
+- Extended `tests/acceptance/docker-dns-integration.sh` with deterministic runtime assertions for:
+  - `wallet.hns` `WALLET` answers.
+  - `wallet.hns` `TYPE262` RFC3597-compatible answers.
+  - DNS tunneling/high-entropy `TXT` detection flowing to the failing honeypot fixture and surfacing as `anyns_honeypot_failed_queue_length` in runtime metrics.
 
 ## Latest Validation
+
+Validated on 2026-06-04 23:18 CST after extending Docker integration assertions for `WALLET` / `TYPE262` and honeypot failed-queue metrics:
+
+```bash
+bash -n tests/acceptance/docker-dns-integration.sh
+python3 -m py_compile tests/docker/fixtures/backend-fixtures.py
+GOCACHE=/tmp/anyns-go-build go run -buildvcs=false ./cmd/anyns-config-check tests/docker/anyns-config.json
+docker compose -f tests/docker/compose.dns-integration.yml config
+ANYNS_RUN_DOCKER_DNS_INTEGRATION=0 GOCACHE=/tmp/anyns-go-build bash tests/acceptance/docker-dns-integration.sh
+GOCACHE=/tmp/anyns-go-build go test -buildvcs=false ./...
+GOCACHE=/tmp/anyns-go-build go vet -buildvcs=false ./...
+GOCACHE=/tmp/anyns-go-build go build -buildvcs=false ./cmd/anyns-admin-api ./cmd/anyns-plugin-runtime ./cmd/anyns-log-forwarder
+GOCACHE=/tmp/anyns-go-build bash tests/acceptance/check-local.sh
+date '+%Y-%m-%d %H:%M %Z'
+```
+
+Results:
+
+- Docker acceptance shell syntax, fixture Python syntax, integration config validation, and Compose rendering passed.
+- Docker runtime execution skipped because the Docker daemon is not available in this environment: `SKIP: docker daemon is not available`.
+- Broad `go test`, `go vet`, and service `go build` passed.
+- `tests/acceptance/check-local.sh` passed with the expected runtime socket smoke SKIP: `listen tcp 127.0.0.1:18081: socket: operation not permitted`.
+- No Go files changed, so no `gofmt` was needed.
+- Git commit was attempted after validation but failed because `.git/index.lock` could not be created on a read-only filesystem. The latest committed hash remains `e9d1e58`, and the working tree contains the validated Docker assertion and ledger updates.
 
 Validated on 2026-06-04 22:42 CST after adding deterministic Docker backend fixtures:
 
@@ -1354,4 +1382,4 @@ listen tcp 127.0.0.1:18081: socket: operation not permitted
 - Test the new ADA Handle public API adapter against live `api.handle.me` responses and real Handles, then expand record mapping if live responses expose additional Cardano address, personalization, or subHandle fields beyond the currently covered address/profile/image fields.
 - Run the new Docker DNS integration fixture stack end to end once Docker daemon access is available.
 - Add HNS `hnsd` / `dns://` Docker profile separately from deterministic fixture tests.
-- Expand Docker DNS integration assertions for security denylist/sinkhole, honeypot failed queue, policy reload, metrics, and management auth after the fixture stack can run.
+- Expand Docker DNS integration assertions for security denylist/sinkhole, policy reload, and management auth after the fixture stack can run.

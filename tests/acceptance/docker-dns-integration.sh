@@ -71,11 +71,24 @@ tools 'grep -q "198.51.100.77" /tmp/pdns-example-bit.txt'
 tools 'curl -fsS -X POST http://anyns-plugin-runtime:8081/api/v1/resolve -H "Content-Type: application/json" -d "{\"qname\":\"www.example.bit\",\"qtype\":\"A\",\"context\":{\"client_view\":\"default\",\"tenant\":\"default\"}}" | tee /tmp/runtime-www-example-bit.json'
 tools 'grep -q "198.51.100.78" /tmp/runtime-www-example-bit.json'
 
+tools 'curl -fsS -X POST http://anyns-plugin-runtime:8081/api/v1/resolve -H "Content-Type: application/json" -d "{\"qname\":\"wallet.hns\",\"qtype\":\"WALLET\",\"context\":{\"client_view\":\"default\",\"tenant\":\"default\"}}" | tee /tmp/runtime-wallet-hns.json'
+tools 'grep -q "\"type\":\"WALLET\"" /tmp/runtime-wallet-hns.json'
+tools 'grep -q "eth 0x1111111111111111111111111111111111111111" /tmp/runtime-wallet-hns.json'
+
+tools 'curl -fsS -X POST http://anyns-plugin-runtime:8081/api/v1/resolve -H "Content-Type: application/json" -d "{\"qname\":\"wallet.hns\",\"qtype\":\"TYPE262\",\"context\":{\"client_view\":\"default\",\"tenant\":\"default\"}}" | tee /tmp/runtime-type262-hns.json'
+tools 'grep -q "\"type\":\"TYPE262\"" /tmp/runtime-type262-hns.json'
+tools 'grep -q "\\\\# 23" /tmp/runtime-type262-hns.json'
+
 tools 'dig +time=2 +tries=1 @bind-latest example.hns A | tee /tmp/bind-example-hns.txt'
 tools 'grep -q "198.51.100" /tmp/bind-example-hns.txt'
 
 tools 'dig +time=2 +tries=1 @bind-latest example.com A | tee /tmp/bind-example-com.txt'
 tools 'grep -Eq "status: NOERROR|status: SERVFAIL" /tmp/bind-example-com.txt'
+
+tools 'curl -fsS -X POST http://anyns-plugin-runtime:8081/api/v1/resolve -H "Content-Type: application/json" -d "{\"qname\":\"qwertyuiopasdfghjklzxcvbnm1234567890.integration\",\"qtype\":\"TXT\",\"context\":{\"trace_id\":\"docker-honeypot\",\"client_ip\":\"192.0.2.55\",\"client_view\":\"default\",\"tenant\":\"default\"}}" | tee /tmp/runtime-honeypot.json'
+tools 'grep -q "\"action\":\"forward_to_honeypot\"" /tmp/runtime-honeypot.json'
+tools 'curl -fsS http://anyns-plugin-runtime:8081/metrics | tee /tmp/runtime-metrics.txt'
+tools 'grep -q "anyns_honeypot_failed_queue_length{service=\"runtime\"} 1" /tmp/runtime-metrics.txt'
 
 tools 'curl -fsS http://anyns-plugin-runtime:8081/api/v1/audit/events?source_plugin=namecoin-bit | tee /tmp/runtime-namecoin-audit.json'
 tools 'grep -q "example.bit" /tmp/runtime-namecoin-audit.json'

@@ -1,6 +1,6 @@
 # anyNS Backend Storage And Docker Test Plan
 
-Generated: 2026-06-04T22:35:00+08:00
+Generated: 2026-06-04T23:18:00+08:00
 
 ## Server Capacity Snapshot
 
@@ -84,6 +84,7 @@ Minimum DNS assertions:
    - runs DNS assertions from `dns-tools`,
    - collects logs on failure,
    - skips cleanly if Docker networking is unavailable.
+   - Current scripted assertions cover HNS success, strict HNS `NXDOMAIN`, PowerDNS-routed Namecoin `.bit`, runtime-routed Namecoin subdomain data, HNS `WALLET` and `TYPE262`, BIND-forwarded HNS, ICANN pass-through posture, Namecoin audit events, and honeypot failed-queue metrics through the deterministic failing honeypot fixture.
 6. Add HNS `hnsd` profile separately from deterministic fixture tests, because live P2P/SPV behavior can be slower and less deterministic.
 7. Continue Namecoin path in two phases:
    - done: deterministic Namecoin JSON-RPC fixture for current adapter,
