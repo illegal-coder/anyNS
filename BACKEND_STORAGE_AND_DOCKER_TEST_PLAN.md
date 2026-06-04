@@ -55,14 +55,15 @@ Containers:
 - `pdns-authoritative`: local authoritative test zones and modern RR examples.
 - `bind-latest`: ISC BIND 9.20 current-stable Docker image, used as a separate DNS client/recursive test component.
 - `hnsd` or `hnsd-fixture`: HNS lightweight resolver path for `dns://` backend testing.
-- `namecoin-fixture`: fake Namecoin JSON-RPC for deterministic `.bit` tests; later replace with `ncdns` path if storage/runtime is acceptable.
-- `backend-fixtures`: HTTP/JSON-RPC fixture server for ENS, Unstoppable, Stacks, Polkadot PNS, PulseChain PNS, and Wave 2/3 adapters.
+- `backend-fixtures`: deterministic Python HTTP fixture server for current HNS runtime-json responses, fake Namecoin Core JSON-RPC `.bit` responses, and a failing honeypot endpoint. It can be extended for ENS, Unstoppable, Stacks, Polkadot PNS, PulseChain PNS, and Wave 2/3 adapters.
 - `dns-tools`: `dig`, `drill`, `kdig`, and curl-based smoke tests.
 
 Minimum DNS assertions:
 
 - `dig @pdns-recursor example.hns A` returns routed HNS answer.
 - `dig @pdns-recursor missing.hns A` returns routed NXDOMAIN and does not fall through to ICANN.
+- `dig @pdns-recursor example.bit A` returns the deterministic Namecoin JSON-RPC fixture answer.
+- Runtime HTTP resolution for `www.example.bit A` returns the fixture subdomain answer from Namecoin `map`.
 - `dig @pdns-recursor wallet.hns TYPE262` or runtime HTTP equivalent returns WALLET/TYPE262-compatible data.
 - `dig @bind-latest example.hns A` forwards through the configured path and receives the same answer.
 - ICANN domain such as `example.com` still resolves through normal recursive behavior when no anyNS route matches.
@@ -73,18 +74,19 @@ Minimum DNS assertions:
 
 ## Immediate Implementation Tasks
 
-1. Add `tests/docker/compose.dns-integration.yml` with isolated Docker network and no host port conflicts by default.
-2. Add `tests/docker/bind/named.conf` using the official ISC BIND 9.20 image as a test resolver/client.
-3. Add `tests/docker/fixtures/` for no-secret fake HTTP/JSON-RPC backend responses.
-4. Add `tests/acceptance/docker-dns-integration.sh` that:
+1. Done: add `tests/docker/compose.dns-integration.yml` with isolated Docker network and no host port conflicts by default.
+2. Done: add `tests/docker/bind/named.conf` using the official ISC BIND 9.20 image as a test resolver/client.
+3. Done: add `tests/docker/fixtures/` for no-secret fake HNS runtime-json and Namecoin JSON-RPC backend responses.
+4. Done: add `tests/docker/anyns-config.json` as a dedicated Docker integration config so fixture routes do not alter the broad sample config.
+5. Partially done: add `tests/acceptance/docker-dns-integration.sh` that:
    - checks Docker availability,
    - starts the compose stack,
    - runs DNS assertions from `dns-tools`,
    - collects logs on failure,
    - skips cleanly if Docker networking is unavailable.
-5. Add HNS `hnsd` profile separately from deterministic fixture tests, because live P2P/SPV behavior can be slower and less deterministic.
-6. Add a Namecoin path in two phases:
-   - deterministic Namecoin JSON-RPC fixture for current adapter,
+6. Add HNS `hnsd` profile separately from deterministic fixture tests, because live P2P/SPV behavior can be slower and less deterministic.
+7. Continue Namecoin path in two phases:
+   - done: deterministic Namecoin JSON-RPC fixture for current adapter,
    - optional `ncdns`/Electrum-NMC or Namecoin Core integration after storage and setup cost is measured.
 
 ## PowerDNS Web/Admin Plan Gate

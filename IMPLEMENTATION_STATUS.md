@@ -399,8 +399,36 @@ This repository has moved from requirements-only documentation to a runnable fir
 - `tests/acceptance/check-local.sh` now also builds `anyns-management-key` so the management lifecycle CLI remains covered by local no-socket validation.
 - Added `tests/acceptance/runtime-smoke.sh`, a real runtime acceptance smoke that builds `anyns-plugin-runtime`, starts it with a temporary JSON config, verifies HNS resolution over the HTTP runtime API, triggers a high-entropy TXT query, and checks DNSLog JSONL plus honeypot failed-queue persistence and metrics.
 - `tests/acceptance/check-local.sh` now runs the runtime smoke after the PowerDNS Lua hook contract check. In socket-restricted environments, the smoke exits successfully with a clear `SKIP` reason instead of masking sandbox limitations as application failures.
+- Added deterministic Docker DNS integration fixtures:
+  - `tests/docker/anyns-config.json` configures HNS through a runtime-json fixture backend and Namecoin `.bit` through a fake Namecoin Core JSON-RPC backend.
+  - `tests/docker/fixtures/backend-fixtures.py` serves no-secret HNS runtime-json responses, Namecoin `name_show` JSON-RPC responses, and a failing honeypot endpoint for queue tests.
+  - `tests/docker/compose.dns-integration.yml` now includes a `backend-fixtures` container and mounts the dedicated integration config instead of the broad sample config.
+  - `tests/acceptance/docker-dns-integration.sh` now validates the integration config, asserts strict HNS `NXDOMAIN`, checks PowerDNS-routed `.bit`, checks runtime-routed Namecoin subdomain data, and verifies Namecoin audit events.
 
 ## Latest Validation
+
+Validated on 2026-06-04 22:42 CST after adding deterministic Docker backend fixtures:
+
+```bash
+bash -n tests/acceptance/docker-dns-integration.sh
+python3 -m py_compile tests/docker/fixtures/backend-fixtures.py
+GOCACHE=/tmp/anyns-go-build go run -buildvcs=false ./cmd/anyns-config-check tests/docker/anyns-config.json
+docker compose -f tests/docker/compose.dns-integration.yml config
+ANYNS_RUN_DOCKER_DNS_INTEGRATION=0 GOCACHE=/tmp/anyns-go-build bash tests/acceptance/docker-dns-integration.sh
+GOCACHE=/tmp/anyns-go-build go test -buildvcs=false ./...
+GOCACHE=/tmp/anyns-go-build go vet -buildvcs=false ./...
+GOCACHE=/tmp/anyns-go-build go build -buildvcs=false ./cmd/anyns-admin-api ./cmd/anyns-plugin-runtime ./cmd/anyns-log-forwarder
+GOCACHE=/tmp/anyns-go-build bash tests/acceptance/check-local.sh
+date '+%Y-%m-%d %H:%M %Z'
+```
+
+Results:
+
+- Docker fixture script syntax, Docker acceptance shell syntax, integration config validation, and Compose rendering passed.
+- Docker runtime execution skipped because the Docker daemon is not available in this environment: `SKIP: docker daemon is not available`.
+- Broad `go test`, `go vet`, and service `go build` passed.
+- `tests/acceptance/check-local.sh` passed with the expected runtime socket smoke SKIP: `listen tcp 127.0.0.1:18081: socket: operation not permitted`.
+- Git commit was attempted after validation but failed because `.git/index.lock` could not be created on a read-only filesystem. The latest committed hash remains `042261c`, and the working tree contains the validated Docker fixture changes.
 
 Validated on 2026-06-04 08:30 CST:
 
@@ -1324,4 +1352,6 @@ listen tcp 127.0.0.1:18081: socket: operation not permitted
 - Test the new RIF/RNS JSON-RPC adapter against a live RSK RPC endpoint, actual RNS registry address, and real `.rsk` names, then expand record mapping if live resolver responses require resolver methods beyond direct `addr`, `text`, and `contenthash` calls.
 - Test the new OpenAlias DNS TXT adapter against live DNS TXT records or the selected production DNS-over-HTTP adapter, then expand parsing if real records expose additional standard or ecosystem-specific key-value fields beyond `recipient_address`, `recipient_name`, `tx_description`, `tx_amount`, `tx_payment_id`, `address_signature`, and `checksum`.
 - Test the new ADA Handle public API adapter against live `api.handle.me` responses and real Handles, then expand record mapping if live responses expose additional Cardano address, personalization, or subHandle fields beyond the currently covered address/profile/image fields.
-- Add full Docker Compose integration tests once Docker and listening sockets are available.
+- Run the new Docker DNS integration fixture stack end to end once Docker daemon access is available.
+- Add HNS `hnsd` / `dns://` Docker profile separately from deterministic fixture tests.
+- Expand Docker DNS integration assertions for security denylist/sinkhole, honeypot failed queue, policy reload, metrics, and management auth after the fixture stack can run.

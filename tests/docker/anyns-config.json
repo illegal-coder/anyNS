@@ -1,0 +1,83 @@
+{
+  "admin_addr": ":8080",
+  "runtime_addr": ":8081",
+  "log_forwarder_addr": ":8082",
+  "request_timeout": "3s",
+  "plugins": [
+    {
+      "name": "hns",
+      "enabled": true,
+      "backend_type": "runtime-json",
+      "backend_url": "http://backend-fixtures:8090/hns/resolve",
+      "request_timeout": "3s"
+    },
+    {
+      "name": "namecoin-bit",
+      "enabled": true,
+      "backend_type": "namecoin-json-rpc",
+      "backend_url": "http://backend-fixtures:8090/namecoin",
+      "request_timeout": "3s"
+    }
+  ],
+  "routes": [
+    {
+      "name": "hns-fixture",
+      "suffixes": [".hns", ".hsd"],
+      "client_views": ["default"],
+      "tenants": ["default"],
+      "plugin": "hns",
+      "priority": 100,
+      "fallback": "nxdomain"
+    },
+    {
+      "name": "namecoin-bit-fixture",
+      "suffixes": [".bit"],
+      "client_views": ["default"],
+      "tenants": ["default"],
+      "plugin": "namecoin-bit",
+      "priority": 90,
+      "fallback": "nxdomain"
+    }
+  ],
+  "security": {
+    "enabled": true,
+    "tunnel_max_qname_length": 180,
+    "tunnel_max_label_length": 63,
+    "tunnel_entropy_threshold": 4.0,
+    "dga_entropy_threshold": 4.2,
+    "dga_digit_ratio_threshold": 0.25,
+    "query_rate_window_seconds": 60,
+    "query_rate_threshold": 120,
+    "random_subdomain_window_seconds": 60,
+    "random_subdomain_threshold": 50,
+    "nxdomain_window_seconds": 60,
+    "nxdomain_threshold": 20,
+    "block_rebinding": true,
+    "abnormal_rr_action": "log_only",
+    "reflection_amplification_action": "rate_limit",
+    "denylist_domains": ["blocked.integration.test"],
+    "sinkhole_domains": ["sinkhole.integration.test"],
+    "sinkhole_ipv4": "198.51.100.254",
+    "sinkhole_ipv6": "2001:db8::254",
+    "sinkhole_ttl": 60
+  },
+  "dnslog": {
+    "limit": 1000,
+    "path": "/tmp/anyns-dnslog.jsonl"
+  },
+  "honeypot": {
+    "url": "http://backend-fixtures:8090/honeypot/fail",
+    "failed_queue_path": "/tmp/anyns-honeypot-failed.jsonl",
+    "failed_queue_max_entries": 1000,
+    "retry_interval": "30s",
+    "max_attempts": 3,
+    "request_timeout": "2s"
+  },
+  "control_plane": {
+    "admin_proxy_runtime": true,
+    "runtime_control_url": "http://anyns-plugin-runtime:8081"
+  },
+  "management": {
+    "auth_required": false
+  }
+}

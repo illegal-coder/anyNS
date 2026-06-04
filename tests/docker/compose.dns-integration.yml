@@ -11,11 +11,23 @@ services:
       ANYNS_ADMIN_ADDR: :8080
       ANYNS_LOG_FORWARDER_ADDR: :8082
     volumes:
-      - ../../configs/anyns/config.example.json:/etc/anyns/config.json:ro
+      - ./anyns-config.json:/etc/anyns/config.json:ro
+    depends_on:
+      - backend-fixtures
     networks:
       dnsnet:
         aliases:
           - anyns-plugin-runtime
+
+  backend-fixtures:
+    image: python:3.12-alpine
+    command: ["python", "/fixtures/backend-fixtures.py"]
+    volumes:
+      - ./fixtures:/fixtures:ro
+    networks:
+      dnsnet:
+        aliases:
+          - backend-fixtures
 
   pdns-recursor:
     image: powerdns/pdns-recursor-51:5.1.3
