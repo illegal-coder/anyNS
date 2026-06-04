@@ -70,6 +70,7 @@ Minimum DNS assertions:
 - ICANN domain such as `example.com` still resolves through normal recursive behavior when no anyNS route matches.
 - Security denylist returns blocked `SERVFAIL`.
 - Security sinkhole returns configured sinkhole `A` / `AAAA`.
+- Reflection-amplification-prone `ANY` / `DNSKEY` queries return the runtime rate-limit `ResolveResult` contract and write a security audit event.
 - DNSLog records include source plugin, rcode, risk/action, client view, tenant, and matched rule.
 - Admin, runtime, and log-forwarder audit event reads honor inclusive RFC3339 `since` / `until` windows for known fixture events.
 - Runtime and log-forwarder audit summaries aggregate retained events by plugin, RCODE, action, and top qname after fixture traffic is generated.
@@ -89,7 +90,7 @@ Minimum DNS assertions:
    - runs DNS assertions from `dns-tools`,
    - collects logs on failure,
    - skips cleanly if Docker networking is unavailable.
-  - Current scripted assertions cover HNS success, strict HNS `NXDOMAIN`, PowerDNS-routed Namecoin `.bit`, runtime-routed Namecoin subdomain data, HNS `WALLET` and `TYPE262`, BIND-forwarded HNS, ICANN pass-through posture, authenticated admin-to-runtime proxy visibility, authenticated proxied admin plugin listing, redacted management-key metadata, admin/runtime policy reload authz plus management audit visibility, proxied admin cache stats/flush authz plus management audit visibility, admin/runtime/log-forwarder audit time-window filtering, runtime security denylist/sinkhole policy behavior, authenticated Namecoin audit reads, runtime audit-summary aggregates, runtime honeypot failed-queue metrics, and log-forwarder DNSLog ingestion/authenticated audit/authenticated audit-summary/authenticated honeypot-status/metrics/failed-queue behavior through the deterministic failing honeypot fixture.
+  - Current scripted assertions cover HNS success, strict HNS `NXDOMAIN`, PowerDNS-routed Namecoin `.bit`, runtime-routed Namecoin subdomain data, HNS `WALLET` and `TYPE262`, BIND-forwarded HNS, ICANN pass-through posture, authenticated admin-to-runtime proxy visibility, authenticated proxied admin plugin listing, redacted management-key metadata, admin/runtime policy reload authz plus management audit visibility, proxied admin cache stats/flush authz plus management audit visibility, admin/runtime/log-forwarder audit time-window filtering, runtime security denylist/sinkhole/reflection-rate-limit policy behavior, authenticated Namecoin audit reads, runtime audit-summary aggregates, runtime honeypot failed-queue metrics, and log-forwarder DNSLog ingestion/authenticated audit/authenticated audit-summary/authenticated honeypot-status/metrics/failed-queue behavior through the deterministic failing honeypot fixture.
 6. Add HNS `hnsd` profile separately from deterministic fixture tests, because live P2P/SPV behavior can be slower and less deterministic.
 7. Continue Namecoin path in two phases:
    - done: deterministic Namecoin JSON-RPC fixture for current adapter,

@@ -160,6 +160,13 @@ tools 'grep -q "\"rcode\":\"NOERROR\"" /tmp/runtime-sinkhole.json'
 tools 'grep -q "198.51.100.254" /tmp/runtime-sinkhole.json'
 tools 'grep -q "\"rule\":\"sinkhole-domain\"" /tmp/runtime-sinkhole.json'
 
+tools 'status=$(curl -sS -X POST -o /tmp/runtime-reflection-rate-limit.json -w "%{http_code}" http://anyns-plugin-runtime:8081/api/v1/resolve -H "Content-Type: application/json" -d "{\"qname\":\"reflection.integration.test\",\"qtype\":\"ANY\",\"context\":{\"trace_id\":\"docker-reflection-rate-limit\",\"client_ip\":\"192.0.2.59\",\"client_view\":\"default\",\"tenant\":\"default\"}}"); test "$status" = "429"'
+tools 'grep -q "\"rcode\":\"SERVFAIL\"" /tmp/runtime-reflection-rate-limit.json'
+tools 'grep -q "\"rule\":\"reflection-amplification-rr\"" /tmp/runtime-reflection-rate-limit.json'
+tools 'grep -q "\"action\":\"rate_limit\"" /tmp/runtime-reflection-rate-limit.json'
+tools 'curl -fsS -H "'"$AUTH_HEADER"'" "http://anyns-plugin-runtime:8081/api/v1/audit/events?trace_id=docker-reflection-rate-limit&source_plugin=security&action=rate_limit&matched_rule=reflection-amplification-rr&rcode=SERVFAIL" | tee /tmp/runtime-reflection-rate-limit-audit.json'
+tools 'grep -q "reflection.integration.test" /tmp/runtime-reflection-rate-limit-audit.json'
+
 tools 'status=$(curl -sS -o /tmp/runtime-audit-unauth.json -w "%{http_code}" "http://anyns-plugin-runtime:8081/api/v1/audit/events?source_plugin=namecoin-bit"); test "$status" = "401"'
 tools 'curl -fsS -H "'"$AUTH_HEADER"'" http://anyns-plugin-runtime:8081/api/v1/audit/events?source_plugin=namecoin-bit | tee /tmp/runtime-namecoin-audit.json'
 tools 'grep -q "example.bit" /tmp/runtime-namecoin-audit.json'

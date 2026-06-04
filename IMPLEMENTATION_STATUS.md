@@ -1552,3 +1552,29 @@ listen tcp 127.0.0.1:18081: socket: operation not permitted
 - Run the expanded Docker DNS integration fixture stack end to end once Docker daemon access is available.
 - Add HNS `hnsd` / `dns://` Docker profile separately from deterministic fixture tests.
 - Run the authenticated Docker DNS integration assertions, including policy reload coverage, end to end once Docker daemon access is available.
+
+Latest pass on 2026-06-05 after adding Docker reflection rate-limit assertions:
+
+```text
+bash -n tests/acceptance/docker-dns-integration.sh   PASS
+python3 -m py_compile tests/docker/fixtures/backend-fixtures.py   PASS
+GOCACHE=/tmp/anyns-go-build go run -buildvcs=false ./cmd/anyns-config-check tests/docker/anyns-config.json   PASS; output reported management_auth:true, management_keys:3, management_roles:3, plugins:2, and routes:2
+docker compose -f tests/docker/compose.dns-integration.yml config >/tmp/anyns-docker-compose-rendered.yml && wc -l /tmp/anyns-docker-compose-rendered.yml   PASS; rendered 151 lines
+ANYNS_RUN_DOCKER_DNS_INTEGRATION=0 GOCACHE=/tmp/anyns-go-build bash tests/acceptance/docker-dns-integration.sh   SKIP; Docker daemon is not available
+GOCACHE=/tmp/anyns-go-build go test -buildvcs=false ./...   PASS
+GOCACHE=/tmp/anyns-go-build go vet -buildvcs=false ./...   PASS
+GOCACHE=/tmp/anyns-go-build go build -buildvcs=false ./cmd/anyns-admin-api ./cmd/anyns-plugin-runtime ./cmd/anyns-log-forwarder   PASS
+GOCACHE=/tmp/anyns-go-build bash tests/acceptance/check-local.sh   PASS with runtime socket smoke SKIP: listen tcp 127.0.0.1:18081: socket: operation not permitted
+```
+
+New Docker integration coverage added in this pass:
+
+```text
+tests/acceptance/docker-dns-integration.sh now asserts that a runtime `ANY` query for `reflection.integration.test` returns HTTP 429 with the normal blocked `ResolveResult` contract, `SERVFAIL`, `reflection-amplification-rr`, `rate_limit`, and a matching authenticated runtime audit event.
+```
+
+Git note:
+
+```text
+git add tests/acceptance/docker-dns-integration.sh BACKEND_STORAGE_AND_DOCKER_TEST_PLAN.md IMPLEMENTATION_STATUS.md GIT_PROGRESS.md && git commit -m "test: add docker reflection rate-limit assertion"   FAIL; Git could not create .git/index.lock because the repository metadata is read-only. Latest committed hash remains 02336ab.
+```
