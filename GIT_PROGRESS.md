@@ -47,6 +47,10 @@ If `git status` is unavailable on the server, this file is still the required gi
 - Prior runs added a bounded `limit` query parameter to `GET /api/v1/audit/events` on `anyns-admin-api`, `anyns-plugin-runtime`, and `anyns-log-forwarder`. The default remains 100 events, invalid values fall back safely, and responses are clamped to `1..1000` events. No-socket tests cover the shared parser plus admin/runtime handler behavior.
 - Prior runs added exact-match audit event query filters for `source_plugin`, `risk_level`, `action`, and `rcode` on `GET /api/v1/audit/events` across admin API, plugin runtime, and log forwarder. Filtering is applied before the bounded newest-event limit, with no-socket store/admin/runtime tests covering the contract.
 - This run expanded exact-match audit event query filters for `trace_id`, `client_ip`, `client_view`, `tenant`, `qname`, `qtype`, and `matched_rule` on the shared `GET /api/v1/audit/events` path used by admin API, plugin runtime, and log forwarder. The shared store and HTTP query parser are covered by no-socket tests, and admin/runtime handler tests verify the expanded filter contract.
+- Current operator run established a local git repository on the server with baseline commit `6049d9f`.
+- Current operator run added git auto-commit support to `scripts/codex-continue.sh`; future automated Codex runs should commit changed source/docs/status files after post-run summarization.
+- Current operator run added `BACKEND_STORAGE_AND_DOCKER_TEST_PLAN.md`, documenting server storage posture, minimal decentralized backend choices, Docker DNS integration topology, BIND 9.20 test role, and the PowerDNS web/admin planning gate.
+- Current operator run added Docker DNS integration test scaffolding under `tests/docker/` plus `tests/acceptance/docker-dns-integration.sh`. Compose rendering passed, but actual runtime execution skipped because the Docker daemon is not available to the current SSH session.
 
 ## Important Changed Files
 
@@ -58,8 +62,22 @@ If `git status` is unavailable on the server, this file is still the required gi
 - `cmd/anyns-plugin-runtime/main_test.go`
 - `IMPLEMENTATION_STATUS.md`
 - `GIT_PROGRESS.md`
+- `.gitignore`
+- `BACKEND_STORAGE_AND_DOCKER_TEST_PLAN.md`
+- `REMOTE_CODEX_CONTINUE_PROMPT.txt`
+- `scripts/codex-continue.sh`
+- `tests/docker/compose.dns-integration.yml`
+- `tests/docker/bind/named.conf`
+- `tests/acceptance/docker-dns-integration.sh`
 
 ## Verified Commands
+
+- Current operator run at `2026-06-04 22:35 CST` reported these commands:
+  - `bash -n scripts/codex-continue.sh` - PASS.
+  - `bash -n tests/acceptance/docker-dns-integration.sh` - PASS.
+  - `docker compose -f tests/docker/compose.dns-integration.yml config` - PASS.
+  - `ANYNS_RUN_DOCKER_DNS_INTEGRATION=0 bash tests/acceptance/docker-dns-integration.sh` - SKIP because Docker daemon is not available.
+  - `git init`, `git add -A`, baseline commit - PASS; baseline commit `6049d9f`.
 
 - Latest Codex run at `2026-06-04 08:46 CST` reported these commands:
   - `ls -la docs` - PASS.
