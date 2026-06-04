@@ -414,30 +414,34 @@ This repository has moved from requirements-only documentation to a runnable fir
   - Runtime security denylist and sinkhole assertions using the configured `blocked.integration.test` and `sinkhole.integration.test` policies.
 - Extended the deterministic Docker DNS integration topology and script with `anyns-log-forwarder` as a first-class service. The Docker acceptance script now waits for log-forwarder health, posts a deterministic DNSLog event to `/api/v1/dns-events`, verifies filtered audit-event retrieval, and checks log-forwarder Prometheus metrics plus failed honeypot queue behavior through the same failing fixture endpoint.
 - Extended the deterministic Docker DNS integration config and script with fixture-scoped management auth roles for read, policy-write, and cache-read/write operations. The Docker acceptance script now asserts unauthenticated/under-scoped rejection, redacted management-key metadata, admin/runtime policy reload audit events, admin-to-runtime proxied cache stats, cache flush, and cache-flush management audit visibility.
+- Extended the deterministic Docker DNS integration script with authenticated audit-summary assertions for the runtime and log-forwarder. The script now checks unauthenticated `401` behavior plus aggregate `by_plugin`, `by_rcode`, and action totals after HNS, security, honeypot, and log-forwarder fixture events are generated.
 
 ## Latest Validation
 
-Validated on 2026-06-05 02:18 CST after adding Docker integration cache-control authorization and audit assertions:
+Validated on 2026-06-05 03:22 CST after adding Docker integration audit-summary assertions:
 
 ```bash
 bash -n tests/acceptance/docker-dns-integration.sh
+python3 -m py_compile tests/docker/fixtures/backend-fixtures.py
 GOCACHE=/tmp/anyns-go-build go run -buildvcs=false ./cmd/anyns-config-check tests/docker/anyns-config.json
-docker compose -f tests/docker/compose.dns-integration.yml config
+docker compose -f tests/docker/compose.dns-integration.yml config >/tmp/anyns-docker-compose-rendered.yml && wc -l /tmp/anyns-docker-compose-rendered.yml
 ANYNS_RUN_DOCKER_DNS_INTEGRATION=0 GOCACHE=/tmp/anyns-go-build bash tests/acceptance/docker-dns-integration.sh
 GOCACHE=/tmp/anyns-go-build go test -buildvcs=false ./...
 GOCACHE=/tmp/anyns-go-build go vet -buildvcs=false ./...
 GOCACHE=/tmp/anyns-go-build go build -buildvcs=false ./cmd/anyns-admin-api ./cmd/anyns-plugin-runtime ./cmd/anyns-log-forwarder
 GOCACHE=/tmp/anyns-go-build bash tests/acceptance/check-local.sh
+git status --short
+git rev-parse --short HEAD
 date '+%Y-%m-%d %H:%M %Z'
 ```
 
 Results:
 
-- PASS: Docker acceptance shell syntax, Docker integration config validation, Docker Compose rendering, broad Go tests, broad Go vet, and service builds.
+- PASS: Docker acceptance shell syntax, fixture Python syntax, Docker integration config validation, Docker Compose rendering, broad Go tests, broad Go vet, and service builds.
 - PASS with documented SKIP: `tests/acceptance/check-local.sh` completed while runtime socket smoke skipped because `listen tcp 127.0.0.1:18081` is denied in this sandbox.
 - SKIP: `tests/acceptance/docker-dns-integration.sh` runtime execution because `docker info` reports the Docker daemon is unavailable in this session.
 - No Go files changed, so no `gofmt` was needed.
-- Git commit was attempted after validation but failed because `.git/index.lock` could not be created on a read-only filesystem. The latest committed hash remains `6cef31f`, and the working tree contains the validated Docker cache-control integration coverage plus ledger updates.
+- Git commit was attempted once after validation and failed because `.git/index.lock` could not be created on a read-only filesystem. Latest committed hash remains `83515bc`; the working tree contains this run's validated Docker audit-summary assertions, required ledger updates, and generated context/lesson updates.
 - No new recurring error pattern was observed; `DEVELOPMENT_LESSONS.md` did not need a manual rule update.
 
 Validated on 2026-06-05 00:30 CST after adding the Docker log-forwarder service and DNSLog/honeypot assertions:
