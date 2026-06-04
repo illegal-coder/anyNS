@@ -1,0 +1,427 @@
+{
+  "admin_addr": ":8080",
+  "runtime_addr": ":8081",
+  "log_forwarder_addr": ":8082",
+  "request_timeout": "3s",
+  "plugins": [
+    {
+      "name": "hns",
+      "enabled": true,
+      "backend_type": "runtime-json",
+      "backend_url": "",
+      "backend_api_key": "",
+      "backend_api_key_file": "",
+      "request_timeout": "3s"
+    },
+    {
+      "name": "ens",
+      "enabled": false,
+      "backend_type": "ens-json-rpc",
+      "backend_url": "https://eth-mainnet.g.alchemy.com/v2/replace-with-api-key",
+      "backend_api_key": "",
+      "backend_api_key_file": "",
+      "request_timeout": "3s"
+    },
+    {
+      "name": "namecoin-bit",
+      "enabled": false,
+      "backend_type": "namecoin-json-rpc",
+      "backend_url": "",
+      "backend_api_key": "",
+      "backend_api_key_file": "",
+      "request_timeout": "3s"
+    },
+    {
+      "name": "stacks-bns",
+      "enabled": false,
+      "backend_type": "stacks-bns-api",
+      "backend_url": "https://api.mainnet.hiro.so/v1",
+      "backend_api_key": "",
+      "backend_api_key_file": "",
+      "request_timeout": "3s"
+    },
+    {
+      "name": "pns-polkadot",
+      "enabled": false,
+      "backend_type": "pns-polkadot-api",
+      "backend_url": "https://api.ddns.so",
+      "backend_api_key": "",
+      "backend_api_key_file": "",
+      "request_timeout": "3s"
+    },
+    {
+      "name": "pns-pulsechain",
+      "enabled": false,
+      "backend_type": "pulsechain-pns-json-rpc",
+      "backend_url": "https://rpc.pulsechain.example?registry=0x1111111111111111111111111111111111111111",
+      "backend_api_key": "",
+      "backend_api_key_file": "",
+      "request_timeout": "3s"
+    },
+    {
+      "name": "unstoppable-domains",
+      "enabled": false,
+      "backend_type": "unstoppable-resolution-api",
+      "backend_url": "https://api.unstoppabledomains.com/resolve",
+      "backend_api_key": "",
+      "backend_api_key_file": "",
+      "request_timeout": "3s"
+    },
+    {
+      "name": "solana-sns",
+      "enabled": false,
+      "backend_type": "solana-sns-quicknode",
+      "backend_url": "https://your-solana-mainnet.quiknode.pro/your-token/",
+      "backend_api_key": "",
+      "backend_api_key_file": "",
+      "request_timeout": "3s"
+    },
+    {
+      "name": "space-id",
+      "enabled": false,
+      "backend_type": "space-id-api",
+      "backend_url": "https://nameapi.space.id",
+      "backend_api_key": "",
+      "backend_api_key_file": "",
+      "request_timeout": "3s"
+    },
+    {
+      "name": "ton-dns",
+      "enabled": false,
+      "backend_type": "toncenter-v3-dns",
+      "backend_url": "https://toncenter.com",
+      "backend_api_key": "",
+      "backend_api_key_file": "",
+      "request_timeout": "3s"
+    },
+    {
+      "name": "tezos-domains",
+      "enabled": false,
+      "backend_type": "tezos-domains-api",
+      "backend_url": "https://api.tezos.domains/graphql",
+      "backend_api_key": "",
+      "backend_api_key_file": "",
+      "request_timeout": "3s"
+    },
+    {
+      "name": "aptos-names",
+      "enabled": false,
+      "backend_type": "aptos-names-api",
+      "backend_url": "https://www.aptosnames.com/api/mainnet",
+      "backend_api_key": "",
+      "backend_api_key_file": "",
+      "request_timeout": "3s"
+    },
+    {
+      "name": "suins",
+      "enabled": false,
+      "backend_type": "suins-json-rpc",
+      "backend_url": "https://fullnode.mainnet.sui.io:443",
+      "backend_api_key": "",
+      "backend_api_key_file": "",
+      "request_timeout": "3s"
+    },
+    {
+      "name": "freename-fns",
+      "enabled": false,
+      "backend_type": "freename-resolution-api",
+      "backend_url": "https://rslvr.freename.io",
+      "backend_api_key": "",
+      "backend_api_key_file": "",
+      "request_timeout": "3s"
+    },
+    {
+      "name": "rif-rns",
+      "enabled": false,
+      "backend_type": "rif-rns-json-rpc",
+      "backend_url": "https://public-node.rsk.co?registry=0x0000000000000000000000000000000000000001",
+      "backend_api_key": "",
+      "backend_api_key_file": "",
+      "request_timeout": "3s"
+    },
+    {
+      "name": "fio-handle",
+      "enabled": false,
+      "backend_type": "fio-chain-api",
+      "backend_url": "https://fio.blockpane.com?chain_code=ETH&token_code=ETH",
+      "backend_api_key": "",
+      "backend_api_key_file": "",
+      "request_timeout": "3s"
+    },
+    {
+      "name": "openalias",
+      "enabled": false,
+      "backend_type": "openalias-dns-txt",
+      "backend_url": "https://openalias-dns-adapter.example/txt",
+      "backend_api_key": "",
+      "backend_api_key_file": "",
+      "request_timeout": "3s"
+    },
+    {
+      "name": "ada-handle",
+      "enabled": false,
+      "backend_type": "ada-handle-api",
+      "backend_url": "https://api.handle.me",
+      "backend_api_key": "",
+      "backend_api_key_file": "",
+      "request_timeout": "3s"
+    },
+    {
+      "name": "did-bit",
+      "enabled": false,
+      "backend_type": "runtime-json",
+      "backend_url": "https://did-bit-backend.example/resolve",
+      "backend_api_key": "",
+      "backend_api_key_file": "",
+      "request_timeout": "3s"
+    }
+  ],
+  "routes": [
+    {
+      "name": "hns-default",
+      "domains": ["example.hns", "wallet.hns"],
+      "suffixes": [".hns", ".hsd"],
+      "client_views": ["default", "adguard"],
+      "tenants": ["default"],
+      "plugin": "hns",
+      "priority": 100,
+      "fallback": "icann-recursive"
+    },
+    {
+      "name": "ens-wave1",
+      "suffixes": [".eth"],
+      "client_views": ["default"],
+      "tenants": ["default"],
+      "plugin": "ens",
+      "priority": 90,
+      "fallback": "nxdomain"
+    },
+    {
+      "name": "namecoin-bit-wave1",
+      "suffixes": [".bit"],
+      "client_views": ["default"],
+      "tenants": ["default"],
+      "plugin": "namecoin-bit",
+      "priority": 90,
+      "fallback": "nxdomain"
+    },
+    {
+      "name": "stacks-bns-wave1",
+      "suffixes": [".btc", ".stx"],
+      "client_views": ["default"],
+      "tenants": ["default"],
+      "plugin": "stacks-bns",
+      "priority": 90,
+      "fallback": "nxdomain"
+    },
+    {
+      "name": "pns-polkadot-wave1",
+      "suffixes": [".dot"],
+      "client_views": ["default"],
+      "tenants": ["default"],
+      "plugin": "pns-polkadot",
+      "priority": 90,
+      "fallback": "nxdomain"
+    },
+    {
+      "name": "pns-pulsechain-wave1",
+      "suffixes": [".pls"],
+      "client_views": ["default"],
+      "tenants": ["default"],
+      "plugin": "pns-pulsechain",
+      "priority": 90,
+      "fallback": "nxdomain"
+    },
+    {
+      "name": "unstoppable-domains-wave1",
+      "suffixes": [".crypto", ".nft", ".wallet", ".x", ".dao", ".888", ".zil", ".blockchain", ".bitcoin"],
+      "client_views": ["default"],
+      "tenants": ["default"],
+      "plugin": "unstoppable-domains",
+      "priority": 90,
+      "fallback": "nxdomain"
+    },
+    {
+      "name": "solana-sns-wave2",
+      "suffixes": [".sol"],
+      "client_views": ["default"],
+      "tenants": ["default"],
+      "plugin": "solana-sns",
+      "priority": 80,
+      "fallback": "nxdomain"
+    },
+    {
+      "name": "space-id-wave2",
+      "suffixes": [".bnb", ".arb"],
+      "client_views": ["default"],
+      "tenants": ["default"],
+      "plugin": "space-id",
+      "priority": 80,
+      "fallback": "nxdomain"
+    },
+    {
+      "name": "ton-dns-wave2",
+      "suffixes": [".ton"],
+      "client_views": ["default"],
+      "tenants": ["default"],
+      "plugin": "ton-dns",
+      "priority": 80,
+      "fallback": "nxdomain"
+    },
+    {
+      "name": "tezos-domains-wave2",
+      "suffixes": [".tez"],
+      "client_views": ["default"],
+      "tenants": ["default"],
+      "plugin": "tezos-domains",
+      "priority": 80,
+      "fallback": "nxdomain"
+    },
+    {
+      "name": "aptos-names-wave2",
+      "suffixes": [".apt"],
+      "client_views": ["default"],
+      "tenants": ["default"],
+      "plugin": "aptos-names",
+      "priority": 80,
+      "fallback": "nxdomain"
+    },
+    {
+      "name": "suins-wave2",
+      "suffixes": [".sui"],
+      "client_views": ["default"],
+      "tenants": ["default"],
+      "plugin": "suins",
+      "priority": 80,
+      "fallback": "nxdomain"
+    },
+    {
+      "name": "freename-fns-wave3",
+      "suffixes": [".fns"],
+      "client_views": ["default"],
+      "tenants": ["default"],
+      "plugin": "freename-fns",
+      "priority": 70,
+      "fallback": "nxdomain"
+    },
+    {
+      "name": "rif-rns-wave3",
+      "suffixes": [".rsk"],
+      "client_views": ["default"],
+      "tenants": ["default"],
+      "plugin": "rif-rns",
+      "priority": 70,
+      "fallback": "nxdomain"
+    },
+    {
+      "name": "fio-handle-wave3",
+      "suffixes": [".fio"],
+      "client_views": ["default"],
+      "tenants": ["default"],
+      "plugin": "fio-handle",
+      "priority": 70,
+      "fallback": "nxdomain"
+    },
+    {
+      "name": "openalias-wave3",
+      "suffixes": [".openalias"],
+      "client_views": ["default"],
+      "tenants": ["default"],
+      "plugin": "openalias",
+      "priority": 70,
+      "fallback": "nxdomain"
+    },
+    {
+      "name": "ada-handle-wave3",
+      "suffixes": [".ada"],
+      "client_views": ["default"],
+      "tenants": ["default"],
+      "plugin": "ada-handle",
+      "priority": 70,
+      "fallback": "nxdomain"
+    },
+    {
+      "name": "did-bit-wave3",
+      "suffixes": [".bit"],
+      "client_views": ["default"],
+      "tenants": ["default"],
+      "plugin": "did-bit",
+      "priority": 70,
+      "fallback": "nxdomain"
+    }
+  ],
+  "security": {
+    "enabled": true,
+    "tunnel_max_qname_length": 180,
+    "tunnel_max_label_length": 63,
+    "tunnel_entropy_threshold": 4.0,
+    "dga_entropy_threshold": 4.2,
+    "dga_digit_ratio_threshold": 0.25,
+    "query_rate_window_seconds": 60,
+    "query_rate_threshold": 120,
+    "random_subdomain_window_seconds": 60,
+    "random_subdomain_threshold": 50,
+    "nxdomain_window_seconds": 60,
+    "nxdomain_threshold": 20,
+    "block_rebinding": true,
+    "abnormal_rr_action": "log_only",
+    "reflection_amplification_action": "rate_limit",
+    "allowlist_domains": ["trusted.example"],
+    "denylist_domains": [".blocked.example"],
+    "sinkhole_domains": ["ads.example"],
+    "sinkhole_ipv4": "0.0.0.0",
+    "sinkhole_ipv6": "::",
+    "sinkhole_ttl": 60
+  },
+  "dnslog": {
+    "limit": 1000,
+    "path": "/var/lib/anyns/dnslog.jsonl"
+  },
+  "honeypot": {
+    "url": "",
+    "api_key": "",
+    "api_key_file": "",
+    "hmac_secret": "",
+    "hmac_secret_file": "",
+    "failed_queue_path": "/var/lib/anyns/honeypot-failed.jsonl",
+    "failed_queue_max_entries": 10000,
+    "retry_interval": "30s",
+    "max_attempts": 5,
+    "request_timeout": "5s"
+  },
+  "control_plane": {
+    "admin_proxy_runtime": true,
+    "runtime_control_url": "http://anyns-plugin-runtime:8081"
+  },
+  "management": {
+    "api_key": "",
+    "api_key_file": "",
+    "auth_required": false,
+    "roles": [
+      {
+        "id": "ops-reader",
+        "scopes": ["plugins:read", "cache:read", "audit:read", "honeypot:read", "management:read"]
+      },
+      {
+        "id": "ops-writer",
+        "scopes": ["plugins:write", "cache:write", "policy:write", "honeypot:write", "management:read"]
+      }
+    ],
+    "keys": [
+      {
+        "id": "ops-read",
+        "api_key": "",
+        "api_key_file": "",
+        "roles": ["ops-reader"],
+        "allowed_client_cidrs": ["127.0.0.1/32", "::1/128"]
+      },
+      {
+        "id": "ops-write",
+        "api_key": "",
+        "api_key_file": "",
+        "roles": ["ops-writer"],
+        "allowed_client_cidrs": ["127.0.0.1/32", "::1/128"]
+      }
+    ]
+  }
+}

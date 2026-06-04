@@ -1,0 +1,42 @@
+# Runtime logs and Codex automation output
+*.log
+codex-run-*.log
+codex-run-*.log.gz
+codex-continuous.log
+codex-next-refresh.txt
+codex-remote.log
+codex-remote.pid
+.codex-continue.lock
+
+# Local environment and secrets
+.env
+*.secret
+*.key
+*.pem
+config.json.client
+
+# Generated archives and temporary artifacts
+anyNS-handoff.zip
+*.tmp
+tmp/
+dist/
+build/
+
+# Tool caches
+__pycache__/
+*.pyc
+.pytest_cache/
+.cache/
+.codex/
+.agents/
+
+# Go build/test artifacts
+*.test
+coverage.out
+*.coverprofile
+
+# OS/editor noise
+.DS_Store
+Thumbs.db
+*.swp
+*.swo

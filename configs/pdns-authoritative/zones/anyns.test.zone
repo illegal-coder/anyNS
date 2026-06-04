@@ -1,0 +1,9 @@
+$ORIGIN anyns.test.
+$TTL 300
+@ IN SOA ns1.anyns.test. hostmaster.anyns.test. 2026060101 3600 600 86400 300
+@ IN NS ns1.anyns.test.
+ns1 IN A 127.0.0.1
+www IN A 192.0.2.53
+svc IN HTTPS 1 . alpn="h2,h3" ipv4hint=192.0.2.53
+svc IN SVCB 1 svc.anyns.test. alpn="dot"
+wallet IN TYPE262 \# 45 036574682A3078303030303030303030303030303030303030303030303030303030303030303030303030

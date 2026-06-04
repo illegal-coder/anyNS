@@ -1,0 +1,747 @@
+# anyNS Git Progress Ledger
+
+This file is the durable change/progress ledger for automated Codex runs.
+If `git status` is unavailable on the server, this file is still the required git/change explanation.
+
+## Current Progress
+
+- Requirements documents are complete under `docs/`.
+- Remote implementation has advanced into a runnable Go skeleton with `anyns-admin-api`, `anyns-plugin-runtime`, `anyns-log-forwarder`, `anyns-config-check`, and `anyns-management-key`.
+- PowerDNS remains the primary path: Recursor Lua hook calls the runtime, preserves ICANN fallback for unavailable runtime/dependencies, and handles routed decentralized `NOERROR`/`NXDOMAIN`/`SERVFAIL` without unsafe ICANN leakage.
+- HNS now has static, HTTP JSON, and `dns://` backend modes. The DNS backend includes UDP truncation detection and TCP retry, with backend transport recorded in `raw_record.backend_transport`.
+- Security, DNSLog, honeypot queue/replay, management auth, audit summaries, policy reload, Wave 1 plugin skeletons, Wave 2 runtime-json skeletons, Wave 3 runtime-json skeletons, and no-socket acceptance checks have been implemented and documented in `IMPLEMENTATION_STATUS.md`.
+- Prior runs made admin-to-runtime proxying the shipped deployment default in `configs/anyns/config.example.json` and `.env.example`, while keeping the Go library default process-local for local tests. Config validation rejects proxy mode without a valid HTTP(S) runtime control URL, and `anyns-config-check` reports the effective control-plane proxy settings.
+- Prior runs added optional management key rotation windows (`not_before` / `expires_at`) for scoped management keys. Config validation checks RFC3339 timestamp syntax and ordering, and shared HTTP auth rejects expired or not-yet-active keys without opening sockets.
+- Prior runs added read-scoped management key rotation observability on admin/runtime control-plane handlers at `GET /api/v1/management/keys`. The endpoint reports key IDs, scopes, rotation windows, and active/future/expired status without exposing API key material.
+- Prior runs added optional scoped management key client CIDR binding through `management.keys[].allowed_client_cidrs`. Auth now rejects CIDR-bound keys from unlisted client IPs before granting read/write scopes, config validation rejects malformed entries, and `/api/v1/management/keys` reports restriction metadata without exposing CIDR values or token material.
+- Prior runs added management RBAC role templates for scoped operational keys. `management.roles[]` defines reusable scope bundles, `management.keys[].roles[]` assigns them to keys, config validation rejects duplicate/missing/invalid role references, request auth expands direct scopes plus role scopes, and management key metadata exposes role/template status without token material.
+- Prior runs extended `GET /api/v1/management/keys` with redacted key lifecycle metadata: `expires_in_seconds`, `rotation_due`, `has_overlapping_successor`, `lifecycle_action`, and `rotation_warning_hours`. The endpoint identifies expired keys, keys without expiration windows, expiring keys without same-scope successors, and expiring keys that already have an overlapping successor, without exposing API key material.
+- Prior runs added explicit management key revocation with `management.keys[].revoked_at`, auth rejection for revoked keys, redacted revoked-key status/lifecycle metadata, and a deployment-backed `anyns-management-key` CLI that can generate or revoke scoped keys in the JSON config file after validating the updated config.
+- Prior runs added repeated `--reload-url` support to `anyns-management-key generate`, `revoke`, and `rotate`. Operators can reload both admin and runtime control planes after one durable config mutation, with per-endpoint results and the existing single-endpoint output preserved.
+- Prior runs added file-backed secret references for plugin backend API keys, honeypot API/HMAC credentials, the legacy management API key, and scoped management keys. `LoadFile` resolves relative secret paths from the config directory, rejects empty secret files, rejects inline-plus-file conflicts, and feeds resolved credentials into existing runtime contracts.
+- Prior runs added an opt-in real Namecoin `.bit` JSON-RPC backend adapter for the `namecoin-bit` Wave 1 plugin. `plugins[].backend_type` now selects the generic `runtime-json` adapter or `namecoin-json-rpc`; the Namecoin adapter calls `name_show d/<name>`, maps common Namecoin value fields into DNS `A`, `AAAA`, `NS`, `TXT`, and `CNAME` records, supports `map` subdomains, and preserves Namecoin not-found responses as routed `NXDOMAIN`.
+- Prior runs added an opt-in real Unstoppable Domains Resolution Service backend adapter for the `unstoppable-domains` Wave 1 plugin. `backend_type: "unstoppable-resolution-api"` calls `/domains/{domain}` on the configured Resolution Service base URL, maps `dns.*`, `browser.redirect_url`, `ipfs.*`, and `crypto.*.address` records into `A`, `AAAA`, `CNAME`, `TXT`, `URI`, and `WALLET`, and preserves HTTP 404 as routed `NXDOMAIN`.
+- Prior runs added an opt-in real Stacks BNS API backend adapter for the `stacks-bns` Wave 1 plugin. `backend_type: "stacks-bns-api"` calls `/names/{name}/zonefile` on a Stacks/Hiro-compatible API base URL, maps legacy BNS zonefiles and BNSv2 JSON zonefile profile/address fields into DNS-safe `A`, `AAAA`, `CNAME`, `TXT`, `NS`, `MX`, `SRV`, `URI`, `HTTPS`, `SVCB`, `TLSA`, `CAA`, and `WALLET` answers, and preserves HTTP 404 as routed `NXDOMAIN`.
+- Prior runs added an opt-in real ENS JSON-RPC backend adapter for the `ens` Wave 1 plugin. `backend_type: "ens-json-rpc"` calls an Ethereum JSON-RPC endpoint with `eth_call`, resolves `.eth` names through the ENS Registry resolver lookup, maps resolver `addr(bytes32)` into DNS `WALLET`, selected `text(bytes32,string)` records into `TXT`, and `contenthash(bytes32)` into DNS-safe `URI`, and preserves names without a resolver as routed `NXDOMAIN`.
+- Prior runs added an opt-in real PulseChain PNS JSON-RPC backend adapter for the `pns-pulsechain` Wave 1 plugin. `backend_type: "pulsechain-pns-json-rpc"` calls a PulseChain/EVM JSON-RPC endpoint with `eth_call`, requires an explicit nonzero hex `registry=<address>` query parameter for ENS-compatible resolver lookup, maps resolver `addr(bytes32)` into DNS `WALLET` with the `pls` chain label, selected `text(bytes32,string)` records into `TXT`, maps `contenthash(bytes32)` into DNS-safe `URI`, and preserves missing resolvers as routed `NXDOMAIN`.
+- Prior runs added an opt-in real PNS-Polkadot REST backend adapter for the `pns-polkadot` Wave 1 plugin. `backend_type: "pns-polkadot-api"` calls a PNS-compatible REST API base URL such as `https://api.ddns.so` at `/name/{name}`, maps address and wallet fields into DNS `WALLET`, maps website/IPFS/contenthash fields into `URI`, maps profile/social text into `TXT`, maps DNS-style address fields into `A`/`AAAA`/`CNAME`, and preserves HTTP 404 as routed `NXDOMAIN`.
+- Prior runs added disabled-by-default Wave 2 runtime-json plugin skeletons for Solana SNS `.sol`, SPACE ID `.bnb` / `.arb`, TON DNS `.ton`, Tezos Domains `.tez`, Aptos Names `.apt`, and SuiNS `.sui`. They are registered in the runtime, included in default config state, and demonstrated in `configs/anyns/config.example.json` with explicit routes at lower priority than Wave 1 routes.
+- Prior runs replaced the `space-id` Wave 2 runtime-json placeholder with an opt-in concrete SPACE ID Web3 Name API adapter. `backend_type: "space-id-api"` calls `/getAddress?domain=...`, maps `.bnb` / `.arb` resolved addresses to `WALLET` records with chain labels, preserves no-address responses as routed `NXDOMAIN`, and isolates backend/API failures as `SERVFAIL` without ICANN fallback leakage for matched decentralized names.
+- Prior runs replaced the `tezos-domains` Wave 2 runtime-json placeholder with an opt-in concrete Tezos Domains GraphQL adapter. `backend_type: "tezos-domains-api"` posts to a Tezos Domains-compatible GraphQL endpoint, maps Tezos address data to `WALLET` records with the `tez` chain label, maps profile/text/URL/content/DNS-style records into DNS-safe `TXT`, `URI`, `A`, `AAAA`, `CNAME`, `NS`, and `TXT` answers, preserves missing domains as routed `NXDOMAIN`, and isolates non-2xx/decode/GraphQL failures as `SERVFAIL` without ICANN fallback leakage for matched `.tez` names.
+- Prior runs replaced the `aptos-names` Wave 2 runtime-json placeholder with an opt-in concrete Aptos Names REST adapter. `backend_type: "aptos-names-api"` calls an Aptos Names-compatible REST base URL such as `https://www.aptosnames.com/api/mainnet` at `/v3/address/{name}`, sends credentials with `X-API-Key`, maps `.apt` addresses into DNS `WALLET` records with the `aptos` chain label, preserves missing/empty responses as routed `NXDOMAIN`, and isolates API/backend failures as `SERVFAIL` without ICANN fallback leakage for matched `.apt` names.
+- Prior runs replaced the `solana-sns` Wave 2 runtime-json placeholder with an opt-in concrete Solana SNS QuickNode JSON-RPC adapter. `backend_type: "solana-sns-quicknode"` posts `sns_resolveDomain` requests to a configured Solana QuickNode endpoint, maps resolved `.sol` public keys into DNS `WALLET` records with the `sol` chain label, preserves empty/not-found results as routed `NXDOMAIN`, and isolates HTTP/decode/JSON-RPC failures as `SERVFAIL` without ICANN fallback leakage for matched `.sol` names.
+- Prior runs replaced the `ton-dns` Wave 2 runtime-json placeholder with an opt-in concrete TON Center v3 DNS records adapter. `backend_type: "toncenter-v3-dns"` calls `/api/v3/dns/records?domain=...` on a configured TON Center-compatible base URL, maps `.ton` wallet records to `WALLET`, site ADNL and storage Bag IDs to `URI`, next resolver / NFT metadata to `TXT`, preserves empty records and 404s as routed `NXDOMAIN`, and isolates API/backend failures as `SERVFAIL` without ICANN fallback leakage for matched `.ton` names.
+- Prior runs replaced the `suins` Wave 2 runtime-json placeholder with an opt-in concrete SuiNS JSON-RPC adapter. `backend_type: "suins-json-rpc"` posts `suix_resolveNameServiceAddress` requests to a configured Sui fullnode endpoint, maps resolved `.sui` addresses into DNS `WALLET` records with the `sui` chain label, preserves null/empty results as routed `NXDOMAIN`, and isolates HTTP/decode/JSON-RPC failures as `SERVFAIL` without ICANN fallback leakage for matched `.sui` names.
+- Prior runs added disabled-by-default Wave 3 runtime-json plugin skeletons and sample routes for Freename/FNS `.fns`, RIF Name Service/RNS `.rsk`, FIO Handle `.fio`, OpenAlias `.openalias`, ADA Handle `.ada`, and d.id/.bit `.bit`. The Wave 3 routes are priority 70, below Wave 1 and Wave 2 routes; the d.id/.bit route stays below the Namecoin `.bit` route so `.bit` is not merged implicitly and Namecoin remains the default `.bit` handler unless operators configure a higher-priority override.
+- Prior runs replaced the `fio-handle` Wave 3 runtime-json placeholder in the sample config with an opt-in concrete FIO Chain API adapter. `backend_type: "fio-chain-api"` posts `/v1/chain/get_pub_address` requests with `fio_address`, `chain_code`, and `token_code`, maps DNS names such as `alice.safu.fio` to FIO Handles such as `alice@safu`, returns FIO public addresses as `WALLET` / `TYPE262` compatible records, preserves 404/empty-address responses as routed `NXDOMAIN`, and isolates backend/API failures as `SERVFAIL` without ICANN fallback leakage for matched `.fio` names.
+- Prior runs replaced the `rif-rns` Wave 3 runtime-json placeholder in the sample config with an opt-in concrete ENS-compatible RIF/RNS JSON-RPC adapter. `backend_type: "rif-rns-json-rpc"` calls an RSK JSON-RPC endpoint with `eth_call`, requires an explicit nonzero hex `registry=<address>` query parameter for resolver lookup, maps resolver `addr(bytes32)` into DNS `WALLET` with the `rbtc` chain label, selected `text(bytes32,string)` records into `TXT`, maps `contenthash(bytes32)` into DNS-safe `URI`, and preserves missing resolvers as routed `NXDOMAIN`.
+- Prior runs replaced the `openalias` Wave 3 runtime-json placeholder in the sample config with an opt-in concrete OpenAlias DNS TXT adapter. `backend_type: "openalias-dns-txt"` calls a configured HTTP TXT lookup adapter with `name={domain}` and `type=TXT`, parses OpenAlias `oa1:<asset>` TXT records, maps `recipient_address` to `WALLET` / `TYPE262` compatible answers, maps standard optional OpenAlias fields to `TXT`, preserves no OpenAlias TXT data as routed `NXDOMAIN`, and isolates backend failures as `SERVFAIL`.
+- Prior runs replaced the `ada-handle` Wave 3 runtime-json placeholder in the sample config with an opt-in concrete ADA Handle public API adapter. `backend_type: "ada-handle-api"` calls a configured ADA Handle-compatible base URL at `/handles/{handle}`, maps Cardano payment/holder address fields into `WALLET` / `TYPE262` compatible answers with the `ada` chain label, maps simple Handle/profile metadata into `TXT`, maps image/profile URLs into `URI`, preserves empty/404 responses as routed `NXDOMAIN`, and isolates backend failures as `SERVFAIL`.
+- Prior runs normalized route matching and cache keys for `client_view` and `tenant` values. Mixed-case or whitespace-padded PowerDNS/AdGuard environment values now match the intended routes and share the intended plugin cache entries, while policy-tag cache isolation remains unchanged.
+- Prior runs extended shared Prometheus metrics for the PowerDNS/runtime observability path with DNSLog source-plugin counts, RCODE counts, and top qname counts.
+- Prior runs extended honeypot replay observability. `honeypot.Client` now retains cumulative replay-retained and replay-dropped batch counts after queue drains, admin/log-forwarder honeypot status JSON exposes those counts, and shared Prometheus metrics emit `anyns_honeypot_replay_retained_total` and `anyns_honeypot_replay_dropped_total`.
+- Prior runs extended retained DNSLog latency observability. `dnslog.Summary` reports overall `latency_ms` and per-source-plugin `latency_by_plugin_ms`; shared Prometheus metrics emit `anyns_dnslog_latency_average_ms`, `anyns_dnslog_latency_max_ms`, `anyns_dnslog_plugin_latency_average_ms`, and `anyns_dnslog_plugin_latency_max_ms`; runtime no-socket handler tests verify the metrics and audit summary contract.
+- Prior runs replaced the `freename-fns` Wave 3 runtime-json placeholder in the sample config with an opt-in concrete Freename Resolution API adapter. `backend_type: "freename-resolution-api"` calls `/domain/resolve?q=...` on a configured Freename-compatible base URL, maps `token.*` records into `WALLET` / `TYPE262` compatible answers, maps website redirects into `URI`, maps TXT/profile fields into `TXT`, preserves empty/404 responses as routed `NXDOMAIN`, and isolates backend failures as `SERVFAIL` without ICANN fallback leakage for matched `.fns` names.
+- Prior runs hardened the PowerDNS Recursor Lua hook to normalize runtime-returned RR types and RCODEs before mapping them. Lowercase or mixed-case external runtime-json adapter responses now follow the same routed `NOERROR` / `NXDOMAIN` / `SERVFAIL` handling and supported-RR mapping without unsafe ICANN fallback leakage.
+- Prior runs hardened the PowerDNS Recursor Lua hook to honor valid runtime `ResolveResult` bodies returned with HTTP `403` and `429` security decisions. Runtime block and rate-limit responses now suppress ICANN fallback on the PowerDNS path, while no-route `404` responses for unmatched public domains still fall through to normal ICANN recursion.
+- Prior runs added a bounded `limit` query parameter to `GET /api/v1/audit/events` on `anyns-admin-api`, `anyns-plugin-runtime`, and `anyns-log-forwarder`. The default remains 100 events, invalid values fall back safely, and responses are clamped to `1..1000` events. No-socket tests cover the shared parser plus admin/runtime handler behavior.
+- Prior runs added exact-match audit event query filters for `source_plugin`, `risk_level`, `action`, and `rcode` on `GET /api/v1/audit/events` across admin API, plugin runtime, and log forwarder. Filtering is applied before the bounded newest-event limit, with no-socket store/admin/runtime tests covering the contract.
+- This run expanded exact-match audit event query filters for `trace_id`, `client_ip`, `client_view`, `tenant`, `qname`, `qtype`, and `matched_rule` on the shared `GET /api/v1/audit/events` path used by admin API, plugin runtime, and log forwarder. The shared store and HTTP query parser are covered by no-socket tests, and admin/runtime handler tests verify the expanded filter contract.
+
+## Important Changed Files
+
+- `internal/dnslog/dnslog.go`
+- `internal/dnslog/dnslog_test.go`
+- `internal/httpapi/httpapi.go`
+- `internal/httpapi/httpapi_test.go`
+- `cmd/anyns-admin-api/main_test.go`
+- `cmd/anyns-plugin-runtime/main_test.go`
+- `IMPLEMENTATION_STATUS.md`
+- `GIT_PROGRESS.md`
+
+## Verified Commands
+
+- Latest Codex run at `2026-06-04 08:46 CST` reported these commands:
+  - `ls -la docs` - PASS.
+  - `sed -n '1,240p' REMOTE_CODEX_HANDOFF.md` - PASS.
+  - `sed -n '1,260p' CODEX_RUN_CONTEXT.md` - PASS.
+  - `sed -n '1,260p' DEVELOPMENT_LESSONS.md` - PASS.
+  - `sed -n '1,260p' IMPLEMENTATION_STATUS.md` - PASS.
+  - `sed -n '1,320p' GIT_PROGRESS.md` - PASS.
+  - `sed -n '1,220p' docs/README.md` - PASS.
+  - `sed -n '1,220p' docs/02-去中心化插件需求.md` - PASS.
+  - `tail -n 220 IMPLEMENTATION_STATUS.md` and `tail -n 240 GIT_PROGRESS.md` - PASS.
+  - `rg -n "Next Plan|Remaining Work|Avoid Next Run|Do not|should not be repeated|TODO|FIXME|not implemented|placeholder|panic\\(" ...` - PASS.
+  - `rg --files internal cmd configs tests scripts | sort` - PASS.
+  - `sed -n ... internal/dnslog/dnslog.go internal/dnslog/dnslog_test.go internal/httpapi/httpapi.go cmd/anyns-admin-api/main_test.go cmd/anyns-plugin-runtime/main_test.go cmd/anyns-log-forwarder/main.go` - PASS.
+  - `gofmt -w internal/dnslog/dnslog.go internal/dnslog/dnslog_test.go internal/httpapi/httpapi.go internal/httpapi/httpapi_test.go cmd/anyns-admin-api/main_test.go cmd/anyns-plugin-runtime/main_test.go` - PASS.
+  - `GOCACHE=/tmp/anyns-go-build go test -buildvcs=false ./internal/dnslog ./internal/httpapi ./cmd/anyns-admin-api ./cmd/anyns-plugin-runtime ./cmd/anyns-log-forwarder` - PASS.
+  - `GOCACHE=/tmp/anyns-go-build go test -buildvcs=false ./...` - PASS.
+  - `GOCACHE=/tmp/anyns-go-build go vet -buildvcs=false ./...` - PASS.
+  - `GOCACHE=/tmp/anyns-go-build go build -buildvcs=false ./cmd/anyns-admin-api ./cmd/anyns-plugin-runtime ./cmd/anyns-log-forwarder` - PASS.
+  - `GOCACHE=/tmp/anyns-go-build bash tests/acceptance/check-local.sh` - PASS with runtime socket smoke SKIP: `anyns-plugin-runtime exited before listening on 127.0.0.1:18081`; runtime log detail was `listen tcp 127.0.0.1:18081: socket: operation not permitted`.
+  - `date '+%Y-%m-%d %H:%M %Z'` - PASS; output `2026-06-04 08:46 CST`.
+- Latest Codex run at `2026-06-04 08:30 CST` reported these commands:
+  - `find docs -maxdepth 2 -type f | sort` - PASS.
+  - `sed -n '1,240p' CODEX_RUN_CONTEXT.md` - PASS.
+  - `sed -n '1,260p' DEVELOPMENT_LESSONS.md` - PASS.
+  - `sed -n '1,220p' docs/README.md` - PASS.
+  - `sed -n '1,220p' REMOTE_CODEX_HANDOFF.md` - PASS.
+  - `sed -n '1,280p' IMPLEMENTATION_STATUS.md` - PASS.
+  - `sed -n '1,320p' GIT_PROGRESS.md` - PASS.
+  - `for f in docs/*.md; do sed -n '1,220p' "$f"; done` - PASS.
+  - `tail -n 260 IMPLEMENTATION_STATUS.md` and `tail -n 220 GIT_PROGRESS.md` - PASS.
+  - `rg -n "Remaining Work|Next Plan|Avoid Next Run|Do not|should not be repeated|TODO|FIXME|placeholder|not implemented|panic\\(" ...` - PASS.
+  - `sed -n ... internal/httpapi/httpapi.go internal/httpapi/httpapi_test.go internal/dnslog/dnslog.go cmd/anyns-admin-api/main.go cmd/anyns-plugin-runtime/main.go cmd/anyns-log-forwarder/main.go` - PASS.
+  - `gofmt -w internal/dnslog/dnslog.go internal/dnslog/dnslog_test.go internal/httpapi/httpapi.go cmd/anyns-admin-api/main.go cmd/anyns-admin-api/main_test.go cmd/anyns-plugin-runtime/main.go cmd/anyns-plugin-runtime/main_test.go cmd/anyns-log-forwarder/main.go` - PASS.
+  - `GOCACHE=/tmp/anyns-go-build go test -buildvcs=false ./internal/dnslog ./internal/httpapi ./cmd/anyns-admin-api ./cmd/anyns-plugin-runtime ./cmd/anyns-log-forwarder` - PASS.
+  - `GOCACHE=/tmp/anyns-go-build go test -buildvcs=false ./...` - PASS.
+  - `GOCACHE=/tmp/anyns-go-build go vet -buildvcs=false ./...` - PASS.
+  - `GOCACHE=/tmp/anyns-go-build go build -buildvcs=false ./cmd/anyns-admin-api ./cmd/anyns-plugin-runtime ./cmd/anyns-log-forwarder` - PASS.
+  - `GOCACHE=/tmp/anyns-go-build bash tests/acceptance/check-local.sh` - PASS with runtime socket smoke SKIP: `anyns-plugin-runtime exited before listening on 127.0.0.1:18081`; runtime log detail was `listen tcp 127.0.0.1:18081: socket: operation not permitted`.
+  - `date '+%Y-%m-%d %H:%M %Z'` - PASS; output `2026-06-04 08:30 CST`.
+- Latest Codex run at `2026-06-03 15:25 CST` reported these commands:
+  - `find docs -maxdepth 2 -type f | sort` - PASS.
+  - `sed -n '1,240p' CODEX_RUN_CONTEXT.md` - PASS.
+  - `sed -n '1,260p' DEVELOPMENT_LESSONS.md` - PASS.
+  - `sed -n ... docs/*.md REMOTE_CODEX_HANDOFF.md IMPLEMENTATION_STATUS.md GIT_PROGRESS.md` - PASS.
+  - `rg --files internal cmd configs tests scripts | sort` - PASS.
+  - `rg -n "TODO|FIXME|panic\\(|not implemented|placeholder|unsupported|WALLET|TYPE262|Remote Backend|authoritative|pdns|lua|healthz|readyz|management|audit|sinkhole|rate_limit" internal cmd configs tests scripts -S` - PASS.
+  - `sed -n ... cmd/anyns-plugin-runtime/main.go cmd/anyns-plugin-runtime/main_test.go internal/controlplane/controlplane.go internal/httpapi/httpapi.go cmd/anyns-admin-api/main.go cmd/anyns-log-forwarder/main.go internal/dnslog/dnslog.go internal/httpapi/httpapi_test.go` - PASS.
+  - `gofmt -w internal/httpapi/httpapi.go internal/httpapi/httpapi_test.go cmd/anyns-plugin-runtime/main.go cmd/anyns-plugin-runtime/main_test.go cmd/anyns-admin-api/main.go cmd/anyns-admin-api/main_test.go cmd/anyns-log-forwarder/main.go` - PASS.
+  - `GOCACHE=/tmp/anyns-go-build go test -buildvcs=false ./internal/httpapi` - PASS.
+  - `GOCACHE=/tmp/anyns-go-build go test -buildvcs=false ./cmd/anyns-admin-api` - PASS.
+  - `GOCACHE=/tmp/anyns-go-build go test -buildvcs=false ./cmd/anyns-plugin-runtime` - PASS.
+  - `GOCACHE=/tmp/anyns-go-build go test -buildvcs=false ./...` - PASS.
+  - `GOCACHE=/tmp/anyns-go-build go vet -buildvcs=false ./...` - PASS.
+  - `GOCACHE=/tmp/anyns-go-build go build -buildvcs=false ./cmd/anyns-admin-api ./cmd/anyns-plugin-runtime ./cmd/anyns-log-forwarder` - PASS.
+  - `GOCACHE=/tmp/anyns-go-build bash tests/acceptance/check-local.sh` - PASS with runtime socket smoke SKIP: `anyns-plugin-runtime exited before listening on 127.0.0.1:18081`; runtime log detail was `listen tcp 127.0.0.1:18081: socket: operation not permitted`.
+  - `date '+%Y-%m-%d %H:%M %Z'` - PASS; output `2026-06-03 15:25 CST`.
+- Latest Codex run at `2026-06-03 15:10 CST` reported these commands:
+  - `find docs -maxdepth 2 -type f | sort` - PASS.
+  - `sed -n '1,240p' CODEX_RUN_CONTEXT.md` - PASS.
+  - `sed -n '1,260p' DEVELOPMENT_LESSONS.md` - PASS.
+  - `sed -n ... docs/*.md REMOTE_CODEX_HANDOFF.md IMPLEMENTATION_STATUS.md GIT_PROGRESS.md` - PASS.
+  - `tail -n 220 IMPLEMENTATION_STATUS.md` and `tail -n 220 GIT_PROGRESS.md` - PASS.
+  - `rg --files internal cmd configs tests scripts | sort` - PASS.
+  - `rg -n "TODO|FIXME|panic\\(|not implemented|placeholder|unsupported|SKIP|metrics|readyz|healthz|policy reload|audit|honeypot|PowerDNS|lua" internal cmd configs tests scripts -S` - PASS.
+  - `sed -n ... configs/pdns-recursor/recursor.lua internal/pdnshook/lua_contract_test.go cmd/anyns-plugin-runtime/main.go cmd/anyns-plugin-runtime/main_test.go tests/acceptance/pdns-lua-hook.sh` - PASS.
+  - `rg -n "ErrNoRoute|NoRoute|RCodeNXDomain|fallback|Resolve\\(" internal/plugins internal/app -S` - PASS.
+  - `gofmt -w internal/pdnshook/lua_contract_test.go` - PASS.
+  - `GOCACHE=/tmp/anyns-go-build go test -buildvcs=false ./internal/pdnshook` - PASS.
+  - `GOCACHE=/tmp/anyns-go-build bash tests/acceptance/pdns-lua-hook.sh` - PASS.
+  - `GOCACHE=/tmp/anyns-go-build go test -buildvcs=false ./...` - PASS.
+  - `GOCACHE=/tmp/anyns-go-build go vet -buildvcs=false ./...` - PASS.
+  - `GOCACHE=/tmp/anyns-go-build go build -buildvcs=false ./cmd/anyns-admin-api ./cmd/anyns-plugin-runtime ./cmd/anyns-log-forwarder` - PASS.
+  - `GOCACHE=/tmp/anyns-go-build bash tests/acceptance/check-local.sh` - PASS with runtime socket smoke SKIP: `anyns-plugin-runtime exited before listening on 127.0.0.1:18081`; runtime log detail was `listen tcp 127.0.0.1:18081: socket: operation not permitted`.
+  - `date '+%Y-%m-%d %H:%M %Z'` - PASS; output `2026-06-03 15:10 CST`.
+- Latest Codex run at `2026-06-03 14:54 CST` reported these commands:
+  - `find docs -maxdepth 2 -type f | sort` - PASS.
+  - `sed -n '1,220p' CODEX_RUN_CONTEXT.md` - PASS.
+  - `sed -n '1,260p' DEVELOPMENT_LESSONS.md` - PASS.
+  - `sed -n ... docs/*.md REMOTE_CODEX_HANDOFF.md IMPLEMENTATION_STATUS.md GIT_PROGRESS.md` - PASS.
+  - `rg -n "Next|Remaining|Repeated|Do not|should not|Avoid|This run" IMPLEMENTATION_STATUS.md GIT_PROGRESS.md` - PASS.
+  - `rg --files internal cmd configs tests scripts | sort` - PASS.
+  - `rg -n "TODO|FIXME|panic\\(|not implemented|placeholder|runtime-json|TYPE262|WALLET|unsupported|SVCB|HTTPS|DS|TLSA|CAA" internal cmd configs tests -S` - PASS.
+  - `sed -n ... internal/plugins/types.go configs/pdns-recursor/recursor.lua internal/pdnshook/lua_contract_test.go` - PASS.
+  - `gofmt -w internal/pdnshook/lua_contract_test.go` - PASS.
+  - `GOCACHE=/tmp/anyns-go-build go test -buildvcs=false ./internal/pdnshook` - FAIL once because existing contract assertions still looked for pre-normalization snippets (`result.rcode == "NOERROR"` and direct `rr.type` wallet checks).
+  - `GOCACHE=/tmp/anyns-go-build go test -buildvcs=false ./internal/pdnshook` - PASS after updating the assertions to the normalized `rcode` / `rr_name` contract.
+  - `GOCACHE=/tmp/anyns-go-build bash tests/acceptance/pdns-lua-hook.sh` - PASS.
+  - `GOCACHE=/tmp/anyns-go-build go test -buildvcs=false ./...` - PASS.
+  - `GOCACHE=/tmp/anyns-go-build go vet -buildvcs=false ./...` - PASS.
+  - `GOCACHE=/tmp/anyns-go-build go build -buildvcs=false ./cmd/anyns-admin-api ./cmd/anyns-plugin-runtime ./cmd/anyns-log-forwarder` - PASS.
+  - `GOCACHE=/tmp/anyns-go-build bash tests/acceptance/check-local.sh` - PASS with runtime socket smoke SKIP: `anyns-plugin-runtime exited before listening on 127.0.0.1:18081`; runtime log detail was `listen tcp 127.0.0.1:18081: socket: operation not permitted`.
+  - `date '+%Y-%m-%d %H:%M %Z'` - PASS; output `2026-06-03 14:54 CST`.
+  - `rg -n "normalize runtime|normalized|Latest Codex run at \`2026-06-03 14:54|Validated on 2026-06-03 14:54|Do not re-add PowerDNS Lua" ...` - FAIL once due shell backtick quoting; no retry loop with the same quoting.
+  - `rg -n "normalize runtime|normalized|Latest Codex run at|Validated on 2026-06-03 14:54|Do not re-add PowerDNS Lua" ...` - PASS after removing shell-special backticks from the search pattern.
+- Latest Codex run at `2026-06-03 14:11 CST` reported these commands:
+  - `find docs -maxdepth 2 -type f | sort` - PASS
+  - `sed -n '1,240p' CODEX_RUN_CONTEXT.md` - PASS
+  - `sed -n '1,260p' DEVELOPMENT_LESSONS.md` - PASS
+  - `sed -n ... docs/*.md REMOTE_CODEX_HANDOFF.md IMPLEMENTATION_STATUS.md GIT_PROGRESS.md` - PASS
+  - `rg -n "Remaining Work|Next Plan|Next small|should not be repeated|Do not re|Remaining Work|Freename|d.id|Wave 3|placeholder|TODO|FIXME" ...` - PASS
+  - Web lookup of official Freename Resolution API documentation - PASS; used the documented `GET https://rslvr.freename.io/domain/resolve?q={domain}` response contract with `records[].key`, `records[].type`, and `records[].value`.
+  - `rg -n "backend_type|BackendType|freename|did-bit|supported|Validate" ...` - PASS
+  - `sed -n ... internal/plugins/wave1/plugin.go internal/config/config.go internal/plugins/wave1/plugin_test.go internal/config/config_test.go configs/anyns/config.example.json` - PASS
+  - `gofmt -w internal/plugins/wave1/plugin.go internal/plugins/wave1/plugin_test.go internal/config/config.go internal/config/config_test.go` - PASS
+  - `rg -n "freename-resolution-api|FreenameResolution|resolveFreename|freenameRecords" internal/plugins/wave1 internal/config configs/anyns/config.example.json` - PASS
+  - `GOCACHE=/tmp/anyns-go-build go test -buildvcs=false ./internal/plugins/wave1` - PASS
+  - `GOCACHE=/tmp/anyns-go-build go test -buildvcs=false ./internal/config` - PASS
+  - `GOCACHE=/tmp/anyns-go-build go run -buildvcs=false ./cmd/anyns-config-check configs/anyns/config.example.json` - PASS; output included `plugins:19` and `routes:19`
+  - `GOCACHE=/tmp/anyns-go-build go test -buildvcs=false ./...` - PASS
+  - `GOCACHE=/tmp/anyns-go-build go vet -buildvcs=false ./...` - PASS
+  - `GOCACHE=/tmp/anyns-go-build go build -buildvcs=false ./cmd/anyns-admin-api ./cmd/anyns-plugin-runtime ./cmd/anyns-log-forwarder` - PASS
+  - `GOCACHE=/tmp/anyns-go-build bash tests/acceptance/check-local.sh` - PASS with runtime socket smoke SKIP: `anyns-plugin-runtime exited before listening on 127.0.0.1:18081`; runtime log detail was `listen tcp 127.0.0.1:18081: socket: operation not permitted`
+  - `date '+%Y-%m-%d %H:%M %Z'` - PASS
+- Latest Codex run at `2026-06-03 13:57 CST` reported these commands:
+  - `find docs -maxdepth 2 -type f | sort` - PASS
+  - `sed -n '1,240p' CODEX_RUN_CONTEXT.md` - PASS
+  - `sed -n '1,260p' DEVELOPMENT_LESSONS.md` - PASS
+  - `sed -n ... docs/*.md REMOTE_CODEX_HANDOFF.md IMPLEMENTATION_STATUS.md GIT_PROGRESS.md` - PASS
+  - `rg -n "Remaining Work|Next Plan|Next small|Avoid Next Run|Do not re|should not be repeated|Repeated Errors|TODO|FIXME|not implemented|placeholder|remaining" ...` - PASS
+  - `rg --files internal cmd configs tests scripts | sort` - PASS
+  - `sed -n ... internal/dnslog/dnslog.go internal/observability/metrics.go cmd/anyns-plugin-runtime/main.go internal/security/analyzer.go internal/config/config.go internal/observability/metrics_test.go` - PASS
+  - `gofmt -w internal/dnslog/dnslog.go internal/dnslog/dnslog_test.go internal/observability/metrics.go internal/observability/metrics_test.go cmd/anyns-plugin-runtime/main_test.go` - PASS
+  - `GOCACHE=/tmp/anyns-go-build go test -buildvcs=false ./internal/dnslog` - PASS
+  - `GOCACHE=/tmp/anyns-go-build go test -buildvcs=false ./internal/observability` - PASS
+  - `GOCACHE=/tmp/anyns-go-build go test -buildvcs=false ./cmd/anyns-plugin-runtime` - PASS
+  - `GOCACHE=/tmp/anyns-go-build go test -buildvcs=false ./...` - PASS
+  - `GOCACHE=/tmp/anyns-go-build go vet -buildvcs=false ./...` - PASS
+  - `GOCACHE=/tmp/anyns-go-build go build -buildvcs=false ./cmd/anyns-admin-api ./cmd/anyns-plugin-runtime ./cmd/anyns-log-forwarder` - PASS
+  - `GOCACHE=/tmp/anyns-go-build bash tests/acceptance/check-local.sh` - PASS with runtime socket smoke SKIP: `anyns-plugin-runtime exited before listening on 127.0.0.1:18081`; runtime log detail was `listen tcp 127.0.0.1:18081: socket: operation not permitted`
+  - `date '+%Y-%m-%d %H:%M %Z'` - PASS
+- Latest Codex run at `2026-06-03 13:35 CST` reported these commands:
+  - `find docs -maxdepth 2 -type f | sort` - PASS
+  - `sed -n '1,240p' CODEX_RUN_CONTEXT.md` - PASS
+  - `sed -n '1,260p' DEVELOPMENT_LESSONS.md` - PASS
+  - `sed -n ... docs/*.md REMOTE_CODEX_HANDOFF.md IMPLEMENTATION_STATUS.md GIT_PROGRESS.md` - PASS
+  - `rg -n "Remaining Work|Next Plan|Avoid Next Run|Repeated Errors Observed|should not be repeated|Do not|Next small|TODO|FIXME|not implemented|placeholder" ...` - PASS
+  - `rg --files internal cmd configs tests | sort` - PASS
+  - `sed -n ... IMPLEMENTATION_STATUS.md GIT_PROGRESS.md internal/honeypot/client.go internal/honeypot/client_test.go internal/observability/metrics.go internal/observability/metrics_test.go cmd/anyns-admin-api/main.go cmd/anyns-log-forwarder/main.go` - PASS
+  - `gofmt -w internal/honeypot/client.go internal/honeypot/client_test.go internal/observability/metrics.go internal/observability/metrics_test.go cmd/anyns-admin-api/main.go cmd/anyns-log-forwarder/main.go` - PASS
+  - `GOCACHE=/tmp/anyns-go-build go test -buildvcs=false ./internal/honeypot` - PASS
+  - `GOCACHE=/tmp/anyns-go-build go test -buildvcs=false ./internal/observability` - PASS
+  - `GOCACHE=/tmp/anyns-go-build go test -buildvcs=false ./cmd/anyns-admin-api ./cmd/anyns-log-forwarder` - PASS
+  - `GOCACHE=/tmp/anyns-go-build go test -buildvcs=false ./...` - PASS before a final honeypot robustness tweak
+  - `GOCACHE=/tmp/anyns-go-build go vet -buildvcs=false ./...` - PASS before a final honeypot robustness tweak
+  - `GOCACHE=/tmp/anyns-go-build go build -buildvcs=false ./cmd/anyns-admin-api ./cmd/anyns-plugin-runtime ./cmd/anyns-log-forwarder` - PASS before a final honeypot robustness tweak
+  - `GOCACHE=/tmp/anyns-go-build bash tests/acceptance/check-local.sh` - PASS before a final honeypot robustness tweak, with runtime socket smoke SKIP: `anyns-plugin-runtime exited before listening on 127.0.0.1:18081`; runtime log detail was `listen tcp 127.0.0.1:18081: socket: operation not permitted`
+  - `date '+%Y-%m-%d %H:%M %Z'` - PASS
+  - `gofmt -w internal/honeypot/client.go` - PASS after the final robustness tweak
+  - `GOCACHE=/tmp/anyns-go-build go test -buildvcs=false ./internal/honeypot` - PASS after the final robustness tweak
+  - `GOCACHE=/tmp/anyns-go-build go test -buildvcs=false ./...` - PASS after the final robustness tweak
+  - `GOCACHE=/tmp/anyns-go-build go vet -buildvcs=false ./...` - PASS after the final robustness tweak
+  - `GOCACHE=/tmp/anyns-go-build go build -buildvcs=false ./cmd/anyns-admin-api ./cmd/anyns-plugin-runtime ./cmd/anyns-log-forwarder` - PASS after the final robustness tweak
+  - `GOCACHE=/tmp/anyns-go-build bash tests/acceptance/check-local.sh` - PASS after the final robustness tweak, with runtime socket smoke SKIP: `anyns-plugin-runtime exited before listening on 127.0.0.1:18081`; runtime log detail was `listen tcp 127.0.0.1:18081: socket: operation not permitted`
+  - `date '+%Y-%m-%d %H:%M %Z'` - PASS after final validation
+  - `rg -n "honeypot replay|anyns_honeypot_replay|Validated on 2026-06-03 13:35|Latest Codex run at \`2026-06-03 13:35|Do not re-add honeypot" ...` - FAIL once due shell backtick quoting; no retry loop with the same quoting.
+  - `rg -n "honeypot replay|anyns_honeypot_replay|Validated on 2026-06-03 13:35|Latest Codex run at|Do not re-add honeypot" ...` - PASS after removing shell-special backticks from the search pattern.
+- Latest Codex run at `2026-06-03 12:38 CST` reported these commands:
+  - `find docs -maxdepth 2 -type f | sort` - PASS
+  - `sed -n '1,240p' CODEX_RUN_CONTEXT.md` - PASS
+  - `sed -n '1,260p' DEVELOPMENT_LESSONS.md` - PASS
+  - `sed -n ... docs/*.md REMOTE_CODEX_HANDOFF.md IMPLEMENTATION_STATUS.md GIT_PROGRESS.md` - PASS
+  - `rg -n "Remaining Work|Next Plan|Avoid Next Run|Repeated Errors Observed|Do not|should not be repeated|Next small|TODO|FIXME|placeholder|not implemented" ...` - PASS
+  - `tail -n 220 GIT_PROGRESS.md` - PASS
+  - `rg --files internal cmd tests configs | sort` - PASS
+  - `sed -n ... IMPLEMENTATION_STATUS.md internal/observability/metrics.go internal/dnslog/dnslog.go cmd/anyns-plugin-runtime/main.go` - PASS
+  - `sed -n ... internal/observability/metrics_test.go internal/dnslog/dnslog_test.go cmd/anyns-plugin-runtime/main_test.go` - PASS
+  - `gofmt -w internal/dnslog/dnslog.go internal/dnslog/dnslog_test.go internal/observability/metrics.go internal/observability/metrics_test.go cmd/anyns-plugin-runtime/main_test.go` - PASS
+  - `GOCACHE=/tmp/anyns-go-build go test -buildvcs=false ./internal/dnslog` - PASS
+  - `GOCACHE=/tmp/anyns-go-build go test -buildvcs=false ./internal/observability` - PASS
+  - `GOCACHE=/tmp/anyns-go-build go test -buildvcs=false ./cmd/anyns-plugin-runtime` - FAIL once: the new RCODE metric assertion expected `NOERROR`, while the existing high-entropy HNS fixture correctly records routed `NXDOMAIN`.
+  - `gofmt -w cmd/anyns-plugin-runtime/main_test.go` - PASS after correcting the expectation to `NXDOMAIN`.
+  - `GOCACHE=/tmp/anyns-go-build go test -buildvcs=false ./cmd/anyns-plugin-runtime` - PASS after expectation correction.
+  - `GOCACHE=/tmp/anyns-go-build go test -buildvcs=false ./...` - PASS
+  - `GOCACHE=/tmp/anyns-go-build go vet -buildvcs=false ./...` - PASS
+  - `GOCACHE=/tmp/anyns-go-build go build -buildvcs=false ./cmd/anyns-admin-api ./cmd/anyns-plugin-runtime ./cmd/anyns-log-forwarder` - PASS
+  - `GOCACHE=/tmp/anyns-go-build bash tests/acceptance/check-local.sh` - PASS with runtime socket smoke SKIP: `anyns-plugin-runtime exited before listening on 127.0.0.1:18081`; runtime log detail was `listen tcp 127.0.0.1:18081: socket: operation not permitted`.
+  - `date '+%Y-%m-%d %H:%M %Z'` - PASS.
+  - `sed -n ... GIT_PROGRESS.md` - PASS after documentation updates.
+  - `rg -n "Summary.ByRCode|anyns_dnslog_events_by_rcode|by_rcode|Validated on 2026-06-03 12:38|Latest Codex run at \`2026-06-03 12:38" ...` - FAIL once due shell backtick quoting; no retry loop with the same quoting.
+  - `rg -n "Summary.ByRCode|anyns_dnslog_events_by_rcode|by_rcode|Validated on 2026-06-03 12:38|Latest Codex run at" ...` - PASS after removing shell-special backticks from the search pattern.
+- Previous Codex run at `2026-06-03 12:32 CST` reported these commands:
+  - `find docs -maxdepth 2 -type f | sort` - PASS
+  - `sed -n '1,240p' CODEX_RUN_CONTEXT.md` - PASS
+  - `sed -n '1,240p' DEVELOPMENT_LESSONS.md` - PASS
+  - `sed -n ... docs/*.md REMOTE_CODEX_HANDOFF.md IMPLEMENTATION_STATUS.md GIT_PROGRESS.md` - PASS
+  - `rg -n "Remaining Work|Next Plan|Avoid Next Run|Do not|TODO|FIXME|placeholder|not implemented|panic\\(" IMPLEMENTATION_STATUS.md GIT_PROGRESS.md internal cmd tests configs -S` - PASS
+  - `rg --files internal cmd tests configs | sort` - PASS
+  - `rg -n "dnslog_events_by_plugin|top_qname|ByPlugin|TopQNames|/metrics|anyns_dnslog" internal cmd tests` - PASS
+  - `sed -n ... internal/observability/metrics.go internal/dnslog/dnslog.go cmd/anyns-plugin-runtime/main.go internal/observability/metrics_test.go cmd/anyns-plugin-runtime/main_test.go` - PASS
+  - `gofmt -w internal/observability/metrics.go internal/observability/metrics_test.go cmd/anyns-plugin-runtime/main_test.go` - PASS
+  - `GOCACHE=/tmp/anyns-go-build go test -buildvcs=false ./internal/observability` - PASS
+  - `GOCACHE=/tmp/anyns-go-build go test -buildvcs=false ./cmd/anyns-plugin-runtime` - PASS
+  - `GOCACHE=/tmp/anyns-go-build go test -buildvcs=false ./...` - PASS
+  - `GOCACHE=/tmp/anyns-go-build go vet -buildvcs=false ./...` - PASS
+  - `GOCACHE=/tmp/anyns-go-build go build -buildvcs=false ./cmd/anyns-admin-api ./cmd/anyns-plugin-runtime ./cmd/anyns-log-forwarder` - PASS
+  - `GOCACHE=/tmp/anyns-go-build bash tests/acceptance/check-local.sh` - PASS with runtime socket smoke SKIP: `anyns-plugin-runtime exited before listening on 127.0.0.1:18081`; runtime log detail was `listen tcp 127.0.0.1:18081: socket: operation not permitted`.
+  - `date '+%Y-%m-%d %H:%M %Z'` - PASS.
+- Latest Codex run at `2026-06-02 08:31 CST` reported these commands:
+  - `find docs -maxdepth 2 -type f | sort` - PASS
+  - `sed -n '1,240p' CODEX_RUN_CONTEXT.md` - PASS
+  - `sed -n '1,260p' DEVELOPMENT_LESSONS.md` - PASS
+  - `sed -n ... docs/*.md REMOTE_CODEX_HANDOFF.md IMPLEMENTATION_STATUS.md GIT_PROGRESS.md` - PASS
+  - `rg -n "TODO|FIXME|SKIP|not implemented|placeholder|panic\\(|TODO" internal cmd tests configs -S` - PASS
+  - `rg -n "ANYNS_CLIENT_VIEW|CLIENT_VIEW|policy_tags|ClientView|Tenant" configs cmd internal tests -S` - PASS
+  - `sed -n ... internal/plugins/router.go internal/plugins/router_test.go cmd/anyns-plugin-runtime/main.go cmd/anyns-plugin-runtime/main_test.go configs/pdns-recursor/recursor.lua internal/pdnshook/lua_contract_test.go` - PASS
+  - `gofmt -w internal/plugins/router.go internal/plugins/router_test.go` - PASS
+  - `GOCACHE=/tmp/anyns-go-build go test -buildvcs=false ./internal/plugins` - PASS
+  - `GOCACHE=/tmp/anyns-go-build go test -buildvcs=false ./cmd/anyns-plugin-runtime` - PASS
+  - `GOCACHE=/tmp/anyns-go-build go test -buildvcs=false ./...` - PASS
+  - `GOCACHE=/tmp/anyns-go-build go vet -buildvcs=false ./...` - PASS
+  - `GOCACHE=/tmp/anyns-go-build go build -buildvcs=false ./cmd/anyns-admin-api ./cmd/anyns-plugin-runtime ./cmd/anyns-log-forwarder` - PASS
+  - `GOCACHE=/tmp/anyns-go-build bash tests/acceptance/check-local.sh` - PASS with runtime socket smoke SKIP: `anyns-plugin-runtime exited before listening on 127.0.0.1:18081`; runtime log detail was `listen tcp 127.0.0.1:18081: socket: operation not permitted`.
+  - `date '+%Y-%m-%d %H:%M %Z'` - PASS.
+- Latest Codex run at `2026-06-02 07:55 CST` reported these commands:
+  - `find docs -maxdepth 2 -type f | sort` - PASS
+  - `sed -n '1,220p' CODEX_RUN_CONTEXT.md` - PASS
+  - `sed -n '1,240p' DEVELOPMENT_LESSONS.md` - PASS
+  - `sed -n ... docs/*.md REMOTE_CODEX_HANDOFF.md IMPLEMENTATION_STATUS.md GIT_PROGRESS.md` - PASS
+  - Web lookup of ADA Handle public API materials - PASS; used the documented `https://api.handle.me/swagger` public API and `https://api.handle.me/handles/iog` query example as the adapter contract.
+  - `rg -n "freename|ada|d-id|did|openalias|fio-chain-api|rif-rns-json-rpc|BackendType|DefaultWave3|runtime-json" internal/plugins internal/config configs/anyns/config.example.json` - PASS
+  - `sed -n ... internal/plugins/wave1/plugin.go internal/plugins/wave1/plugin_test.go internal/config/config.go internal/config/config_test.go configs/anyns/config.example.json` - PASS
+  - `gofmt -w internal/plugins/wave1/plugin.go internal/plugins/wave1/plugin_test.go internal/config/config.go internal/config/config_test.go` - PASS
+  - `GOCACHE=/tmp/anyns-go-build go test -buildvcs=false ./internal/config` - PASS
+  - `GOCACHE=/tmp/anyns-go-build go test -buildvcs=false ./internal/plugins/wave1` - FAIL once: `TestADAHandleAPIBackendNoRecordReturnsNXDomain` used `{"handle":"missing"}`, which the new adapter correctly maps to `TXT handle=missing`; the fixture was narrowed to `{}`.
+  - `gofmt -w internal/plugins/wave1/plugin_test.go` - PASS after fixture correction.
+  - `GOCACHE=/tmp/anyns-go-build go test -buildvcs=false ./internal/plugins/wave1` - PASS after fixture correction.
+  - `GOCACHE=/tmp/anyns-go-build go run -buildvcs=false ./cmd/anyns-config-check configs/anyns/config.example.json` - PASS; output included `plugins:19` and `routes:19`.
+  - `GOCACHE=/tmp/anyns-go-build go test -buildvcs=false ./...` - PASS.
+  - `GOCACHE=/tmp/anyns-go-build go vet -buildvcs=false ./...` - PASS.
+  - `GOCACHE=/tmp/anyns-go-build go build -buildvcs=false ./cmd/anyns-admin-api ./cmd/anyns-plugin-runtime ./cmd/anyns-log-forwarder` - PASS.
+  - `GOCACHE=/tmp/anyns-go-build bash tests/acceptance/check-local.sh` - PASS with runtime socket smoke SKIP: `anyns-plugin-runtime exited before listening on 127.0.0.1:18081`; runtime log detail was `listen tcp 127.0.0.1:18081: socket: operation not permitted`.
+  - `date '+%Y-%m-%d %H:%M %Z'` - PASS.
+- Latest Codex run at `2026-06-02 07:16 CST` reported these commands:
+  - `find docs -maxdepth 2 -type f | sort` - PASS
+  - `sed -n '1,220p' CODEX_RUN_CONTEXT.md` - PASS
+  - `sed -n '1,260p' DEVELOPMENT_LESSONS.md` - PASS
+  - `sed -n ... docs/*.md REMOTE_CODEX_HANDOFF.md IMPLEMENTATION_STATUS.md GIT_PROGRESS.md` - PASS
+  - Web lookup of official OpenAlias documentation - PASS; used the documented `oa1:` prefix, required `recipient_address`, and standard optional key-value fields as the parser contract.
+  - `rg -n "openalias|ada|freename|d-id|runtime-json|BackendType|DefaultWave3|New.*Plugin|type Plugin" internal configs/anyns/config.example.json` - PASS
+  - `sed -n ... internal/plugins/wave1/plugin.go internal/plugins/wave1/plugin_test.go internal/config/config.go internal/config/config_test.go configs/anyns/config.example.json` - PASS
+  - `gofmt -w internal/plugins/wave1/plugin.go internal/plugins/wave1/plugin_test.go internal/config/config.go internal/config/config_test.go` - PASS
+  - `GOCACHE=/tmp/anyns-go-build go test -buildvcs=false ./internal/plugins/wave1` - PASS
+  - `GOCACHE=/tmp/anyns-go-build go test -buildvcs=false ./internal/config` - PASS
+  - `GOCACHE=/tmp/anyns-go-build go run -buildvcs=false ./cmd/anyns-config-check configs/anyns/config.example.json` - PASS; output included `plugins:19` and `routes:19`
+  - `GOCACHE=/tmp/anyns-go-build go test -buildvcs=false ./...` - PASS
+  - `GOCACHE=/tmp/anyns-go-build go vet -buildvcs=false ./...` - PASS
+  - `GOCACHE=/tmp/anyns-go-build go build -buildvcs=false ./cmd/anyns-admin-api ./cmd/anyns-plugin-runtime ./cmd/anyns-log-forwarder` - PASS
+  - `GOCACHE=/tmp/anyns-go-build bash tests/acceptance/check-local.sh` - PASS with runtime socket smoke SKIP: `anyns-plugin-runtime exited before listening on 127.0.0.1:18081`; runtime log detail was `listen tcp 127.0.0.1:18081: socket: operation not permitted`
+  - `rg -n "openalias-dns-txt|OpenAlias DNS TXT|TestOpenAliasDNSTXT|resolveOpenAliasDNSTXT" internal configs/anyns/config.example.json IMPLEMENTATION_STATUS.md GIT_PROGRESS.md` - PASS
+  - `date '+%Y-%m-%d %H:%M %Z'` - PASS
+  - `rg -n "openalias-dns-txt|OpenAlias DNS TXT|TestOpenAliasDNSTXT|Latest Codex run at \`2026-06-02 07:16|Validated on 2026-06-02 07:16|Do not re-add the OpenAlias" ...` - FAIL once due shell backtick quoting; no retry loop with the same quoting.
+  - `rg -n "openalias-dns-txt|OpenAlias DNS TXT|TestOpenAliasDNSTXT|Latest Codex run at|Validated on 2026-06-02 07:16|Do not re-add the OpenAlias" ...` - PASS after removing shell-special backticks from the search pattern.
+- Latest Codex run at `2026-06-02 06:39 CST` reported these commands:
+  - `find docs -maxdepth 2 -type f | sort` - PASS
+  - `sed -n '1,220p' CODEX_RUN_CONTEXT.md` - PASS
+  - `sed -n '1,240p' DEVELOPMENT_LESSONS.md` - PASS
+  - `sed -n ... docs/*.md REMOTE_CODEX_HANDOFF.md IMPLEMENTATION_STATUS.md GIT_PROGRESS.md` - PASS
+  - `rg -n "Remaining Work|Next Plan|Avoid Next Run|Do not|Wave 3|OpenAlias|ADA|Freename|RIF|d.id|FIO|runtime-json|BackendType" IMPLEMENTATION_STATUS.md GIT_PROGRESS.md internal configs/anyns/config.example.json` - PASS
+  - `sed -n ... internal/plugins/wave1/plugin.go internal/plugins/wave1/plugin_test.go internal/config/config.go internal/config/config_test.go configs/anyns/config.example.json` - PASS
+  - `gofmt -w internal/plugins/wave1/plugin.go internal/plugins/wave1/plugin_test.go internal/config/config.go internal/config/config_test.go` - PASS
+  - `rg -n "rif-rns-json-rpc|TestRIFRNS|ValidateAcceptsRIF|rif-rns" internal/plugins/wave1/plugin.go internal/plugins/wave1/plugin_test.go internal/config/config.go internal/config/config_test.go configs/anyns/config.example.json` - PASS
+  - `GOCACHE=/tmp/anyns-go-build go test -buildvcs=false ./internal/plugins/wave1` - PASS
+  - `GOCACHE=/tmp/anyns-go-build go test -buildvcs=false ./internal/config` - PASS
+  - `GOCACHE=/tmp/anyns-go-build go run -buildvcs=false ./cmd/anyns-config-check configs/anyns/config.example.json` - PASS; output included `plugins:19` and `routes:19`
+  - `GOCACHE=/tmp/anyns-go-build go test -buildvcs=false ./...` - PASS
+  - `GOCACHE=/tmp/anyns-go-build go vet -buildvcs=false ./...` - PASS
+  - `GOCACHE=/tmp/anyns-go-build go build -buildvcs=false ./cmd/anyns-admin-api ./cmd/anyns-plugin-runtime ./cmd/anyns-log-forwarder` - PASS
+  - `GOCACHE=/tmp/anyns-go-build bash tests/acceptance/check-local.sh` - PASS with runtime socket smoke SKIP: `anyns-plugin-runtime exited before listening on 127.0.0.1:18081`; runtime log detail was `listen tcp 127.0.0.1:18081: socket: operation not permitted`
+  - `date '+%Y-%m-%d %H:%M %Z'` - PASS
+  - `rg -n "rif-rns-json-rpc|RIF/RNS JSON-RPC|Validated on 2026-06-02 06:39|Test the new RIF/RNS|Do not re-add the RIF/RNS|Latest Codex run at \`2026-06-02 06:39" ...` - FAIL once due shell backtick quoting; no retry loop with the same quoting.
+  - `rg -n "rif-rns-json-rpc|RIF/RNS JSON-RPC|Validated on 2026-06-02 06:39|Test the new RIF/RNS|Do not re-add the RIF/RNS|Latest Codex run at" ...` - PASS after removing shell-special backticks from the search pattern.
+- Latest Codex run at `2026-06-02 06:03 CST` reported these commands:
+  - `ls -la docs` - PASS
+  - `sed -n '1,240p' CODEX_RUN_CONTEXT.md` - PASS
+  - `sed -n '1,260p' DEVELOPMENT_LESSONS.md` - PASS
+  - `sed -n ... docs/*.md REMOTE_CODEX_HANDOFF.md IMPLEMENTATION_STATUS.md GIT_PROGRESS.md` - PASS
+  - Web lookup of official FIO Protocol developer documentation for `POST /v1/chain/get_pub_address` - PASS; used the documented `fio_address`, `chain_code`, and `token_code` request contract.
+  - `rg -n "Wave 3|Freename|FNS|RIF|OpenAlias|ADA|fio|rsk|BackendType|runtime-json|DefaultWave3|wave 3|Remaining Work|Latest Validation" IMPLEMENTATION_STATUS.md GIT_PROGRESS.md internal configs cmd tests` - PASS
+  - `sed -n ... internal/plugins/wave1/plugin.go internal/plugins/wave1/plugin_test.go internal/config/config.go internal/config/config_test.go configs/anyns/config.example.json` - PASS
+  - `gofmt -w internal/plugins/wave1/plugin.go internal/plugins/wave1/plugin_test.go internal/config/config.go internal/config/config_test.go` - PASS
+  - `rg -n "fio-chain-api|resolveFIOChainAPI|TestFIO|ValidateAcceptsFIO|fio.blockpane" internal configs/anyns/config.example.json` - PASS
+  - `GOCACHE=/tmp/anyns-go-build go test -buildvcs=false ./internal/plugins/wave1` - PASS
+  - `GOCACHE=/tmp/anyns-go-build go test -buildvcs=false ./internal/config` - PASS
+  - `GOCACHE=/tmp/anyns-go-build go run -buildvcs=false ./cmd/anyns-config-check configs/anyns/config.example.json` - PASS; output included `plugins:19` and `routes:19`
+  - `GOCACHE=/tmp/anyns-go-build go test -buildvcs=false ./...` - PASS
+  - `GOCACHE=/tmp/anyns-go-build go vet -buildvcs=false ./...` - PASS
+  - `GOCACHE=/tmp/anyns-go-build go build -buildvcs=false ./cmd/anyns-admin-api ./cmd/anyns-plugin-runtime ./cmd/anyns-log-forwarder` - PASS
+  - `GOCACHE=/tmp/anyns-go-build bash tests/acceptance/check-local.sh` - PASS with runtime socket smoke SKIP: `anyns-plugin-runtime exited before listening on 127.0.0.1:18081`; runtime log detail was `listen tcp 127.0.0.1:18081: socket: operation not permitted`
+  - `date '+%Y-%m-%d %H:%M %Z'` - PASS
+- Latest Codex run at `2026-06-02 05:26 CST` reported these commands:
+  - `find docs -maxdepth 2 -type f | sort` - PASS
+  - `sed -n '1,240p' CODEX_RUN_CONTEXT.md` - PASS
+  - `sed -n '1,260p' DEVELOPMENT_LESSONS.md` - PASS
+  - `sed -n ... docs/*.md REMOTE_CODEX_HANDOFF.md IMPLEMENTATION_STATUS.md GIT_PROGRESS.md` - PASS
+  - `rg -n "DefaultWave2|Wave2|DefaultWave1|PluginConfig|backend_type|runtime-json|Routes" internal configs/anyns/config.example.json` - PASS
+  - `sed -n ... internal/plugins/wave1/plugin.go internal/plugins/router.go internal/config/config.go internal/app/app.go internal/config/config_test.go internal/app/app_test.go configs/anyns/config.example.json internal/plugins/router_test.go` - PASS
+  - `gofmt -w internal/plugins/wave1/plugin.go internal/plugins/router.go internal/plugins/router_test.go internal/config/config.go internal/config/config_test.go internal/app/app_test.go` - PASS
+  - `GOCACHE=/tmp/anyns-go-build go test -buildvcs=false ./internal/config` - PASS
+  - `GOCACHE=/tmp/anyns-go-build go test -buildvcs=false ./internal/plugins ./internal/app ./internal/plugins/wave1` - PASS
+  - `GOCACHE=/tmp/anyns-go-build go run -buildvcs=false ./cmd/anyns-config-check configs/anyns/config.example.json` - PASS; output included `plugins:19` and `routes:19`
+  - `GOCACHE=/tmp/anyns-go-build go test -buildvcs=false ./...` - PASS
+  - `GOCACHE=/tmp/anyns-go-build go vet -buildvcs=false ./...` - PASS
+  - `GOCACHE=/tmp/anyns-go-build go build -buildvcs=false ./cmd/anyns-admin-api ./cmd/anyns-plugin-runtime ./cmd/anyns-log-forwarder` - PASS
+  - `GOCACHE=/tmp/anyns-go-build bash tests/acceptance/check-local.sh` - PASS with runtime socket smoke SKIP: `listen tcp 127.0.0.1:18081: socket: operation not permitted`
+  - `date '+%Y-%m-%d %H:%M %Z'` - PASS
+- Previous Codex run at `2026-06-02 04:50 CST` reported these commands:
+  - `find docs -maxdepth 2 -type f | sort` - PASS
+  - `sed -n '1,240p' CODEX_RUN_CONTEXT.md` - PASS
+  - `sed -n '1,260p' DEVELOPMENT_LESSONS.md` - PASS
+  - `sed -n ... docs/*.md REMOTE_CODEX_HANDOFF.md IMPLEMENTATION_STATUS.md GIT_PROGRESS.md` - PASS
+  - Web lookup of SuiNS/Sui JSON-RPC resolver documentation - PASS; used the Sui JSON-RPC `suix_resolveNameServiceAddress` method as the adapter contract.
+  - `rg -n "sui|toncenter|solana-sns|BackendType|backend_type|DefaultWave2|wave 2" internal configs/anyns/config.example.json` - PASS
+  - `sed -n ... internal/plugins/wave1/plugin.go internal/config/config.go internal/plugins/wave1/plugin_test.go internal/config/config_test.go configs/anyns/config.example.json` - PASS
+  - `gofmt -w internal/plugins/wave1/plugin.go internal/plugins/wave1/plugin_test.go internal/config/config.go internal/config/config_test.go` - PASS
+  - `rg -n "suins-json-rpc|resolveSuiNS|suix_resolveNameServiceAddress" internal configs/anyns/config.example.json` - PASS
+  - `GOCACHE=/tmp/anyns-go-build go test -buildvcs=false ./internal/plugins/wave1 ./internal/config` - PASS
+  - `GOCACHE=/tmp/anyns-go-build go run -buildvcs=false ./cmd/anyns-config-check configs/anyns/config.example.json` - PASS; output included `plugins:13` and `routes:13`
+  - `GOCACHE=/tmp/anyns-go-build go test -buildvcs=false ./internal/app ./internal/config ./internal/plugins/wave1 ./internal/plugins` - PASS
+  - `GOCACHE=/tmp/anyns-go-build go test -buildvcs=false ./...` - PASS
+  - `GOCACHE=/tmp/anyns-go-build go vet -buildvcs=false ./...` - PASS
+  - `GOCACHE=/tmp/anyns-go-build go build -buildvcs=false ./cmd/anyns-admin-api ./cmd/anyns-plugin-runtime ./cmd/anyns-log-forwarder` - PASS
+  - `GOCACHE=/tmp/anyns-go-build bash tests/acceptance/check-local.sh` - PASS with runtime socket smoke SKIP: `listen tcp 127.0.0.1:18081: socket: operation not permitted`
+  - `date '+%Y-%m-%d %H:%M %Z'` - PASS
+- Latest Codex run at `2026-06-02 04:13 CST` reported these commands:
+  - `find docs -maxdepth 2 -type f | sort` - PASS
+  - `sed -n '1,240p' CODEX_RUN_CONTEXT.md` - PASS
+  - `sed -n '1,260p' DEVELOPMENT_LESSONS.md` - PASS
+  - `sed -n ... docs/*.md REMOTE_CODEX_HANDOFF.md IMPLEMENTATION_STATUS.md GIT_PROGRESS.md` - PASS
+  - Web lookup of official TON DNS / TON Center v3 DNS records documentation - PASS; used the documented `/api/v3/dns/records` endpoint and `.ton` DNS record fields as the adapter contract.
+  - `rg -n "ton-dns|sui|BackendType|backend_type|solana-sns|aptos-names|tezos-domains" internal configs/anyns/config.example.json cmd tests` - PASS
+  - `sed -n ... internal/plugins/wave1/plugin.go internal/config/config.go internal/plugins/wave1/plugin_test.go internal/config/config_test.go configs/anyns/config.example.json` - PASS
+  - `gofmt -w internal/plugins/wave1/plugin.go internal/plugins/wave1/plugin_test.go internal/config/config.go internal/config/config_test.go` - PASS
+  - `rg -n "toncenter-v3-dns|TONCenter|ton_dns|toncenter" internal configs/anyns/config.example.json` - PASS
+  - `GOCACHE=/tmp/anyns-go-build go test -buildvcs=false ./internal/plugins/wave1 ./internal/config` - PASS
+  - `GOCACHE=/tmp/anyns-go-build go run -buildvcs=false ./cmd/anyns-config-check configs/anyns/config.example.json` - PASS; output included `plugins:13` and `routes:13`
+  - `GOCACHE=/tmp/anyns-go-build go test -buildvcs=false ./internal/app ./internal/config ./internal/plugins/wave1 ./internal/plugins` - PASS
+  - `GOCACHE=/tmp/anyns-go-build go test -buildvcs=false ./...` - PASS
+  - `GOCACHE=/tmp/anyns-go-build go vet -buildvcs=false ./...` - PASS
+  - `GOCACHE=/tmp/anyns-go-build go build -buildvcs=false ./cmd/anyns-admin-api ./cmd/anyns-plugin-runtime ./cmd/anyns-log-forwarder` - PASS
+  - `GOCACHE=/tmp/anyns-go-build bash tests/acceptance/check-local.sh` - PASS with runtime socket smoke SKIP: `listen tcp 127.0.0.1:18081: socket: operation not permitted`
+  - `date '+%Y-%m-%d %H:%M %Z'` - PASS
+- Latest Codex run at `2026-06-02 03:37 CST` reported these commands:
+  - `find docs -maxdepth 2 -type f | sort` - PASS
+  - `sed -n '1,220p' CODEX_RUN_CONTEXT.md` - PASS
+  - `sed -n '1,260p' DEVELOPMENT_LESSONS.md` - PASS
+  - `sed -n ... docs/*.md REMOTE_CODEX_HANDOFF.md IMPLEMENTATION_STATUS.md GIT_PROGRESS.md` - PASS
+  - Web lookup of official SNS/Solana Name Service documentation - PASS; used the documented SNS API base context, `.sol` domain-record scope, and QuickNode `sns_resolveDomain` JSON-RPC method as the adapter contract.
+  - `rg -n "solana|sns|ton-dns|aptos|sui|BackendType|backend_type|tezos-domains-api|space-id-api" internal configs/anyns/config.example.json cmd tests` - PASS
+  - `sed -n ... internal/plugins/wave1/plugin.go internal/config/config.go internal/plugins/wave1/plugin_test.go internal/config/config_test.go configs/anyns/config.example.json` - PASS
+  - `gofmt -w internal/plugins/wave1/plugin.go internal/plugins/wave1/plugin_test.go internal/config/config.go internal/config/config_test.go` - PASS
+  - `GOCACHE=/tmp/anyns-go-build go test -buildvcs=false ./internal/plugins/wave1 ./internal/config` - PASS
+  - `GOCACHE=/tmp/anyns-go-build go test -buildvcs=false ./internal/app ./internal/config ./internal/plugins/wave1 ./internal/plugins` - PASS
+  - `GOCACHE=/tmp/anyns-go-build go run -buildvcs=false ./cmd/anyns-config-check configs/anyns/config.example.json` - PASS; output included `plugins:13` and `routes:13`
+  - `GOCACHE=/tmp/anyns-go-build go test -buildvcs=false ./...` - PASS
+  - `GOCACHE=/tmp/anyns-go-build go vet -buildvcs=false ./...` - PASS
+  - `GOCACHE=/tmp/anyns-go-build go build -buildvcs=false ./cmd/anyns-admin-api ./cmd/anyns-plugin-runtime ./cmd/anyns-log-forwarder` - PASS
+  - `GOCACHE=/tmp/anyns-go-build bash tests/acceptance/check-local.sh` - PASS with runtime socket smoke SKIP: `listen tcp 127.0.0.1:18081: socket: operation not permitted`
+  - `date '+%Y-%m-%d %H:%M %Z'` - PASS
+- Latest Codex run at `2026-06-02 03:01 CST` reported these commands:
+  - `find docs -maxdepth 2 -type f | sort` - PASS
+  - `sed -n '1,240p' CODEX_RUN_CONTEXT.md` - PASS
+  - `sed -n '1,260p' DEVELOPMENT_LESSONS.md` - PASS
+  - `sed -n ... docs/*.md REMOTE_CODEX_HANDOFF.md IMPLEMENTATION_STATUS.md GIT_PROGRESS.md` - PASS
+  - Web lookup of official Aptos Names REST API documentation - PASS; used the documented `https://www.aptosnames.com/api/{network}/v3/address/{name}` shape and `X-API-Key` header as the adapter contract.
+  - `rg -n "solana|sns|ton-dns|aptos|sui|BackendType|backend_type|tezos-domains-api|space-id-api" internal configs/anyns/config.example.json cmd tests` - PASS
+  - `sed -n ... internal/plugins/wave1/plugin.go internal/config/config.go internal/plugins/wave1/plugin_test.go internal/config/config_test.go configs/anyns/config.example.json` - PASS
+  - `gofmt -w internal/plugins/wave1/plugin.go internal/plugins/wave1/plugin_test.go internal/config/config.go internal/config/config_test.go` - PASS
+  - `GOCACHE=/tmp/anyns-go-build go test -buildvcs=false ./internal/plugins/wave1 ./internal/config` - PASS
+  - `GOCACHE=/tmp/anyns-go-build go test -buildvcs=false ./internal/app ./internal/config ./internal/plugins/wave1 ./internal/plugins` - PASS
+  - `GOCACHE=/tmp/anyns-go-build go run -buildvcs=false ./cmd/anyns-config-check configs/anyns/config.example.json` - PASS; output included `plugins:13` and `routes:13`
+  - `GOCACHE=/tmp/anyns-go-build go test -buildvcs=false ./...` - PASS
+  - `GOCACHE=/tmp/anyns-go-build go vet -buildvcs=false ./...` - PASS
+  - `GOCACHE=/tmp/anyns-go-build go build -buildvcs=false ./cmd/anyns-admin-api ./cmd/anyns-plugin-runtime ./cmd/anyns-log-forwarder` - PASS
+  - `GOCACHE=/tmp/anyns-go-build bash tests/acceptance/check-local.sh` - PASS with runtime socket smoke SKIP: `listen tcp 127.0.0.1:18081: socket: operation not permitted`
+  - `date '+%Y-%m-%d %H:%M %Z'` - PASS
+- Previous Codex run at `2026-06-02 02:24 CST` reported these commands:
+  - `find docs -maxdepth 2 -type f | sort` - PASS
+  - `sed -n '1,240p' CODEX_RUN_CONTEXT.md` - PASS
+  - `sed -n '1,260p' DEVELOPMENT_LESSONS.md` - PASS
+  - `sed -n ... docs/*.md REMOTE_CODEX_HANDOFF.md IMPLEMENTATION_STATUS.md GIT_PROGRESS.md` - PASS
+  - Web lookup of official Tezos Domains API/schema documentation - PASS; used the documented `https://api.tezos.domains/graphql` endpoint shape and `domain(name:)` schema as the adapter contract.
+  - `rg -n "ton|tezos|aptos|sui|solana|sns|BackendType|backend_type|space-id-api" internal configs/anyns/config.example.json cmd` - PASS
+  - `sed -n ... internal/plugins/wave1/plugin.go internal/config/config.go internal/config/config_test.go configs/anyns/config.example.json internal/plugins/wave1/plugin_test.go` - PASS
+  - `gofmt -w internal/plugins/wave1/plugin.go internal/plugins/wave1/plugin_test.go internal/config/config.go internal/config/config_test.go` - PASS
+  - `GOCACHE=/tmp/anyns-go-build go test -buildvcs=false ./internal/plugins/wave1 ./internal/config` - PASS
+  - `GOCACHE=/tmp/anyns-go-build go test -buildvcs=false ./internal/app ./internal/config ./internal/plugins/wave1 ./internal/plugins` - PASS
+  - `GOCACHE=/tmp/anyns-go-build go run -buildvcs=false ./cmd/anyns-config-check configs/anyns/config.example.json` - PASS; output included `plugins:13` and `routes:13`
+  - `GOCACHE=/tmp/anyns-go-build go test -buildvcs=false ./...` - PASS
+  - `GOCACHE=/tmp/anyns-go-build go vet -buildvcs=false ./...` - PASS
+  - `GOCACHE=/tmp/anyns-go-build go build -buildvcs=false ./cmd/anyns-admin-api ./cmd/anyns-plugin-runtime ./cmd/anyns-log-forwarder` - PASS
+  - `GOCACHE=/tmp/anyns-go-build bash tests/acceptance/check-local.sh` - PASS with runtime socket smoke SKIP: `listen tcp 127.0.0.1:18081: socket: operation not permitted`
+  - `date '+%Y-%m-%d %H:%M %Z'` - PASS
+- Latest Codex run at `2026-06-02 02:13 CST` reported these commands:
+  - `find docs -maxdepth 2 -type f | sort` - PASS
+  - `sed -n '1,220p' CODEX_RUN_CONTEXT.md` - PASS
+  - `sed -n '1,260p' DEVELOPMENT_LESSONS.md` - PASS
+  - `sed -n ... docs/*.md REMOTE_CODEX_HANDOFF.md IMPLEMENTATION_STATUS.md GIT_PROGRESS.md` - PASS
+  - Web lookup of official SPACE ID Web3 Name API documentation - PASS; used `GET https://nameapi.space.id/getAddress?domain=...`, response fields `address` / `code` / `msg`, and supported `.bnb` / `.arb` domain table as the adapter contract.
+  - `rg -n "Wave 2|solana|sns|space|ton|tezos|aptos|sui|BackendType|backend_type" internal configs cmd tests` - PASS
+  - `sed -n ... internal/plugins/wave1/plugin.go internal/app/app.go internal/config/config.go internal/plugins/wave1/plugin_test.go internal/config/config_test.go configs/anyns/config.example.json` - PASS
+  - `gofmt -w internal/plugins/wave1/plugin.go internal/plugins/wave1/plugin_test.go internal/config/config.go internal/config/config_test.go` - PASS
+  - `GOCACHE=/tmp/anyns-go-build go test -buildvcs=false ./internal/plugins/wave1 ./internal/config` - FAIL once: `TestValidateAcceptsWave2RuntimeJSONSkeletons` omitted the `space-id` fixture while using the full Wave 2 route set.
+  - `gofmt -w internal/config/config_test.go` - PASS after fixture correction
+  - `GOCACHE=/tmp/anyns-go-build go test -buildvcs=false ./internal/config` - PASS after fixture correction
+  - `GOCACHE=/tmp/anyns-go-build go test -buildvcs=false ./internal/plugins/wave1` - PASS
+  - `GOCACHE=/tmp/anyns-go-build go test -buildvcs=false ./internal/app ./internal/config ./internal/plugins/wave1 ./internal/plugins` - PASS
+  - `GOCACHE=/tmp/anyns-go-build go run -buildvcs=false ./cmd/anyns-config-check configs/anyns/config.example.json` - PASS; output included `plugins:13` and `routes:13`
+  - `gofmt -w internal/plugins/wave1/plugin.go internal/plugins/wave1/plugin_test.go` - PASS after tightening SPACE ID `code=-1` error handling
+  - `GOCACHE=/tmp/anyns-go-build go test -buildvcs=false ./internal/plugins/wave1` - PASS after tightening SPACE ID `code=-1` error handling
+  - `GOCACHE=/tmp/anyns-go-build go test -buildvcs=false ./...` - PASS
+  - `GOCACHE=/tmp/anyns-go-build go vet -buildvcs=false ./...` - PASS
+  - `GOCACHE=/tmp/anyns-go-build go build -buildvcs=false ./cmd/anyns-admin-api ./cmd/anyns-plugin-runtime ./cmd/anyns-log-forwarder` - PASS
+  - `GOCACHE=/tmp/anyns-go-build bash tests/acceptance/check-local.sh` - PASS with runtime socket smoke SKIP: `listen tcp 127.0.0.1:18081: socket: operation not permitted`
+  - `date '+%Y-%m-%d %H:%M %Z'` - PASS
+  - `rg -n "resolveSpaceIDAPI|TestSpaceIDAPI|space-id-api|ValidateAcceptsSpaceID|Validated on 2026-06-02 02:13|This run replaced" ...` - PASS
+  - `rg -n "Latest Codex run at \`2026-06-02 02:13|SPACE ID Web3 Name API adapter|Repeated Errors Observed|Do not re-add the SPACE ID" GIT_PROGRESS.md` - FAIL once due shell backtick quoting; no retry loop with the same quoting.
+  - `rg -n "Latest Codex run at|SPACE ID Web3 Name API adapter|Repeated Errors Observed|Do not re-add the SPACE ID" GIT_PROGRESS.md` - PASS after removing shell-special backticks from the search pattern.
+- Previous Codex run at `2026-06-02 02:04 CST` reported these commands:
+  - `find docs -maxdepth 2 -type f | sort` - PASS
+  - `sed -n '1,220p' CODEX_RUN_CONTEXT.md` - PASS
+  - `sed -n '1,260p' DEVELOPMENT_LESSONS.md` - PASS
+  - `sed -n ... docs/*.md REMOTE_CODEX_HANDOFF.md IMPLEMENTATION_STATUS.md GIT_PROGRESS.md` - PASS
+  - `rg -n "Wave 2|sns|solana|ton|tezos|aptos|sui|BackendType|backend_type|PluginName|New.*Plugin|unsupported backend" internal configs cmd tests` - PASS
+  - `sed -n ... internal/plugins/wave1/plugin.go internal/config/config.go internal/app/app.go configs/anyns/config.example.json internal/plugins/router.go internal/app/app_test.go internal/config/config_test.go` - PASS
+  - `gofmt -w internal/plugins/wave1/plugin.go internal/config/config.go internal/plugins/router.go internal/app/app_test.go internal/config/config_test.go` - PASS
+  - `GOCACHE=/tmp/anyns-go-build go test -buildvcs=false ./internal/app ./internal/config ./internal/plugins/wave1 ./internal/plugins` - PASS
+  - `GOCACHE=/tmp/anyns-go-build go run -buildvcs=false ./cmd/anyns-config-check configs/anyns/config.example.json` - PASS; output included `plugins:13` and `routes:13`
+  - `GOCACHE=/tmp/anyns-go-build go test -buildvcs=false ./...` - PASS
+  - `GOCACHE=/tmp/anyns-go-build go vet -buildvcs=false ./...` - PASS
+  - `GOCACHE=/tmp/anyns-go-build go build -buildvcs=false ./cmd/anyns-admin-api ./cmd/anyns-plugin-runtime ./cmd/anyns-log-forwarder` - PASS
+  - `GOCACHE=/tmp/anyns-go-build bash tests/acceptance/check-local.sh` - PASS with runtime socket smoke SKIP: `listen tcp 127.0.0.1:18081: socket: operation not permitted`
+  - `date '+%Y-%m-%d %H:%M %Z'` - PASS
+- Latest Codex run at `2026-06-02 00:16 CST` reported these commands:
+  - `find docs -maxdepth 2 -type f | sort` - PASS
+  - `sed -n '1,240p' CODEX_RUN_CONTEXT.md` - PASS
+  - `sed -n '1,260p' DEVELOPMENT_LESSONS.md` - PASS
+  - `sed -n ... docs/*.md REMOTE_CODEX_HANDOFF.md IMPLEMENTATION_STATUS.md GIT_PROGRESS.md` - PASS
+  - `rg -n "pns-polkadot|polkadot|BackendType|pulsechain|ens-json-rpc|New.*Wave|backend_type" internal configs/anyns/config.example.json cmd` - PASS
+  - `sed -n ... internal/plugins/wave1/plugin.go internal/plugins/wave1/plugin_test.go internal/config/config.go internal/config/config_test.go configs/anyns/config.example.json` - PASS
+  - Web lookup of official PNS REST documentation - PASS; used the documented `https://api.ddns.so` base URL and `GET /name/:name` shape as the adapter contract.
+  - `gofmt -w internal/plugins/wave1/plugin.go internal/plugins/wave1/plugin_test.go internal/config/config.go internal/config/config_test.go` - PASS
+  - `GOCACHE=/tmp/anyns-go-build go test -buildvcs=false ./internal/plugins/wave1 ./internal/config` - PASS
+  - `GOCACHE=/tmp/anyns-go-build go run -buildvcs=false ./cmd/anyns-config-check configs/anyns/config.example.json` - PASS
+  - `GOCACHE=/tmp/anyns-go-build go test -buildvcs=false ./...` - PASS
+  - `GOCACHE=/tmp/anyns-go-build go vet -buildvcs=false ./...` - PASS
+  - `GOCACHE=/tmp/anyns-go-build go build -buildvcs=false ./cmd/anyns-admin-api ./cmd/anyns-plugin-runtime ./cmd/anyns-log-forwarder` - PASS
+  - `GOCACHE=/tmp/anyns-go-build bash tests/acceptance/check-local.sh` - PASS with runtime socket smoke SKIP: `listen tcp 127.0.0.1:18081: socket: operation not permitted`
+  - `date '+%Y-%m-%d %H:%M %Z'` - PASS
+  - `rg -n "pns-polkadot-api|PNSPolkadot|pnsPolkadot|Latest Validation|Remaining Work|Current Progress|Important Changed Files|Verified Commands|Repeated Errors Observed|Next Plan|Avoid Next Run" ...` - PASS
+- Latest Codex run at `2026-06-01 23:41 CST` reported these commands:
+  - `ls -la docs` - PASS
+  - `sed -n '1,240p' CODEX_RUN_CONTEXT.md` - PASS
+  - `sed -n '1,260p' DEVELOPMENT_LESSONS.md` - PASS
+  - `sed -n '1,220p' docs/README.md` - PASS
+  - `sed -n '1,260p' REMOTE_CODEX_HANDOFF.md` - PASS
+  - `sed -n '1,320p' IMPLEMENTATION_STATUS.md` - PASS
+  - `sed -n '1,360p' GIT_PROGRESS.md` - PASS
+  - `for f in docs/*.md; do ...; done` - PASS
+  - `rg -n "pns|polkadot|pulse|BackendType|New.*Plugin|backend_type|wave1" internal cmd configs/anyns/config.example.json` - PASS
+  - `sed -n ... internal/plugins/wave1/plugin.go internal/plugins/wave1/plugin_test.go internal/config/config.go internal/config/config_test.go configs/anyns/config.example.json` - PASS
+  - `gofmt -w internal/plugins/wave1/plugin.go internal/plugins/wave1/plugin_test.go internal/config/config.go internal/config/config_test.go` - PASS
+  - `GOCACHE=/tmp/anyns-go-build go test -buildvcs=false ./internal/plugins/wave1 ./internal/config` - PASS
+  - `GOCACHE=/tmp/anyns-go-build go run -buildvcs=false ./cmd/anyns-config-check configs/anyns/config.example.json` - PASS
+  - `GOCACHE=/tmp/anyns-go-build go test -buildvcs=false ./...` - PASS
+  - `GOCACHE=/tmp/anyns-go-build go vet -buildvcs=false ./...` - PASS
+  - `GOCACHE=/tmp/anyns-go-build go build -buildvcs=false ./cmd/anyns-admin-api ./cmd/anyns-plugin-runtime ./cmd/anyns-log-forwarder` - PASS
+  - `GOCACHE=/tmp/anyns-go-build bash tests/acceptance/check-local.sh` - PASS with runtime socket smoke SKIP: `listen tcp 127.0.0.1:18081: socket: operation not permitted`
+  - `date '+%Y-%m-%d %H:%M %Z'` - PASS
+  - `rg -n "pulsechain-pns-json-rpc|PulseChain|Remaining Work|Latest Validation|Validated on|Current Progress|Important Changed Files|Verified Commands|Repeated Errors Observed|Next Plan|Avoid Next Run" ...` - PASS
+  - `sed -n ... internal/plugins/wave1/plugin.go internal/plugins/wave1/plugin_test.go internal/config/config.go internal/config/config_test.go` - PASS
+  - `gofmt -w internal/plugins/wave1/plugin.go internal/plugins/wave1/plugin_test.go` - PASS after tightening registry validation
+  - `GOCACHE=/tmp/anyns-go-build go test -buildvcs=false ./internal/plugins/wave1 ./internal/config` - PASS after tightening registry validation
+  - `GOCACHE=/tmp/anyns-go-build go run -buildvcs=false ./cmd/anyns-config-check configs/anyns/config.example.json` - PASS after tightening registry validation
+  - `GOCACHE=/tmp/anyns-go-build go test -buildvcs=false ./...` - PASS after tightening registry validation
+  - `GOCACHE=/tmp/anyns-go-build go vet -buildvcs=false ./...` - PASS after tightening registry validation
+  - `GOCACHE=/tmp/anyns-go-build go build -buildvcs=false ./cmd/anyns-admin-api ./cmd/anyns-plugin-runtime ./cmd/anyns-log-forwarder` - PASS after tightening registry validation
+  - `GOCACHE=/tmp/anyns-go-build bash tests/acceptance/check-local.sh` - PASS after tightening registry validation, with runtime socket smoke SKIP: `listen tcp 127.0.0.1:18081: socket: operation not permitted`
+  - `date '+%Y-%m-%d %H:%M %Z'` - PASS after final validation
+- Latest Codex run at `2026-06-01 23:01 CST` reported these commands:
+  - `find docs -maxdepth 2 -type f | sort` - PASS
+  - `sed -n '1,220p' CODEX_RUN_CONTEXT.md` - PASS
+  - `sed -n '1,260p' DEVELOPMENT_LESSONS.md` - PASS
+  - `sed -n ... docs/*.md REMOTE_CODEX_HANDOFF.md IMPLEMENTATION_STATUS.md GIT_PROGRESS.md` - PASS
+  - `rg -n "BackendType|stacks-bns-api|namecoin-json-rpc|unstoppable-resolution-api|ens|polkadot|pulse" internal configs/anyns/config.example.json` - PASS
+  - `sed -n ... internal/plugins/wave1/plugin.go internal/plugins/wave1/plugin_test.go internal/config/config.go internal/config/config_test.go configs/anyns/config.example.json internal/app/app.go` - PASS
+  - `go doc crypto/sha3.NewLegacyKeccak256` - FAIL: local Go toolchain reports `go: no such tool "doc"`; no retry loop, used local source inspection and an in-repo legacy Keccak implementation instead of adding a dependency.
+  - `rg --files $(go env GOROOT 2>/dev/null)/src/crypto 2>/dev/null | rg 'sha3|sha'` - FAIL: no local `crypto/sha3` source found; no retry loop.
+  - `gofmt -w internal/plugins/wave1/plugin.go internal/plugins/wave1/plugin_test.go internal/config/config.go internal/config/config_test.go` - PASS
+  - `GOCACHE=/tmp/anyns-go-build go test -buildvcs=false ./internal/plugins/wave1 ./internal/config` - PASS
+  - `GOCACHE=/tmp/anyns-go-build go run -buildvcs=false ./cmd/anyns-config-check configs/anyns/config.example.json` - PASS
+  - `GOCACHE=/tmp/anyns-go-build go test -buildvcs=false ./...` - PASS
+  - `GOCACHE=/tmp/anyns-go-build go vet -buildvcs=false ./...` - PASS
+  - `GOCACHE=/tmp/anyns-go-build go build -buildvcs=false ./cmd/anyns-admin-api ./cmd/anyns-plugin-runtime ./cmd/anyns-log-forwarder` - PASS
+  - `GOCACHE=/tmp/anyns-go-build bash tests/acceptance/check-local.sh` - PASS with runtime socket smoke SKIP: `listen tcp 127.0.0.1:18081: socket: operation not permitted`
+  - `rg -n "ens-json-rpc|TestENS|Validated on 2026-06-01 23:01|Remaining Work|Do not re-add the ENS" internal/plugins/wave1/plugin.go internal/plugins/wave1/plugin_test.go internal/config/config.go internal/config/config_test.go configs/anyns/config.example.json IMPLEMENTATION_STATUS.md GIT_PROGRESS.md` - PASS
+- Latest Codex run at `2026-06-01 18:39 CST` reported these commands:
+  - `gofmt -w cmd/anyns-management-key/main.go cmd/anyns-management-key/main_test.go` - PASS
+  - `GOCACHE=/tmp/anyns-go-build go test -buildvcs=false ./cmd/anyns-management-key` - PASS
+  - `GOCACHE=/tmp/anyns-go-build go test -buildvcs=false ./...` - PASS
+  - `GOCACHE=/tmp/anyns-go-build go vet -buildvcs=false ./...` - PASS
+  - `GOCACHE=/tmp/anyns-go-build go build -buildvcs=false ./cmd/anyns-admin-api ./cmd/anyns-plugin-runtime ./cmd/anyns-log-forwarder` - PASS
+  - `GOCACHE=/tmp/anyns-go-build bash tests/acceptance/check-local.sh` - PASS with runtime socket smoke SKIP: `listen tcp 127.0.0.1:18081: socket: operation not permitted`
+  - `rg -n "Stacks BNS|stacks-bns-api|Validated on|Latest pass on 2026-06-01 after adding the opt-in Stacks|Remaining Work" IMPLEMENTATION_STATUS.md` - PASS
+  - `rg -n "Stacks BNS|stacks-bns-api|22:23|Repeated Errors|Next Plan|Avoid Next Run" GIT_PROGRESS.md` - PASS
+  - `GOCACHE=/tmp/anyns-go-build go test -buildvcs=false ./internal/plugins/wave1 ./internal/config` - PASS after documentation updates
+- Latest Codex run at `2026-06-01 20:04 CST` reported these commands:
+  - `gofmt -w cmd/anyns-management-key/main.go cmd/anyns-management-key/main_test.go` - PASS
+  - `GOCACHE=/tmp/anyns-go-build go test -buildvcs=false ./cmd/anyns-management-key` - PASS
+  - `GOCACHE=/tmp/anyns-go-build go test -buildvcs=false ./...` - PASS
+  - `GOCACHE=/tmp/anyns-go-build go vet -buildvcs=false ./...` - PASS
+  - `GOCACHE=/tmp/anyns-go-build go build -buildvcs=false ./cmd/anyns-admin-api ./cmd/anyns-plugin-runtime ./cmd/anyns-log-forwarder` - PASS
+  - `GOCACHE=/tmp/anyns-go-build bash tests/acceptance/check-local.sh` - PASS with runtime socket smoke SKIP: `listen tcp 127.0.0.1:18081: socket: operation not permitted`
+- Latest Codex run at `2026-06-01 21:01 CST` reported these commands:
+  - `gofmt -w internal/config/config.go internal/config/config_test.go cmd/anyns-management-key/main.go` - PASS
+  - `GOCACHE=/tmp/anyns-go-build go test -buildvcs=false ./internal/config ./cmd/anyns-management-key` - PASS
+  - `GOCACHE=/tmp/anyns-go-build go run -buildvcs=false ./cmd/anyns-config-check configs/anyns/config.example.json` - PASS
+  - `GOCACHE=/tmp/anyns-go-build go test -buildvcs=false ./...` - PASS
+  - `GOCACHE=/tmp/anyns-go-build go vet -buildvcs=false ./...` - PASS
+  - `GOCACHE=/tmp/anyns-go-build go build -buildvcs=false ./cmd/anyns-admin-api ./cmd/anyns-plugin-runtime ./cmd/anyns-log-forwarder` - PASS
+  - `GOCACHE=/tmp/anyns-go-build bash tests/acceptance/check-local.sh` - PASS with runtime socket smoke SKIP: `listen tcp 127.0.0.1:18081: socket: operation not permitted`
+- Latest Codex run at `2026-06-01 21:10 CST` reported these commands:
+  - `gofmt -w internal/config/config.go internal/config/config_test.go internal/plugins/wave1/plugin.go internal/plugins/wave1/plugin_test.go internal/app/app.go` - PASS
+  - `GOCACHE=/tmp/anyns-go-build go test -buildvcs=false ./internal/plugins/wave1 ./internal/config ./internal/app` - PASS
+  - `GOCACHE=/tmp/anyns-go-build go run -buildvcs=false ./cmd/anyns-config-check configs/anyns/config.example.json` - PASS
+  - `GOCACHE=/tmp/anyns-go-build go test -buildvcs=false ./...` - PASS
+  - `GOCACHE=/tmp/anyns-go-build go vet -buildvcs=false ./...` - PASS
+  - `GOCACHE=/tmp/anyns-go-build go build -buildvcs=false ./cmd/anyns-admin-api ./cmd/anyns-plugin-runtime ./cmd/anyns-log-forwarder` - PASS
+  - `GOCACHE=/tmp/anyns-go-build bash tests/acceptance/check-local.sh` - PASS with runtime socket smoke SKIP: `listen tcp 127.0.0.1:18081: socket: operation not permitted`
+- Latest Codex run at `2026-06-01 21:46 CST` reported these commands:
+  - `gofmt -w internal/plugins/wave1/plugin.go internal/plugins/wave1/plugin_test.go internal/config/config.go internal/config/config_test.go` - PASS
+  - `GOCACHE=/tmp/anyns-go-build go test -buildvcs=false ./internal/plugins/wave1 ./internal/config` - PASS
+  - `GOCACHE=/tmp/anyns-go-build go run -buildvcs=false ./cmd/anyns-config-check configs/anyns/config.example.json` - PASS
+  - `GOCACHE=/tmp/anyns-go-build go test -buildvcs=false ./...` - PASS
+  - `GOCACHE=/tmp/anyns-go-build go vet -buildvcs=false ./...` - PASS
+  - `GOCACHE=/tmp/anyns-go-build go build -buildvcs=false ./cmd/anyns-admin-api ./cmd/anyns-plugin-runtime ./cmd/anyns-log-forwarder` - PASS
+  - `GOCACHE=/tmp/anyns-go-build bash tests/acceptance/check-local.sh` - PASS with runtime socket smoke SKIP: `listen tcp 127.0.0.1:18081: socket: operation not permitted`
+- Latest Codex run at `2026-06-01 22:23 CST` reported these commands:
+  - `find docs -maxdepth 2 -type f | sort` - PASS
+  - `sed -n '1,240p' CODEX_RUN_CONTEXT.md` - PASS
+  - `sed -n '1,260p' DEVELOPMENT_LESSONS.md` - PASS
+  - `sed -n ... docs/*.md REMOTE_CODEX_HANDOFF.md IMPLEMENTATION_STATUS.md GIT_PROGRESS.md` - PASS
+  - `sed -n '1,220p' internal/plugins/plugins.go` - FAIL: exploratory path did not exist; no retry loop, replaced with `rg` against `internal/plugins`
+  - `rg -n "type ResolveResult|func NewResult|NormalizeQName|MatchSuffix" internal/plugins` - PASS
+  - `gofmt -w internal/plugins/wave1/plugin.go internal/plugins/wave1/plugin_test.go internal/config/config.go internal/config/config_test.go` - PASS
+  - `GOCACHE=/tmp/anyns-go-build go test -buildvcs=false ./internal/plugins/wave1 ./internal/config` - PASS
+  - `GOCACHE=/tmp/anyns-go-build go run -buildvcs=false ./cmd/anyns-config-check configs/anyns/config.example.json` - PASS
+  - `GOCACHE=/tmp/anyns-go-build go test -buildvcs=false ./...` - PASS
+  - `GOCACHE=/tmp/anyns-go-build go vet -buildvcs=false ./...` - PASS
+  - `GOCACHE=/tmp/anyns-go-build go build -buildvcs=false ./cmd/anyns-admin-api ./cmd/anyns-plugin-runtime ./cmd/anyns-log-forwarder` - PASS
+  - `GOCACHE=/tmp/anyns-go-build bash tests/acceptance/check-local.sh` - PASS with runtime socket smoke SKIP: `listen tcp 127.0.0.1:18081: socket: operation not permitted`
+- `git status --short` was not rerun because the current run context already records the known repository metadata issue: `fatal: not a git repository (or any of the parent directories): .git`.
+- Runtime socket smoke is expected to SKIP in the current environment because listening on `127.0.0.1:18081` is denied with `socket: operation not permitted`.
+- `git status` is unavailable on the server, so this file is the current git/change explanation ledger.
+
+## Repeated Errors Observed
+
+- `socket_listen_denied` appeared once through `tests/acceptance/runtime-smoke.sh` in the `2026-06-04 08:46 CST` run and was handled by the existing acceptance SKIP path:
+  - `listen tcp 127.0.0.1:18081: socket: operation not permitted`
+- No targeted package failure occurred in the `2026-06-04 08:46 CST` run; `internal/dnslog`, `internal/httpapi`, `cmd/anyns-admin-api`, `cmd/anyns-plugin-runtime`, and `cmd/anyns-log-forwarder` passed before broad validation.
+- No broad Go test, vet, or build failure occurred in the `2026-06-04 08:46 CST` run.
+- `git_repo_unavailable` was not retried; the known state remains recorded in `CODEX_RUN_CONTEXT.md`.
+- No new recurring error pattern was observed in the `2026-06-04 08:46 CST` run.
+- `socket_listen_denied` appeared once through `tests/acceptance/runtime-smoke.sh` in the `2026-06-04 08:30 CST` run and was handled by the existing acceptance SKIP path:
+  - `listen tcp 127.0.0.1:18081: socket: operation not permitted`
+- No targeted package failure occurred in the `2026-06-04 08:30 CST` run; `internal/dnslog`, `internal/httpapi`, `cmd/anyns-admin-api`, `cmd/anyns-plugin-runtime`, and `cmd/anyns-log-forwarder` passed before broad validation.
+- No broad Go test, vet, or build failure occurred in the `2026-06-04 08:30 CST` run.
+- `git_repo_unavailable` was not retried; the known state remains recorded in `CODEX_RUN_CONTEXT.md`.
+- No new recurring error pattern was observed in the `2026-06-04 08:30 CST` run.
+- `socket_listen_denied` appeared once through `tests/acceptance/runtime-smoke.sh` and was handled by the existing acceptance SKIP path:
+  - `listen tcp 127.0.0.1:18081: socket: operation not permitted`
+- No targeted package failure occurred in the `2026-06-03 15:25 CST` run; `internal/httpapi`, `cmd/anyns-admin-api`, and `cmd/anyns-plugin-runtime` passed before broad validation.
+- No broad Go test, vet, or build failure occurred in the `2026-06-03 15:25 CST` run.
+- `git_repo_unavailable` was not retried; the known state remains recorded in `CODEX_RUN_CONTEXT.md`.
+- No new recurring error pattern was observed in the `2026-06-03 15:25 CST` run.
+- `socket_listen_denied` appeared once through `tests/acceptance/runtime-smoke.sh` and was handled by the existing acceptance SKIP path:
+  - `listen tcp 127.0.0.1:18081: socket: operation not permitted`
+- No targeted package failure occurred in the `2026-06-03 15:10 CST` run; the PowerDNS hook contract test passed before broad validation.
+- No broad Go test failure occurred in the `2026-06-03 15:10 CST` run.
+- `git_repo_unavailable` was not retried; the known state remains recorded in `CODEX_RUN_CONTEXT.md`.
+- No new recurring error pattern was observed in the `2026-06-03 15:10 CST` run.
+- A targeted `internal/pdnshook` test failed once after the Lua normalization edit because the string-contract assertions still expected the old snippets. The assertions were updated to the normalized `rcode` / `rr_name` contract and the targeted package passed before broad validation.
+- No broad Go test failure occurred in this run.
+- A final documentation readback `rg` failed once due shell backtick quoting; it was rerun without shell-special backticks and passed. This is a historical pattern already documented in this ledger, so no new lesson was added.
+- `git_repo_unavailable` was not retried; the known state remains recorded in `CODEX_RUN_CONTEXT.md`.
+- No new recurring error pattern was observed in this run.
+- Historical targeted `cmd/anyns-plugin-runtime` failure after the RCODE metric addition remains resolved; the correct fixture expectation is routed `NXDOMAIN`.
+- Historical one-off targeted `internal/plugins/wave1` failure from the ADA Handle run remains resolved; do not repeat the old fixture.
+- Historical one-off shell quoting errors from earlier final `rg` commands remain resolved by avoiding backticks in shell search patterns.
+- Historical `go_test_failure` appeared once in targeted config testing after the SPACE ID adapter change:
+  - `TestValidateAcceptsWave2RuntimeJSONSkeletons` failed because the test used `plugins.DefaultWave2Routes()` but omitted the `space-id` plugin fixture. The fixture was corrected and the targeted package passed before broad validation.
+- No broad command was retried after a targeted package failure.
+- No broad command was retried after a new failure.
+
+## Next Plan
+
+- First, read `CODEX_RUN_CONTEXT.md` and `DEVELOPMENT_LESSONS.md`; do not repeat checks already marked as environmental SKIP.
+- Exercise the PowerDNS Recursor Lua hook inside a real PowerDNS container and confirm Lua module availability (`socket.http`, `ltn12`, `cjson.safe`).
+- Run HNS `dns://` backend against a real hsd/hnsd DNS resolver, then verify end-to-end HNS resolution through PowerDNS Recursor.
+- Exercise honeypot background replay and Prometheus metrics against a real honeypot endpoint.
+- For no-socket work, extend production management key lifecycle automation only if a concrete external secret-store integration target is selected; file-backed secret references are now implemented.
+- Test the new Namecoin `.bit` JSON-RPC adapter against a live Namecoin Core node, then expand value mapping if real records expose additional shapes beyond `ip`, `ip6`, `ns`, `txt`/`info`, `alias`/`translate`, and `map`.
+- Test the new Unstoppable Domains Resolution Service adapter against a live API key and real domains, then expand record mapping if real records expose additional shapes beyond `dns.*`, `browser.redirect_url`, `ipfs.*`, and `crypto.*.address`.
+- Test the new Stacks BNS API adapter against a live Hiro/Stacks API and real `.btc` / `.stx` names, then expand mapping if real zonefiles expose additional BNSv2 shapes beyond the covered legacy zonefile and JSON profile/address fields.
+- Test the new ENS JSON-RPC adapter against a live Ethereum RPC endpoint and real `.eth` names, then expand mapping if live resolver responses require ENSIP-10 wildcard or CCIP-Read handling beyond direct resolver calls.
+- Test the new PulseChain PNS JSON-RPC adapter against a live PulseChain RPC endpoint, actual PNS registry address, and real `.pls` names, then expand mapping if live resolver responses require methods beyond direct resolver `addr`, `text`, and `contenthash` calls.
+- Test the new PNS-Polkadot REST adapter against the live PNS API and real `.dot` names, then expand record mapping if live responses expose additional record shapes beyond the currently covered address, wallet, website, IPFS/contenthash, social/text, and DNS-style fields.
+- Test the new SPACE ID Web3 Name API adapter against the live API and real `.bnb` / `.arb` names, then expand record mapping if live responses expose additional shapes beyond `getAddress` address resolution.
+- Test the new Tezos Domains GraphQL adapter against the live API and real `.tez` names, then expand record mapping if live responses expose additional domain data shapes beyond address, owner, profile/text, URL/content, and DNS-style keys.
+- Test the new Aptos Names REST adapter against the live API and real `.apt` names with a real API key, then expand record mapping if live responses expose additional fields beyond `address`.
+- Test the new Solana SNS QuickNode JSON-RPC adapter against a live QuickNode endpoint with the SNS marketplace plugin enabled and real `.sol` names, then expand record mapping if live responses expose additional shapes beyond `sns_resolveDomain` public-key resolution.
+- Test the new TON Center v3 DNS records adapter against the live API and real `.ton` names, then expand record mapping if live responses expose additional shapes beyond wallet, site ADNL, storage Bag ID, next resolver, and NFT metadata fields.
+- Test the new SuiNS JSON-RPC adapter against a live Sui fullnode and real `.sui` names, then expand record mapping if live responses expose additional shapes beyond `suix_resolveNameServiceAddress` address resolution.
+- Test the new FIO Chain API adapter against a live FIO API endpoint and real FIO Handles, then expand mapping if live responses expose multi-level addressing parameters beyond `public_address`.
+- Test the new Freename Resolution API adapter against live `rslvr.freename.io` responses and real Freename domains, then expand mapping if live responses expose additional token, redirect, profile, IPFS, or DNS-style record fields beyond the currently covered shapes.
+- Test the new RIF/RNS JSON-RPC adapter against a live RSK RPC endpoint, actual RNS registry address, and real `.rsk` names, then expand mapping if live resolver responses require methods beyond direct resolver `addr`, `text`, and `contenthash` calls.
+- Test the new OpenAlias DNS TXT adapter against live DNS TXT records or the selected production DNS-over-HTTP adapter, then expand parsing if real records expose additional standard or ecosystem-specific key-value fields beyond `recipient_address`, `recipient_name`, `tx_description`, `tx_amount`, `tx_payment_id`, `address_signature`, and `checksum`.
+- Test the new ADA Handle public API adapter against live `api.handle.me` responses and real Handles, then expand mapping if live responses expose additional Cardano address, personalization, or subHandle fields beyond the currently covered address/profile/image fields.
+- For no-socket P2 work, choose another Wave 3 skeleton only after selecting a stable upstream contract; start with a generic runtime-json adapter test if the upstream contract is unclear. Keep `.bit` conflict tests intact so d.id/.bit cannot silently override Namecoin `.bit`.
+- For no-socket runtime hardening, prefer small contract improvements on the existing PowerDNS/runtime path, with targeted package tests before broad validation.
+- For no-socket observability work, the next useful gap is a new metric family or runtime handler contract not already exposed by current DNSLog/honeypot summaries; source-plugin counts, RCODE counts, latency aggregates, top qname metrics, and honeypot replay retained/dropped counters are now implemented.
+- For no-socket audit API hardening, only extend `/api/v1/audit/events` further if adding a materially new query mode such as time-window filtering, partial qname matching, stable pagination cursors, or sort direction; bounded `limit` plus exact-match `source_plugin`, `risk_level`, `action`, `rcode`, `trace_id`, `client_ip`, `client_view`, `tenant`, `qname`, `qtype`, and `matched_rule` filters are now implemented.
+
+## Avoid Next Run
+
+- Do not repeatedly run socket-listening acceptance tests in the current sandbox; use no-socket handler tests or scripts that SKIP with a clear reason.
+- Do not repeatedly try Docker Compose integration unless Docker availability has changed.
+- Do not spend cycles repairing git metadata unless a task explicitly requires it; keep `GIT_PROGRESS.md` updated instead.
+- Do not rerun full `go test ./...` after every small edit if a targeted package test is failing. Fix the target package first, then run broad validation once.
+- Do not revisit whether admin-to-runtime proxying should be the deployment default; a prior run chose proxy mode for shipped sample deployments. Only revisit if a shared-store implementation is being designed.
+- Do not re-add management key rotation observability; `GET /api/v1/management/keys` now covers key metadata/status without exposing token material.
+- Do not re-add management key client CIDR binding; `management.keys[].allowed_client_cidrs` is loaded, validated, enforced, and redacted in key metadata responses.
+- Do not re-add fine-grained management endpoint scopes; plugin/cache/policy/audit/honeypot/management scopes are loaded, validated, enforced, and demonstrated in `configs/anyns/config.example.json`.
+- Do not re-add management RBAC role templates; `management.roles[]` and `management.keys[].roles[]` are loaded, validated, expanded during auth, and reported without token material.
+- Do not re-add management key lifecycle status metadata; `GET /api/v1/management/keys` now reports expiry countdowns, rotation due state, successor overlap, lifecycle actions, and the 168-hour warning window without exposing token material.
+- Do not re-add management key revocation or the config-file generation/revocation CLI; `management.keys[].revoked_at` is loaded, validated, enforced by auth, reported redacted, and covered by `cmd/anyns-management-key`.
+- Do not re-add single-target management-key CLI reload orchestration; `generate`, `revoke`, and `rotate` now support `--reload-url`, `--reload-api-key`, and `--reload-timeout`, with no-socket tests using an injected HTTP transport.
+- Do not re-add management-key CLI status planning; `anyns-management-key status` now queries `/api/v1/management/keys` with optional Bearer auth and reports only redacted lifecycle actions.
+- Do not re-add management-key CLI guarded rotation; `anyns-management-key rotate` now creates a validated successor from an existing key, supports live metadata guard checks, and can optionally reload the control plane.
+- Do not re-add multi-target management-key CLI reload orchestration; `generate`, `revoke`, and `rotate` now accept repeated `--reload-url` flags and report per-endpoint reload results.
+- Do not re-add file-backed secret references; plugin backend, honeypot, legacy management, and scoped management key secrets now support `*_file` fields with config-directory-relative resolution.
+- Do not re-add the Namecoin `.bit` JSON-RPC adapter or `plugins[].backend_type`; `namecoin-json-rpc` is loaded, validated, wired into app plugin construction, and covered with no-socket Wave 1 tests.
+- Do not re-add the Unstoppable Domains Resolution Service adapter; `unstoppable-resolution-api` is loaded, validated, wired through existing Wave 1 plugin construction, demonstrated in `configs/anyns/config.example.json`, and covered with no-socket Wave 1 tests.
+- Do not re-add the Stacks BNS API adapter; `stacks-bns-api` is loaded, validated, wired through existing Wave 1 plugin construction, demonstrated in `configs/anyns/config.example.json`, and covered with no-socket Wave 1 tests for legacy and JSON zonefile mapping plus 404-to-`NXDOMAIN`.
+- Do not re-add the ENS JSON-RPC adapter; `ens-json-rpc` is loaded, validated, wired through existing Wave 1 plugin construction, demonstrated in `configs/anyns/config.example.json`, and covered with no-socket Wave 1 tests for resolver lookup, wallet/text/contenthash mapping, no-resolver `NXDOMAIN`, and legacy Keccak namehash.
+- Do not re-add the PulseChain PNS JSON-RPC adapter; `pulsechain-pns-json-rpc` is loaded, validated, wired through existing Wave 1 plugin construction, demonstrated in `configs/anyns/config.example.json`, and covered with no-socket Wave 1 tests for explicit registry lookup, wallet/text/contenthash mapping, and missing/malformed/zero-registry `SERVFAIL`.
+- Do not re-add the PNS-Polkadot REST adapter; `pns-polkadot-api` is loaded, validated, wired through existing Wave 1 plugin construction, demonstrated in `configs/anyns/config.example.json`, and covered with no-socket Wave 1 tests for `/name/{name}` record mapping plus 404-to-`NXDOMAIN`.
+- Do not re-add the Wave 2 runtime-json skeleton registration for Solana SNS, SPACE ID, TON DNS, Tezos Domains, Aptos Names, or SuiNS; they are now registered, disabled by default, shown in sample config routes, and covered by app/config tests.
+- Do not re-add the SPACE ID Web3 Name API adapter; `space-id-api` is loaded, validated, wired through existing plugin construction, demonstrated in `configs/anyns/config.example.json`, and covered with no-socket tests for `getAddress` wallet mapping plus no-address-to-`NXDOMAIN`.
+- Do not re-add the Tezos Domains GraphQL adapter; `tezos-domains-api` is loaded, validated, wired through existing plugin construction, demonstrated in `configs/anyns/config.example.json`, and covered with no-socket tests for GraphQL wallet/profile/content/DNS-style mapping plus missing-domain-to-`NXDOMAIN` and GraphQL-error-to-`SERVFAIL`.
+- Do not re-add the Aptos Names REST adapter; `aptos-names-api` is loaded, validated, wired through existing plugin construction, demonstrated in `configs/anyns/config.example.json`, and covered with no-socket tests for `v3/address` wallet mapping plus not-found-to-`NXDOMAIN` and API-error-to-`SERVFAIL`.
+- Do not re-add the Solana SNS QuickNode adapter; `solana-sns-quicknode` is loaded, validated, wired through existing plugin construction, demonstrated in `configs/anyns/config.example.json`, and covered with no-socket tests for `sns_resolveDomain` wallet mapping plus empty-result-to-`NXDOMAIN` and JSON-RPC-error-to-`SERVFAIL`.
+- Do not re-add the TON Center v3 DNS records adapter; `toncenter-v3-dns` is loaded, validated, wired through existing plugin construction, demonstrated in `configs/anyns/config.example.json`, and covered with no-socket tests for TON wallet/site/storage/delegation/NFT metadata mapping plus empty-record-to-`NXDOMAIN` and API-error-to-`SERVFAIL`.
+- Do not re-add the SuiNS JSON-RPC adapter; `suins-json-rpc` is loaded, validated, wired through existing plugin construction, demonstrated in `configs/anyns/config.example.json`, and covered with no-socket tests for `suix_resolveNameServiceAddress` wallet mapping plus null-result-to-`NXDOMAIN` and JSON-RPC-error-to-`SERVFAIL`.
+- Do not re-add the Wave 3 runtime-json skeleton registration for Freename/FNS, RIF/RNS, FIO Handle, OpenAlias, ADA Handle, or d.id/.bit; they are registered, disabled by default, shown in sample config routes, accepted by config validation, and covered by app/router/config tests.
+- Do not re-add the FIO Chain API adapter; `fio-chain-api` is loaded, validated, wired through existing plugin construction, demonstrated in `configs/anyns/config.example.json`, and covered with no-socket tests for `/v1/chain/get_pub_address` wallet mapping plus not-found-to-`NXDOMAIN` and API-error-to-`SERVFAIL`.
+- Do not re-add the Freename Resolution API adapter; `freename-resolution-api` is loaded, validated, wired through existing plugin construction, demonstrated in `configs/anyns/config.example.json`, and covered with no-socket tests for `/domain/resolve?q=...` wallet/URI/TXT mapping plus empty-record-to-`NXDOMAIN` and backend-status-to-`SERVFAIL`.
+- Do not re-add the RIF/RNS JSON-RPC adapter; `rif-rns-json-rpc` is loaded, validated, wired through existing plugin construction, demonstrated in `configs/anyns/config.example.json`, and covered with no-socket tests for ENS-compatible registry lookup, wallet/text/contenthash mapping, and missing/malformed/zero-registry `SERVFAIL`.
+- Do not re-add the OpenAlias DNS TXT adapter; `openalias-dns-txt` is loaded, validated, wired through existing plugin construction, demonstrated in `configs/anyns/config.example.json`, and covered with no-socket tests for OpenAlias `oa1:` TXT parsing, `WALLET`/`TXT` mapping, no-record-to-`NXDOMAIN`, and backend-status-to-`SERVFAIL`.
+- Do not re-add the ADA Handle public API adapter; `ada-handle-api` is loaded, validated, wired through existing plugin construction, demonstrated in `configs/anyns/config.example.json`, and covered with no-socket tests for `/handles/{handle}` wallet/profile/image mapping, empty-response-to-`NXDOMAIN`, and backend-status-to-`SERVFAIL`.
+- Do not re-add route normalization for `client_view` / `tenant`; `internal/plugins` now normalizes these values for route matching and cache keys, with router test coverage.
+- Do not re-add DNSLog Prometheus source-plugin or top qname metrics; `anyns_dnslog_events_by_plugin` and `anyns_dnslog_top_qname_events` are emitted by the shared metrics writer and covered in `internal/observability` plus runtime `/metrics` tests.
+- Do not re-add DNSLog RCODE summaries or Prometheus metrics; `Summary.ByRCode` and `anyns_dnslog_events_by_rcode` are implemented and covered in `internal/dnslog`, `internal/observability`, and runtime handler tests.
+- Do not re-add DNSLog latency summaries or Prometheus metrics; `Summary.LatencyMS`, `Summary.LatencyByPlugin`, `anyns_dnslog_latency_average_ms`, `anyns_dnslog_latency_max_ms`, `anyns_dnslog_plugin_latency_average_ms`, and `anyns_dnslog_plugin_latency_max_ms` are implemented and covered in `internal/dnslog`, `internal/observability`, and runtime handler tests.
+- Do not re-add honeypot replay retained/dropped observability; `DeliveryStatus.Retained` / `DeliveryStatus.Dropped`, admin/log-forwarder status JSON, and `anyns_honeypot_replay_retained_total` / `anyns_honeypot_replay_dropped_total` are implemented and covered by no-socket tests.
+- Do not re-add PowerDNS Lua hook runtime RR type / RCODE normalization; `configs/pdns-recursor/recursor.lua` now uppercases `rr.type` and `result.rcode` before mapping, with `internal/pdnshook` contract coverage.
+- Do not re-add PowerDNS Lua hook runtime security status handling; `configs/pdns-recursor/recursor.lua` now accepts valid `ResolveResult` bodies on HTTP `403` and `429` while preserving ICANN fallback for no-route `404`, with `internal/pdnshook` contract coverage.
+- Do not re-add bounded audit event limits; `GET /api/v1/audit/events?limit=N` is implemented on admin, runtime, and log-forwarder with shared `1..1000` clamping and no-socket admin/runtime tests.
+- Do not re-add audit event filters for `source_plugin`, `risk_level`, `action`, or `rcode`; they are implemented on admin, runtime, and log-forwarder with shared store filtering and no-socket admin/runtime tests.
+- Do not re-add audit event filters for `trace_id`, `client_ip`, `client_view`, `tenant`, `qname`, `qtype`, or `matched_rule`; they are implemented on admin, runtime, and log-forwarder through the shared store/query parser and covered by no-socket store/parser/admin/runtime tests.
+
+<!-- AUTO:run-context:start -->
+Last automation scan: 2026-06-04T08:48:55+08:00
+
+- Latest run log: `/root/anyNS/codex-run-20260604-084330.log`
+- Git status: `unavailable`
+- Git detail: `fatal: not a git repository (or any of the parent directories): .git`
+
+Frequent errors to avoid next run:
+- `socket_listen_denied`: Prefer no-socket handler tests and acceptance scripts that SKIP cleanly in socket-restricted environments.
+- `quota_or_rate_limit`: Do not start broad new work when quota is exhausted. Let the systemd resume timer continue after the refresh time.
+- `generic_error_lines`: Inspect the nearest preceding command and add a targeted test or documented skip reason before retrying.
+- `git_repo_unavailable`: Use GIT_PROGRESS.md as the change/progress ledger until the repository metadata is repaired.
+- `config_validation_failure`: Run anyns-config-check and update configs/anyns/config.example.json together with config schema changes.
+<!-- AUTO:run-context:end -->

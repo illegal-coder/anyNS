@@ -1,0 +1,6 @@
+.:5353 {
+  errors
+  log
+  cache 30
+  forward . pdns-recursor:53
+}
