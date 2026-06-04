@@ -167,6 +167,13 @@ tools 'grep -q "\"rcode\":\"NOERROR\"" /tmp/runtime-sinkhole.json'
 tools 'grep -q "198.51.100.254" /tmp/runtime-sinkhole.json'
 tools 'grep -q "\"rule\":\"sinkhole-domain\"" /tmp/runtime-sinkhole.json'
 
+tools 'status=$(curl -sS -X POST -o /tmp/runtime-rebinding.json -w "%{http_code}" http://anyns-plugin-runtime:8081/api/v1/resolve -H "Content-Type: application/json" -d "{\"qname\":\"private.hns\",\"qtype\":\"A\",\"context\":{\"trace_id\":\"docker-rebinding\",\"client_ip\":\"192.0.2.60\",\"client_view\":\"default\",\"tenant\":\"default\"}}"); test "$status" = "403"'
+tools 'grep -q "\"rcode\":\"SERVFAIL\"" /tmp/runtime-rebinding.json'
+tools 'grep -q "\"rule\":\"dns-rebinding-private-address\"" /tmp/runtime-rebinding.json'
+tools '! grep -q "10.0.0.10" /tmp/runtime-rebinding.json'
+tools 'curl -fsS -H "'"$AUTH_HEADER"'" "http://anyns-plugin-runtime:8081/api/v1/audit/events?trace_id=docker-rebinding&source_plugin=hns&action=block&matched_rule=dns-rebinding-private-address&rcode=SERVFAIL" | tee /tmp/runtime-rebinding-audit.json'
+tools 'grep -q "private.hns" /tmp/runtime-rebinding-audit.json'
+
 tools 'status=$(curl -sS -X POST -o /tmp/runtime-reflection-rate-limit.json -w "%{http_code}" http://anyns-plugin-runtime:8081/api/v1/resolve -H "Content-Type: application/json" -d "{\"qname\":\"reflection.integration.test\",\"qtype\":\"ANY\",\"context\":{\"trace_id\":\"docker-reflection-rate-limit\",\"client_ip\":\"192.0.2.59\",\"client_view\":\"default\",\"tenant\":\"default\"}}"); test "$status" = "429"'
 tools 'grep -q "\"rcode\":\"SERVFAIL\"" /tmp/runtime-reflection-rate-limit.json'
 tools 'grep -q "\"rule\":\"reflection-amplification-rr\"" /tmp/runtime-reflection-rate-limit.json'

@@ -69,6 +69,9 @@ class Handler(BaseHTTPRequestHandler):
                 rr("wallet.hns.", "WALLET", "eth 0x1111111111111111111111111111111111111111"),
                 rr("wallet.hns.", "TYPE262", r"\# 23 036574682A307831313131313131313131313131313131313131313131313131313131313131313131"),
             ],
+            "private.hns.": [
+                rr("private.hns.", "A", "10.0.0.10"),
+            ],
         }.get(qname, [])
         if qtype not in ("ANY", "*"):
             records = [record for record in records if record["type"] == qtype]

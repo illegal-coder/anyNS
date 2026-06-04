@@ -417,13 +417,15 @@ This repository has moved from requirements-only documentation to a runnable fir
 - Extended the deterministic Docker DNS integration config and script with fixture-scoped management auth roles for read, policy-write, and cache-read/write operations. The Docker acceptance script now asserts unauthenticated/under-scoped rejection, redacted management-key metadata, admin/runtime policy reload audit events, admin-to-runtime proxied cache stats, cache flush, and cache-flush management audit visibility.
 - Extended the deterministic Docker DNS integration script with authenticated audit-summary assertions for admin, runtime, and log-forwarder. The script now checks unauthenticated `401` behavior plus aggregate management mutation, plugin, RCODE, and action totals after management, HNS, security, honeypot, and log-forwarder fixture events are generated.
 - Extended the deterministic Docker DNS integration script with authenticated audit time-window assertions for admin, runtime, and log-forwarder audit reads. The script now proves known fixture events are returned inside a broad inclusive RFC3339 `since` / `until` window and excluded when the requested window ends before the event.
+- Extended the deterministic Docker DNS integration fixture and script with a post-response DNS rebinding assertion. The HNS fixture now serves `private.hns A` as `10.0.0.10`, and the Docker acceptance script asserts the runtime returns HTTP `403`, a blocked `SERVFAIL` `ResolveResult`, no leaked private answer, `dns-rebinding-private-address`, and an authenticated audit event with `source_plugin=hns`.
 
 ## Latest Validation
 
-Validated on 2026-06-05 05:08 CST after adding Docker admin audit-summary assertions:
+Validated on 2026-06-05 05:14 CST after adding Docker DNS rebinding fixture assertions:
 
 ```bash
 bash -n tests/acceptance/docker-dns-integration.sh
+python3 -m py_compile tests/docker/fixtures/backend-fixtures.py
 GOCACHE=/tmp/anyns-go-build go run -buildvcs=false ./cmd/anyns-config-check tests/docker/anyns-config.json
 docker compose -f tests/docker/compose.dns-integration.yml config >/tmp/anyns-docker-compose-rendered.yml && wc -l /tmp/anyns-docker-compose-rendered.yml
 ANYNS_RUN_DOCKER_DNS_INTEGRATION=0 GOCACHE=/tmp/anyns-go-build bash tests/acceptance/docker-dns-integration.sh
@@ -438,11 +440,11 @@ date '+%Y-%m-%d %H:%M %Z'
 
 Results:
 
-- PASS: Docker acceptance shell syntax, Docker integration config validation, Docker Compose rendering, broad Go tests, broad Go vet, and service builds.
+- PASS: Docker acceptance shell syntax, Python fixture compilation, Docker integration config validation, Docker Compose rendering, broad Go tests, broad Go vet, and service builds.
 - SKIP: `tests/acceptance/docker-dns-integration.sh` runtime execution because the Docker daemon is unavailable in this session.
 - PASS with documented SKIP: `tests/acceptance/check-local.sh` completed while runtime socket smoke skipped because `listen tcp 127.0.0.1:18081` is denied in this sandbox.
 - No Go files changed, so no `gofmt` was needed.
-- Git commit was attempted once after validation and failed because `.git/index.lock` could not be created on a read-only filesystem. Latest committed hash remains `97edc5d`; the working tree contains this run's validated Docker admin audit-summary assertion, required ledger updates, and automation-maintained context/lesson updates.
+- Git commit was attempted once after validation and failed because `.git/index.lock` could not be created on a read-only filesystem. Latest committed hash remains `8b7feb7`; the working tree contains this run's validated Docker rebinding fixture assertion, required ledger updates, and automation-maintained context/lesson updates.
 - No new recurring error pattern was observed; `DEVELOPMENT_LESSONS.md` did not need a manual rule update.
 
 Validated on 2026-06-05 04:33 CST after adding Docker integration audit time-window assertions:
