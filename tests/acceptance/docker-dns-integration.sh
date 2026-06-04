@@ -47,15 +47,15 @@ tools() {
 tools 'apk add --no-cache bind-tools curl >/dev/null'
 
 for _ in $(seq 1 60); do
-  if tools 'curl -fsS http://anyns-plugin-runtime:8081/healthz >/dev/null && curl -fsS http://anyns-admin-api:8080/healthz >/dev/null' >/dev/null 2>&1; then
+  if tools 'curl -fsS http://anyns-plugin-runtime:8081/healthz >/dev/null && curl -fsS http://anyns-admin-api:8080/healthz >/dev/null && curl -fsS http://anyns-log-forwarder:8082/healthz >/dev/null' >/dev/null 2>&1; then
     break
   fi
   sleep 1
 done
 
-if ! tools 'curl -fsS http://anyns-plugin-runtime:8081/healthz >/dev/null && curl -fsS http://anyns-admin-api:8080/healthz >/dev/null'; then
-  echo "FAIL: anyns runtime/admin did not become healthy"
-  docker compose -p "$PROJECT" -f "$COMPOSE_FILE" logs --no-color anyns-plugin-runtime anyns-admin-api backend-fixtures pdns-recursor bind-latest || true
+if ! tools 'curl -fsS http://anyns-plugin-runtime:8081/healthz >/dev/null && curl -fsS http://anyns-admin-api:8080/healthz >/dev/null && curl -fsS http://anyns-log-forwarder:8082/healthz >/dev/null'; then
+  echo "FAIL: anyns runtime/admin/log-forwarder did not become healthy"
+  docker compose -p "$PROJECT" -f "$COMPOSE_FILE" logs --no-color anyns-plugin-runtime anyns-admin-api anyns-log-forwarder backend-fixtures pdns-recursor bind-latest || true
   exit 1
 fi
 
@@ -107,5 +107,14 @@ tools 'grep -q "\"rule\":\"sinkhole-domain\"" /tmp/runtime-sinkhole.json'
 
 tools 'curl -fsS http://anyns-plugin-runtime:8081/api/v1/audit/events?source_plugin=namecoin-bit | tee /tmp/runtime-namecoin-audit.json'
 tools 'grep -q "example.bit" /tmp/runtime-namecoin-audit.json'
+
+tools 'curl -fsS -X POST http://anyns-log-forwarder:8082/api/v1/dns-events -H "Content-Type: application/json" -d "{\"events\":[{\"trace_id\":\"docker-forwarder-event\",\"client_ip\":\"192.0.2.58\",\"client_view\":\"default\",\"tenant\":\"default\",\"qname\":\"forwarder.integration.test\",\"qtype\":\"TXT\",\"rcode\":\"NOERROR\",\"source_plugin\":\"security\",\"risk_level\":\"high\",\"action\":\"forward_to_honeypot\",\"matched_rule\":\"docker-forwarder-fixture\",\"latency_ms\":7}]}" | tee /tmp/log-forwarder-post.json'
+tools 'grep -q "\"accepted\":1" /tmp/log-forwarder-post.json'
+tools 'grep -q "\"forwarded\":false" /tmp/log-forwarder-post.json'
+tools 'curl -fsS "http://anyns-log-forwarder:8082/api/v1/audit/events?trace_id=docker-forwarder-event&source_plugin=security&action=forward_to_honeypot&matched_rule=docker-forwarder-fixture" | tee /tmp/log-forwarder-audit.json'
+tools 'grep -q "forwarder.integration.test" /tmp/log-forwarder-audit.json'
+tools 'curl -fsS http://anyns-log-forwarder:8082/metrics | tee /tmp/log-forwarder-metrics.txt'
+tools 'grep -q "anyns_dnslog_events_by_action{service=\"log-forwarder\",action=\"forward_to_honeypot\"} 1" /tmp/log-forwarder-metrics.txt'
+tools 'grep -q "anyns_honeypot_failed_queue_length{service=\"log-forwarder\"} 1" /tmp/log-forwarder-metrics.txt'
 
 echo "docker DNS integration passed"

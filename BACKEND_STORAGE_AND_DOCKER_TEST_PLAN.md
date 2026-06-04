@@ -51,6 +51,7 @@ Containers:
 
 - `anyns-plugin-runtime`: runtime API with fixture backend config.
 - `anyns-admin-api`: management API, admin-to-runtime proxy enabled.
+- `anyns-log-forwarder`: DNSLog ingestion and honeypot forwarding service, using the same deterministic failing honeypot fixture for queue/metrics assertions.
 - `pdns-recursor`: primary DNS path, Lua hook points to runtime.
 - `pdns-authoritative`: local authoritative test zones and modern RR examples.
 - `bind-latest`: ISC BIND 9.20 current-stable Docker image, used as a separate DNS client/recursive test component.
@@ -71,6 +72,7 @@ Minimum DNS assertions:
 - Security sinkhole returns configured sinkhole `A` / `AAAA`.
 - DNSLog records include source plugin, rcode, risk/action, client view, tenant, and matched rule.
 - Honeypot failed queue receives forwarded high-risk events when the fixture endpoint fails.
+- Log-forwarder accepts `POST /api/v1/dns-events`, exposes filtered audit events, and reports DNSLog/honeypot metrics after forwarding to the failing fixture endpoint.
 
 ## Immediate Implementation Tasks
 
@@ -84,7 +86,7 @@ Minimum DNS assertions:
    - runs DNS assertions from `dns-tools`,
    - collects logs on failure,
    - skips cleanly if Docker networking is unavailable.
-  - Current scripted assertions cover HNS success, strict HNS `NXDOMAIN`, PowerDNS-routed Namecoin `.bit`, runtime-routed Namecoin subdomain data, HNS `WALLET` and `TYPE262`, BIND-forwarded HNS, ICANN pass-through posture, admin-to-runtime proxy visibility, proxied admin plugin listing, runtime security denylist/sinkhole policy behavior, Namecoin audit events, and honeypot failed-queue metrics through the deterministic failing honeypot fixture.
+  - Current scripted assertions cover HNS success, strict HNS `NXDOMAIN`, PowerDNS-routed Namecoin `.bit`, runtime-routed Namecoin subdomain data, HNS `WALLET` and `TYPE262`, BIND-forwarded HNS, ICANN pass-through posture, admin-to-runtime proxy visibility, proxied admin plugin listing, runtime security denylist/sinkhole policy behavior, Namecoin audit events, runtime honeypot failed-queue metrics, and log-forwarder DNSLog ingestion/audit/metrics/failed-queue behavior through the deterministic failing honeypot fixture.
 6. Add HNS `hnsd` profile separately from deterministic fixture tests, because live P2P/SPV behavior can be slower and less deterministic.
 7. Continue Namecoin path in two phases:
    - done: deterministic Namecoin JSON-RPC fixture for current adapter,
