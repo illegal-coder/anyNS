@@ -94,6 +94,13 @@
         "scopes": [
           "policy:write"
         ]
+      },
+      {
+        "id": "docker-cache-operator",
+        "scopes": [
+          "cache:read",
+          "cache:write"
+        ]
       }
     ],
     "keys": [
@@ -106,6 +113,11 @@
         "id": "docker-integration-policy-writer",
         "api_key": "docker-policy-token",
         "roles": ["docker-policy-writer"]
+      },
+      {
+        "id": "docker-integration-cache-operator",
+        "api_key": "docker-cache-token",
+        "roles": ["docker-cache-operator"]
       }
     ]
   }
