@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/anyns/anyns/internal/app"
 	"github.com/anyns/anyns/internal/config"
@@ -262,12 +263,13 @@ func TestAuditEventsEndpointFiltersEvents(t *testing.T) {
 	if err != nil {
 		t.Fatalf("new app: %v", err)
 	}
-	application.DNSLog.Append(dnslog.Event{TraceID: "hns-allow", ClientIP: "192.0.2.10", ClientView: "default", Tenant: "default", QName: "one.hns.", QType: "A", RCode: "NOERROR", Action: "allow", RiskLevel: "none", SourcePlugin: "hns"})
-	application.DNSLog.Append(dnslog.Event{TraceID: "security-block", ClientIP: "192.0.2.11", ClientView: "adguard", Tenant: "prod", QName: "two.hns.", QType: "TXT", RCode: "SERVFAIL", Action: "block", RiskLevel: "high", SourcePlugin: "security", MatchedRule: "dns-tunnel-high-entropy"})
-	application.DNSLog.Append(dnslog.Event{TraceID: "security-log", ClientIP: "192.0.2.12", ClientView: "default", Tenant: "prod", QName: "three.hns.", QType: "AAAA", RCode: "NOERROR", Action: "log_only", RiskLevel: "medium", SourcePlugin: "security", MatchedRule: "dga-high-entropy"})
+	base := time.Date(2026, 6, 5, 1, 0, 0, 0, time.UTC)
+	application.DNSLog.Append(dnslog.Event{Timestamp: base, TraceID: "hns-allow", ClientIP: "192.0.2.10", ClientView: "default", Tenant: "default", QName: "one.hns.", QType: "A", RCode: "NOERROR", Action: "allow", RiskLevel: "none", SourcePlugin: "hns"})
+	application.DNSLog.Append(dnslog.Event{Timestamp: base.Add(time.Minute), TraceID: "security-block", ClientIP: "192.0.2.11", ClientView: "adguard", Tenant: "prod", QName: "two.hns.", QType: "TXT", RCode: "SERVFAIL", Action: "block", RiskLevel: "high", SourcePlugin: "security", MatchedRule: "dns-tunnel-high-entropy"})
+	application.DNSLog.Append(dnslog.Event{Timestamp: base.Add(2 * time.Minute), TraceID: "security-log", ClientIP: "192.0.2.12", ClientView: "default", Tenant: "prod", QName: "three.hns.", QType: "AAAA", RCode: "NOERROR", Action: "log_only", RiskLevel: "medium", SourcePlugin: "security", MatchedRule: "dga-high-entropy"})
 	mux := newAdminMux(application, cfg)
 
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/audit/events?trace_id=security-block&client_ip=192.0.2.11&client_view=adguard&tenant=prod&qname=two.hns.&qtype=TXT&source_plugin=security&risk_level=high&action=block&matched_rule=dns-tunnel-high-entropy&rcode=SERVFAIL", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/audit/events?trace_id=security-block&client_ip=192.0.2.11&client_view=adguard&tenant=prod&qname=two.hns.&qtype=TXT&source_plugin=security&risk_level=high&action=block&matched_rule=dns-tunnel-high-entropy&rcode=SERVFAIL&since="+base.Add(time.Minute).Format(time.RFC3339)+"&until="+base.Add(time.Minute).Format(time.RFC3339), nil)
 	rec := httptest.NewRecorder()
 	mux.ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK {

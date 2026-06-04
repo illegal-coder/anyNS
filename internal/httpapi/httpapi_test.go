@@ -34,7 +34,9 @@ func TestQueryIntBounded(t *testing.T) {
 }
 
 func TestAuditEventFilterFromQuery(t *testing.T) {
-	req := httptest.NewRequest(http.MethodGet, "/audit?trace_id=trace-1&client_ip=192.0.2.10&client_view=adguard&tenant=prod&qname=example.hns.&qtype=TXT&source_plugin=security&risk_level=high&action=block&matched_rule=dns-tunnel-high-entropy&rcode=SERVFAIL", nil)
+	since := time.Date(2026, 6, 5, 1, 2, 3, 0, time.UTC)
+	until := since.Add(time.Hour)
+	req := httptest.NewRequest(http.MethodGet, "/audit?trace_id=trace-1&client_ip=192.0.2.10&client_view=adguard&tenant=prod&qname=example.hns.&qtype=TXT&source_plugin=security&risk_level=high&action=block&matched_rule=dns-tunnel-high-entropy&rcode=SERVFAIL&since="+since.Format(time.RFC3339)+"&until="+until.Format(time.RFC3339), nil)
 
 	filter := AuditEventFilterFromQuery(req)
 	want := dnslog.EventFilter{
@@ -49,9 +51,20 @@ func TestAuditEventFilterFromQuery(t *testing.T) {
 		Action:       "block",
 		MatchedRule:  "dns-tunnel-high-entropy",
 		RCode:        "SERVFAIL",
+		Since:        since,
+		Until:        until,
 	}
 	if filter != want {
 		t.Fatalf("filter = %#v, want %#v", filter, want)
+	}
+}
+
+func TestAuditEventFilterFromQueryIgnoresInvalidTimeWindow(t *testing.T) {
+	req := httptest.NewRequest(http.MethodGet, "/audit?since=nope&until=also-nope", nil)
+
+	filter := AuditEventFilterFromQuery(req)
+	if !filter.Since.IsZero() || !filter.Until.IsZero() {
+		t.Fatalf("filter should ignore invalid timestamps, got %#v", filter)
 	}
 }
 

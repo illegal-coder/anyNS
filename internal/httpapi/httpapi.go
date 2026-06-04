@@ -83,7 +83,21 @@ func AuditEventFilterFromQuery(r *http.Request) dnslog.EventFilter {
 		Action:       strings.TrimSpace(query.Get("action")),
 		MatchedRule:  strings.TrimSpace(query.Get("matched_rule")),
 		RCode:        strings.TrimSpace(query.Get("rcode")),
+		Since:        queryTime(query.Get("since")),
+		Until:        queryTime(query.Get("until")),
 	}
+}
+
+func queryTime(value string) time.Time {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return time.Time{}
+	}
+	parsed, err := time.Parse(time.RFC3339, value)
+	if err != nil {
+		return time.Time{}
+	}
+	return parsed
 }
 
 func Authorized(r *http.Request, cfg config.Config) bool {

@@ -47,6 +47,8 @@ type EventFilter struct {
 	Action       string
 	MatchedRule  string
 	RCode        string
+	Since        time.Time
+	Until        time.Time
 }
 
 type Summary struct {
@@ -135,6 +137,12 @@ func (s *Store) ListFiltered(filter EventFilter, limit int) []Event {
 }
 
 func (f EventFilter) Matches(event Event) bool {
+	if !f.Since.IsZero() && event.Timestamp.Before(f.Since) {
+		return false
+	}
+	if !f.Until.IsZero() && event.Timestamp.After(f.Until) {
+		return false
+	}
 	if f.TraceID != "" && event.TraceID != f.TraceID {
 		return false
 	}

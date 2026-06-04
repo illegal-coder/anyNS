@@ -153,6 +153,7 @@ This repository has moved from requirements-only documentation to a runnable fir
 - `GET /api/v1/audit/events` now accepts a bounded `limit` query parameter on `anyns-admin-api`, `anyns-plugin-runtime`, and `anyns-log-forwarder`. The default remains 100 events, invalid values fall back safely, and responses are clamped to `1..1000` events to keep audit reads predictable.
 - `GET /api/v1/audit/events` now accepts exact-match filters for `source_plugin`, `risk_level`, `action`, and `rcode` on `anyns-admin-api`, `anyns-plugin-runtime`, and `anyns-log-forwarder`. Filters are applied before the bounded newest-event limit, making retained DNSLog investigations narrower without opening sockets.
 - `GET /api/v1/audit/events` now also accepts exact-match filters for `trace_id`, `client_ip`, `client_view`, `tenant`, `qname`, `qtype`, and `matched_rule` across `anyns-admin-api`, `anyns-plugin-runtime`, and `anyns-log-forwarder`. These filters use the same shared store and HTTP parser as the existing audit filters, and are covered by no-socket store/parser/admin/runtime tests.
+- `GET /api/v1/audit/events` now accepts inclusive RFC3339 time-window filters with `since` and `until` across the shared admin/runtime/log-forwarder audit path. Invalid timestamp query values are ignored safely, filters are applied before the bounded newest-event limit, and no-socket store/parser/admin/runtime tests cover the contract.
 
 ### Wave 1 Plugin Skeletons
 
@@ -417,6 +418,27 @@ This repository has moved from requirements-only documentation to a runnable fir
 - Extended the deterministic Docker DNS integration script with authenticated audit-summary assertions for the runtime and log-forwarder. The script now checks unauthenticated `401` behavior plus aggregate `by_plugin`, `by_rcode`, and action totals after HNS, security, honeypot, and log-forwarder fixture events are generated.
 
 ## Latest Validation
+
+Validated on 2026-06-05 03:57 CST after adding audit event `since` / `until` time-window filters:
+
+```bash
+gofmt -w internal/dnslog/dnslog.go internal/dnslog/dnslog_test.go internal/httpapi/httpapi.go internal/httpapi/httpapi_test.go cmd/anyns-admin-api/main_test.go cmd/anyns-plugin-runtime/main_test.go
+GOCACHE=/tmp/anyns-go-build go test -buildvcs=false ./internal/dnslog ./internal/httpapi ./cmd/anyns-admin-api ./cmd/anyns-plugin-runtime
+GOCACHE=/tmp/anyns-go-build go test -buildvcs=false ./...
+GOCACHE=/tmp/anyns-go-build go vet -buildvcs=false ./...
+GOCACHE=/tmp/anyns-go-build go build -buildvcs=false ./cmd/anyns-admin-api ./cmd/anyns-plugin-runtime ./cmd/anyns-log-forwarder
+GOCACHE=/tmp/anyns-go-build bash tests/acceptance/check-local.sh
+ANYNS_RUN_DOCKER_DNS_INTEGRATION=0 GOCACHE=/tmp/anyns-go-build bash tests/acceptance/docker-dns-integration.sh
+date '+%Y-%m-%d %H:%M %Z'
+```
+
+Results:
+
+- PASS: `gofmt`, targeted audit filter tests, broad Go tests, broad Go vet, and service builds.
+- PASS with documented SKIP: `tests/acceptance/check-local.sh` completed while runtime socket smoke skipped because `listen tcp 127.0.0.1:18081` is denied in this sandbox.
+- SKIP: `tests/acceptance/docker-dns-integration.sh` runtime execution because the Docker daemon is unavailable in this session.
+- Git commit was attempted once after validation and failed because `.git/index.lock` could not be created on a read-only filesystem. Latest committed hash remains `5fd9e35`; the working tree contains this run's validated audit time-window filter changes, required ledger updates, and generated context/lesson updates.
+- No new recurring error pattern was observed; `DEVELOPMENT_LESSONS.md` did not need a manual rule update.
 
 Validated on 2026-06-05 03:22 CST after adding Docker integration audit-summary assertions:
 
