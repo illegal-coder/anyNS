@@ -1,0 +1,66 @@
+name: anyns-hnsd-integration
+
+services:
+  anyns-plugin-runtime:
+    build:
+      context: ../..
+    image: anyns/runtime:integration
+    environment:
+      ANYNS_CONFIG_FILE: /etc/anyns/config.json
+      ANYNS_RUNTIME_ADDR: :8081
+    volumes:
+      - ./anyns-hnsd-config.json:/etc/anyns/config.json:ro
+    depends_on:
+      - hnsd
+    networks:
+      dnsnet:
+        aliases:
+          - anyns-plugin-runtime
+
+  pdns-recursor:
+    image: powerdns/pdns-recursor-51:5.1.3
+    command: ["--config-dir=/etc/powerdns"]
+    environment:
+      ANYNS_RUNTIME_ENDPOINT: http://anyns-plugin-runtime:8081/api/v1/resolve
+      ANYNS_CLIENT_VIEW: default
+      ANYNS_TENANT: default
+      ANYNS_POLICY_TAGS: hnsd-integration
+    volumes:
+      - ../../configs/pdns-recursor:/etc/powerdns:ro
+    depends_on:
+      - anyns-plugin-runtime
+    networks:
+      dnsnet:
+        aliases:
+          - pdns-recursor
+
+  bind-latest:
+    image: ${BIND_IMAGE:-internetsystemsconsortium/bind9:9.20}
+    command: ["-g", "-c", "/etc/bind/named.conf"]
+    volumes:
+      - ./bind/named.conf:/etc/bind/named.conf:ro
+    depends_on:
+      - pdns-recursor
+    networks:
+      dnsnet:
+        aliases:
+          - bind-latest
+
+  hnsd:
+    image: ${HNSD_IMAGE:-bcrd/handshake-hnsd:latest}
+    networks:
+      dnsnet:
+        aliases:
+          - hnsd
+
+  dns-tools:
+    image: alpine:3.20
+    command: ["sleep", "infinity"]
+    depends_on:
+      - bind-latest
+    networks:
+      - dnsnet
+
+networks:
+  dnsnet:
+    driver: bridge

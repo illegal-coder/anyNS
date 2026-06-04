@@ -1528,7 +1528,7 @@ listen tcp 127.0.0.1:18081: socket: operation not permitted
 ## Remaining Work
 
 - Exercise the PowerDNS Recursor Lua hook inside a real PowerDNS container and confirm installed Lua modules (`socket.http`, `ltn12`, `cjson.safe`) in the target image; the hook falls back to ICANN recursion if they are missing.
-- Run the HNS `dns://` backend against a real hsd/hnsd DNS resolver and then run end-to-end HNS resolution through PowerDNS Recursor.
+- Run the HNS `dns://` backend against a real hsd/hnsd DNS resolver and then run end-to-end HNS resolution through PowerDNS Recursor. The separate Docker topology/config/script now exists, but live execution still needs Docker daemon access and opt-in P2P/SPV runtime.
 - Confirm HNS `dns://` UDP truncation and DNS-over-TCP retry behavior against a real hsd/hnsd DNS resolver or resolver front end that can return TC=1 responses.
 - Exercise honeypot background replay and exported Prometheus metrics against a real honeypot endpoint.
 - Revisit a shared control-plane store only if multi-admin or multi-runtime deployments need coordinated state beyond the current deployment-default admin-to-runtime proxy mode.
@@ -1550,7 +1550,7 @@ listen tcp 127.0.0.1:18081: socket: operation not permitted
 - Test the new OpenAlias DNS TXT adapter against live DNS TXT records or the selected production DNS-over-HTTP adapter, then expand parsing if real records expose additional standard or ecosystem-specific key-value fields beyond `recipient_address`, `recipient_name`, `tx_description`, `tx_amount`, `tx_payment_id`, `address_signature`, and `checksum`.
 - Test the new ADA Handle public API adapter against live `api.handle.me` responses and real Handles, then expand record mapping if live responses expose additional Cardano address, personalization, or subHandle fields beyond the currently covered address/profile/image fields.
 - Run the expanded Docker DNS integration fixture stack end to end once Docker daemon access is available.
-- Add HNS `hnsd` / `dns://` Docker profile separately from deterministic fixture tests.
+- Run the new HNS `hnsd` / `dns://` Docker topology end to end with `ANYNS_RUN_DOCKER_HNSD_INTEGRATION=1` once Docker daemon access is available.
 - Run the authenticated Docker DNS integration assertions, including policy reload coverage, end to end once Docker daemon access is available.
 
 Latest pass on 2026-06-05 after adding Docker reflection rate-limit assertions:
@@ -1577,4 +1577,33 @@ Git note:
 
 ```text
 git add tests/acceptance/docker-dns-integration.sh BACKEND_STORAGE_AND_DOCKER_TEST_PLAN.md IMPLEMENTATION_STATUS.md GIT_PROGRESS.md && git commit -m "test: add docker reflection rate-limit assertion"   FAIL; Git could not create .git/index.lock because the repository metadata is read-only. Latest committed hash remains 02336ab.
+```
+
+Latest pass on 2026-06-05 after adding the opt-in HNS hnsd Docker topology:
+
+```text
+gofmt -w internal/plugins/hns/dns_backend.go internal/plugins/hns/plugin_test.go   PASS
+bash -n tests/acceptance/docker-hnsd-integration.sh   PASS
+GOCACHE=/tmp/anyns-go-build go run -buildvcs=false ./cmd/anyns-config-check tests/docker/anyns-hnsd-config.json   PASS; output reported plugins:1, routes:1, security_enabled:true, and honeypot_url_configured:false
+docker compose -f tests/docker/compose.hnsd.yml config >/tmp/anyns-hnsd-compose-rendered.yml && wc -l /tmp/anyns-hnsd-compose-rendered.yml   PASS; rendered 91 lines
+ANYNS_RUN_DOCKER_HNSD_INTEGRATION=0 GOCACHE=/tmp/anyns-go-build bash tests/acceptance/docker-hnsd-integration.sh   SKIP; Docker daemon is not available
+GOCACHE=/tmp/anyns-go-build go test -buildvcs=false ./internal/plugins/hns   PASS
+GOCACHE=/tmp/anyns-go-build go test -buildvcs=false ./...   PASS
+GOCACHE=/tmp/anyns-go-build go vet -buildvcs=false ./...   PASS
+GOCACHE=/tmp/anyns-go-build go build -buildvcs=false ./cmd/anyns-admin-api ./cmd/anyns-plugin-runtime ./cmd/anyns-log-forwarder   PASS
+GOCACHE=/tmp/anyns-go-build bash tests/acceptance/check-local.sh   PASS with runtime socket smoke SKIP: listen tcp 127.0.0.1:18081: socket: operation not permitted
+```
+
+New HNS live-backend preparation in this pass:
+
+```text
+The HNS dns:// backend now strips the anyNS routing suffix .hns/.hsd before querying hnsd-style alternate-root DNS resolvers, restores returned RR owner names to the original routed qname, and records raw_record.backend_query_name for audit/debugging.
+tests/docker/anyns-hnsd-config.json, tests/docker/compose.hnsd.yml, and tests/acceptance/docker-hnsd-integration.sh add an opt-in hnsd topology separate from the deterministic fixture stack.
+Live hnsd execution was not attempted because the Docker daemon is unavailable in this environment; the new script defaults to config/render validation unless ANYNS_RUN_DOCKER_HNSD_INTEGRATION=1 is set.
+```
+
+Git note:
+
+```text
+git add internal/plugins/hns/dns_backend.go internal/plugins/hns/plugin_test.go tests/acceptance/docker-hnsd-integration.sh tests/docker/anyns-hnsd-config.json tests/docker/compose.hnsd.yml BACKEND_STORAGE_AND_DOCKER_TEST_PLAN.md IMPLEMENTATION_STATUS.md GIT_PROGRESS.md && git commit -m "test: add hnsd docker integration topology"   FAIL; Git could not create .git/index.lock because the repository metadata is read-only. Latest committed hash remains 5abec9e.
 ```

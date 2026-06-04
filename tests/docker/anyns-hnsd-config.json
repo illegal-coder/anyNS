@@ -1,0 +1,39 @@
+{
+  "runtime_addr": ":8081",
+  "request_timeout": "5s",
+  "plugins": [
+    {
+      "name": "hns",
+      "enabled": true,
+      "backend_url": "dns://hnsd:53",
+      "request_timeout": "5s"
+    }
+  ],
+  "routes": [
+    {
+      "name": "hns-live-dns",
+      "suffixes": [".hns", ".hsd"],
+      "client_views": ["default"],
+      "tenants": ["default"],
+      "plugin": "hns",
+      "priority": 100,
+      "fallback": "nxdomain"
+    }
+  ],
+  "security": {
+    "enabled": true,
+    "abnormal_rr_action": "log_only",
+    "reflection_amplification_action": "rate_limit"
+  },
+  "dnslog": {
+    "limit": 500,
+    "path": "/tmp/anyns-hnsd-dnslog.jsonl"
+  },
+  "honeypot": {
+    "failed_queue_path": "/tmp/anyns-hnsd-honeypot-failed.jsonl",
+    "failed_queue_max_entries": 100,
+    "retry_interval": "30s",
+    "max_attempts": 3,
+    "request_timeout": "2s"
+  }
+}

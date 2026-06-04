@@ -45,7 +45,9 @@ Conclusion: the server has enough space for source, test images, and lightweight
 
 ## Docker Network Test Topology
 
-Target compose file: `tests/docker/compose.dns-integration.yml`
+Primary deterministic compose file: `tests/docker/compose.dns-integration.yml`
+
+Separate live/minimal HNS compose file: `tests/docker/compose.hnsd.yml`
 
 Containers:
 
@@ -78,6 +80,13 @@ Minimum DNS assertions:
 - Log-forwarder accepts `POST /api/v1/dns-events`, exposes filtered audit events, and reports DNSLog/honeypot metrics after forwarding to the failing fixture endpoint.
 - Management endpoints reject unauthenticated admin/runtime/log-forwarder audit/control reads, accept integration-only scoped Bearer tokens without exposing token material in management key metadata, require a separate policy-writer token for admin/runtime policy reload, and require a separate cache operator token for proxied cache stats/flush.
 
+HNS live/minimal backend assertions:
+
+- `tests/docker/anyns-hnsd-config.json` points the HNS plugin at `dns://hnsd:53` without changing the deterministic fixture config.
+- `tests/docker/compose.hnsd.yml` runs `anyns-plugin-runtime`, PowerDNS Recursor, BIND 9.20, `dns-tools`, and a lightweight `hnsd` image on an isolated Docker network.
+- `tests/acceptance/docker-hnsd-integration.sh` validates compose rendering and anyNS config by default. Live hnsd execution is opt-in with `ANYNS_RUN_DOCKER_HNSD_INTEGRATION=1` because P2P/SPV bootstrap timing is slower and less deterministic than the fixture stack.
+- The HNS `dns://` backend strips the anyNS routing suffix `.hns` / `.hsd` before sending the DNS wire query to hnsd-style alternate-root resolvers, then restores returned RR owner names to the original routed qname for the runtime/PowerDNS contract.
+
 ## Immediate Implementation Tasks
 
 1. Done: add `tests/docker/compose.dns-integration.yml` with isolated Docker network and no host port conflicts by default.
@@ -91,7 +100,7 @@ Minimum DNS assertions:
    - collects logs on failure,
    - skips cleanly if Docker networking is unavailable.
   - Current scripted assertions cover HNS success, strict HNS `NXDOMAIN`, PowerDNS-routed Namecoin `.bit`, runtime-routed Namecoin subdomain data, HNS `WALLET` and `TYPE262`, BIND-forwarded HNS, ICANN pass-through posture, authenticated admin-to-runtime proxy visibility, authenticated proxied admin plugin listing, redacted management-key metadata, admin/runtime policy reload authz plus management audit visibility, proxied admin cache stats/flush authz plus management audit visibility, admin/runtime/log-forwarder audit time-window filtering, runtime security denylist/sinkhole/reflection-rate-limit policy behavior, authenticated Namecoin audit reads, runtime audit-summary aggregates, runtime honeypot failed-queue metrics, and log-forwarder DNSLog ingestion/authenticated audit/authenticated audit-summary/authenticated honeypot-status/metrics/failed-queue behavior through the deterministic failing honeypot fixture.
-6. Add HNS `hnsd` profile separately from deterministic fixture tests, because live P2P/SPV behavior can be slower and less deterministic.
+6. Done: add HNS `hnsd` topology separately from deterministic fixture tests, because live P2P/SPV behavior can be slower and less deterministic. Runtime execution remains opt-in through `ANYNS_RUN_DOCKER_HNSD_INTEGRATION=1`.
 7. Continue Namecoin path in two phases:
    - done: deterministic Namecoin JSON-RPC fixture for current adapter,
    - optional `ncdns`/Electrum-NMC or Namecoin Core integration after storage and setup cost is measured.

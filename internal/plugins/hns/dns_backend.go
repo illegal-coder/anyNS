@@ -72,7 +72,9 @@ func (p *Plugin) resolveDNSBackend(ctx context.Context, req plugins.ResolveReque
 	}
 	callCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
-	packet, id, err := buildDNSQuery(plugins.NormalizeQName(req.QName), qcode)
+	originalName := plugins.NormalizeQName(req.QName)
+	queryName := hnsDNSBackendQName(originalName)
+	packet, id, err := buildDNSQuery(queryName, qcode)
 	if err != nil {
 		return serviceFailure("dns_query_build_failed", started), err
 	}
@@ -84,9 +86,12 @@ func (p *Plugin) resolveDNSBackend(ctx context.Context, req plugins.ResolveReque
 	if err != nil {
 		return serviceFailure("dns_backend_exchange_failed", started), err
 	}
-	result, err := parseDNSResponse(response, id, plugins.NormalizeQName(req.QName), started)
+	result, err := parseDNSResponse(response, id, queryName, started)
 	if err != nil {
 		return serviceFailure("dns_backend_decode_failed", started), err
+	}
+	for i := range result.RRSet {
+		result.RRSet[i].Name = restoreHNSDNSAnswerName(result.RRSet[i].Name, queryName, originalName)
 	}
 	result.SourcePlugin = p.Name()
 	if result.RawRecord == nil {
@@ -95,12 +100,42 @@ func (p *Plugin) resolveDNSBackend(ctx context.Context, req plugins.ResolveReque
 	result.RawRecord["backend"] = "hns-dns"
 	result.RawRecord["backend_addr"] = address
 	result.RawRecord["backend_transport"] = transport
+	result.RawRecord["backend_query_name"] = queryName
 	if result.AuditMetadata == nil {
 		result.AuditMetadata = map[string]any{}
 	}
 	result.AuditMetadata["backend_url"] = backendURL
 	result.LatencyMS = time.Since(started).Milliseconds()
 	return result, nil
+}
+
+func hnsDNSBackendQName(qname string) string {
+	normalized := plugins.NormalizeQName(qname)
+	for _, suffix := range []string{".hns.", ".hsd."} {
+		if strings.HasSuffix(normalized, suffix) && len(normalized) > len(suffix) {
+			return strings.TrimSuffix(normalized, suffix) + "."
+		}
+	}
+	return normalized
+}
+
+func restoreHNSDNSAnswerName(answerName, backendQName, originalQName string) string {
+	answer := plugins.NormalizeQName(answerName)
+	backend := plugins.NormalizeQName(backendQName)
+	original := plugins.NormalizeQName(originalQName)
+	if answer == backend {
+		return original
+	}
+	backendBase := strings.TrimSuffix(backend, ".")
+	if backendBase == "" {
+		return answer
+	}
+	backendSuffix := "." + backendBase + "."
+	if strings.HasSuffix(answer, backendSuffix) {
+		prefix := strings.TrimSuffix(answer, backendSuffix)
+		return prefix + "." + strings.TrimSuffix(original, ".") + "."
+	}
+	return answer
 }
 
 func exchangeDNS(ctx context.Context, address string, packet []byte, wantID uint16) ([]byte, string, error) {

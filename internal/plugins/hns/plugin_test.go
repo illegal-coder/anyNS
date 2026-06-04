@@ -148,6 +148,23 @@ func TestDNSBackendAddressDefaultsPort(t *testing.T) {
 	}
 }
 
+func TestDNSBackendQNameTranslation(t *testing.T) {
+	tests := map[string]string{
+		"example.hns":      "example.",
+		"www.example.hns.": "www.example.",
+		"example.hsd":      "example.",
+		"example":          "example.",
+	}
+	for input, want := range tests {
+		if got := hnsDNSBackendQName(input); got != want {
+			t.Fatalf("hnsDNSBackendQName(%q) = %q, want %q", input, got, want)
+		}
+	}
+	if got := restoreHNSDNSAnswerName("www.example.", "example.", "example.hns."); got != "www.example.hns." {
+		t.Fatalf("restored answer = %q", got)
+	}
+}
+
 func TestDNSBackendFallsBackToTCPOnTruncatedUDP(t *testing.T) {
 	plugin := New()
 	calls := []string{}
@@ -160,7 +177,7 @@ func TestDNSBackendFallsBackToTCPOnTruncatedUDP(t *testing.T) {
 			return exchangeDNSWith(ctx, address, packet, wantID,
 				func(_ context.Context, _ string, _ []byte) ([]byte, error) {
 					calls = append(calls, "udp")
-					truncated := dnsResponsePacket(t, wantID, "example.hns.", nil)
+					truncated := dnsResponsePacket(t, wantID, "example.", nil)
 					truncated[2] = truncated[2] | 0x02
 					if !dnsResponseTruncated(truncated, wantID) {
 						t.Fatalf("expected truncated helper to detect TC bit")
@@ -169,8 +186,8 @@ func TestDNSBackendFallsBackToTCPOnTruncatedUDP(t *testing.T) {
 				},
 				func(_ context.Context, _ string, _ []byte) ([]byte, error) {
 					calls = append(calls, "tcp")
-					return dnsResponsePacket(t, wantID, "example.hns.", []dnsAnswer{
-						{name: "example.hns.", typ: 1, ttl: 90, rdata: []byte{198, 51, 100, 42}},
+					return dnsResponsePacket(t, wantID, "example.", []dnsAnswer{
+						{name: "example.", typ: 1, ttl: 90, rdata: []byte{198, 51, 100, 42}},
 					}), nil
 				},
 			)
@@ -187,7 +204,13 @@ func TestDNSBackendFallsBackToTCPOnTruncatedUDP(t *testing.T) {
 	if result.RRSet[0].Value != "198.51.100.42" {
 		t.Fatalf("rrset = %#v", result.RRSet)
 	}
+	if result.RRSet[0].Name != "example.hns." {
+		t.Fatalf("rr name = %q", result.RRSet[0].Name)
+	}
 	if result.RawRecord["backend_transport"] != "tcp" {
+		t.Fatalf("raw record = %#v", result.RawRecord)
+	}
+	if result.RawRecord["backend_query_name"] != "example." {
 		t.Fatalf("raw record = %#v", result.RawRecord)
 	}
 	if strings.Join(calls, ",") != "udp,tcp" {
