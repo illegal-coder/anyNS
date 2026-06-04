@@ -17,6 +17,13 @@
       "backend_type": "namecoin-json-rpc",
       "backend_url": "http://backend-fixtures:8090/namecoin",
       "request_timeout": "3s"
+    },
+    {
+      "name": "unstoppable-domains",
+      "enabled": true,
+      "backend_type": "unstoppable-resolution-api",
+      "backend_url": "http://backend-fixtures:8090/resolve",
+      "request_timeout": "3s"
     }
   ],
   "routes": [
@@ -35,6 +42,15 @@
       "client_views": ["default"],
       "tenants": ["default"],
       "plugin": "namecoin-bit",
+      "priority": 90,
+      "fallback": "nxdomain"
+    },
+    {
+      "name": "unstoppable-fixture",
+      "suffixes": [".crypto"],
+      "client_views": ["default"],
+      "tenants": ["default"],
+      "plugin": "unstoppable-domains",
       "priority": 90,
       "fallback": "nxdomain"
     }

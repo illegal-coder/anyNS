@@ -31,6 +31,12 @@ class Handler(BaseHTTPRequestHandler):
         if self.path == "/healthz":
             self._json(200, {"ok": True})
             return
+        if self.path == "/resolve/domains/alice.crypto":
+            self.handle_unstoppable()
+            return
+        if self.path == "/resolve/domains/missing.crypto":
+            self._json(404, {"message": "domain not found"})
+            return
         self._json(404, {"error": "not found"})
 
     def do_POST(self):
@@ -117,6 +123,22 @@ class Handler(BaseHTTPRequestHandler):
             "result": {"name": "d/example", "value": json.dumps(value)},
             "error": None,
             "id": req.get("id"),
+        })
+
+    def handle_unstoppable(self):
+        self._json(200, {
+            "meta": {
+                "domain": "alice.crypto",
+                "type": "Uns"
+            },
+            "records": {
+                "dns.A": "198.51.100.88",
+                "dns.TXT": "docker unstoppable fixture",
+                "browser.redirect_url": "https://alice.example.test",
+                "ipfs.html.value": "bafybeigdyrzt",
+                "crypto.ETH.address": "0x2222222222222222222222222222222222222222",
+                "crypto.BTC.address": "bc1qdockerfixture"
+            }
         })
 
 

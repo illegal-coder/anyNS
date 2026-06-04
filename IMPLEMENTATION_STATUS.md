@@ -418,8 +418,35 @@ This repository has moved from requirements-only documentation to a runnable fir
 - Extended the deterministic Docker DNS integration script with authenticated audit-summary assertions for admin, runtime, and log-forwarder. The script now checks unauthenticated `401` behavior plus aggregate management mutation, plugin, RCODE, and action totals after management, HNS, security, honeypot, and log-forwarder fixture events are generated.
 - Extended the deterministic Docker DNS integration script with authenticated audit time-window assertions for admin, runtime, and log-forwarder audit reads. The script now proves known fixture events are returned inside a broad inclusive RFC3339 `since` / `until` window and excluded when the requested window ends before the event.
 - Extended the deterministic Docker DNS integration fixture and script with a post-response DNS rebinding assertion. The HNS fixture now serves `private.hns A` as `10.0.0.10`, and the Docker acceptance script asserts the runtime returns HTTP `403`, a blocked `SERVFAIL` `ResolveResult`, no leaked private answer, `dns-rebinding-private-address`, and an authenticated audit event with `source_plugin=hns`.
+- Extended the deterministic Docker DNS integration fixture path with an enabled Unstoppable Domains adapter fixture. The Docker config now routes `.crypto` through `unstoppable-domains` using the existing `unstoppable-resolution-api` backend contract, the fixture serves deterministic `alice.crypto` records, and the acceptance script asserts admin plugin visibility, PowerDNS-routed `TXT` resolution, runtime `WALLET` mapping, and authenticated audit visibility without live API keys.
 
 ## Latest Validation
+
+Validated on 2026-06-05 06:46 CST after adding deterministic Docker Unstoppable Domains fixture assertions:
+
+```bash
+bash -n tests/acceptance/docker-dns-integration.sh
+python3 -m py_compile tests/docker/fixtures/backend-fixtures.py
+GOCACHE=/tmp/anyns-go-build go run -buildvcs=false ./cmd/anyns-config-check tests/docker/anyns-config.json
+docker compose -f tests/docker/compose.dns-integration.yml config >/tmp/anyns-docker-compose-rendered.yml && wc -l /tmp/anyns-docker-compose-rendered.yml
+ANYNS_RUN_DOCKER_DNS_INTEGRATION=0 GOCACHE=/tmp/anyns-go-build bash tests/acceptance/docker-dns-integration.sh
+GOCACHE=/tmp/anyns-go-build go test -buildvcs=false ./...
+GOCACHE=/tmp/anyns-go-build go vet -buildvcs=false ./...
+GOCACHE=/tmp/anyns-go-build go build -buildvcs=false ./cmd/anyns-admin-api ./cmd/anyns-plugin-runtime ./cmd/anyns-log-forwarder
+GOCACHE=/tmp/anyns-go-build bash tests/acceptance/check-local.sh
+git status --short
+git rev-parse --short HEAD
+date '+%Y-%m-%d %H:%M %Z'
+```
+
+Results:
+
+- PASS: Docker acceptance shell syntax, Python fixture compilation, Docker integration config validation, Docker Compose rendering, broad Go tests, broad Go vet, and service builds.
+- SKIP: `tests/acceptance/docker-dns-integration.sh` runtime execution because the Docker daemon is unavailable in this session.
+- PASS with documented SKIP: `tests/acceptance/check-local.sh` completed while runtime socket smoke skipped because `listen tcp 127.0.0.1:18081` is denied in this sandbox.
+- No Go files changed, so no `gofmt` was needed.
+- Git commit was attempted once after validation and failed because `.git/index.lock` could not be created on a read-only filesystem. Latest committed hash remains `65a389b`; the working tree contains this run's validated Docker Unstoppable fixture assertions plus required ledger updates and automation-maintained context/lesson updates.
+- No new recurring error pattern was observed; `DEVELOPMENT_LESSONS.md` did not need a manual rule update.
 
 Validated on 2026-06-05 05:14 CST after adding Docker DNS rebinding fixture assertions:
 
