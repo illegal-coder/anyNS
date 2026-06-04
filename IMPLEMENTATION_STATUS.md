@@ -416,8 +416,31 @@ This repository has moved from requirements-only documentation to a runnable fir
 - Extended the deterministic Docker DNS integration topology and script with `anyns-log-forwarder` as a first-class service. The Docker acceptance script now waits for log-forwarder health, posts a deterministic DNSLog event to `/api/v1/dns-events`, verifies filtered audit-event retrieval, and checks log-forwarder Prometheus metrics plus failed honeypot queue behavior through the same failing fixture endpoint.
 - Extended the deterministic Docker DNS integration config and script with fixture-scoped management auth roles for read, policy-write, and cache-read/write operations. The Docker acceptance script now asserts unauthenticated/under-scoped rejection, redacted management-key metadata, admin/runtime policy reload audit events, admin-to-runtime proxied cache stats, cache flush, and cache-flush management audit visibility.
 - Extended the deterministic Docker DNS integration script with authenticated audit-summary assertions for the runtime and log-forwarder. The script now checks unauthenticated `401` behavior plus aggregate `by_plugin`, `by_rcode`, and action totals after HNS, security, honeypot, and log-forwarder fixture events are generated.
+- Extended the deterministic Docker DNS integration script with authenticated audit time-window assertions for admin, runtime, and log-forwarder audit reads. The script now proves known fixture events are returned inside a broad inclusive RFC3339 `since` / `until` window and excluded when the requested window ends before the event.
 
 ## Latest Validation
+
+Validated on 2026-06-05 04:33 CST after adding Docker integration audit time-window assertions:
+
+```bash
+bash -n tests/acceptance/docker-dns-integration.sh
+GOCACHE=/tmp/anyns-go-build go run -buildvcs=false ./cmd/anyns-config-check tests/docker/anyns-config.json
+docker compose -f tests/docker/compose.dns-integration.yml config >/tmp/anyns-docker-compose-rendered.yml && wc -l /tmp/anyns-docker-compose-rendered.yml
+ANYNS_RUN_DOCKER_DNS_INTEGRATION=0 GOCACHE=/tmp/anyns-go-build bash tests/acceptance/docker-dns-integration.sh
+GOCACHE=/tmp/anyns-go-build go test -buildvcs=false ./...
+GOCACHE=/tmp/anyns-go-build go vet -buildvcs=false ./...
+GOCACHE=/tmp/anyns-go-build go build -buildvcs=false ./cmd/anyns-admin-api ./cmd/anyns-plugin-runtime ./cmd/anyns-log-forwarder
+GOCACHE=/tmp/anyns-go-build bash tests/acceptance/check-local.sh
+date '+%Y-%m-%d %H:%M %Z'
+```
+
+Results:
+
+- PASS: Docker acceptance shell syntax, Docker integration config validation, Docker Compose rendering, broad Go tests, broad Go vet, and service builds.
+- SKIP: `tests/acceptance/docker-dns-integration.sh` runtime execution because the Docker daemon is unavailable in this session.
+- PASS with documented SKIP: `tests/acceptance/check-local.sh` completed while runtime socket smoke skipped because `listen tcp 127.0.0.1:18081` is denied in this sandbox.
+- Git commit was attempted once after validation and failed because `.git/index.lock` could not be created on a read-only filesystem. Latest committed hash remains `f464666`; the working tree contains this run's Docker audit time-window assertion and required ledger updates plus automation-maintained context/lesson files.
+- No new recurring error pattern was observed; `DEVELOPMENT_LESSONS.md` did not need a manual rule update.
 
 Validated on 2026-06-05 03:57 CST after adding audit event `since` / `until` time-window filters:
 
