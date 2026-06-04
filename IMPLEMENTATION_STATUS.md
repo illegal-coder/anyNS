@@ -1408,6 +1408,28 @@ tests/acceptance/docker-dns-integration.sh now asserts unauthenticated 401 respo
 The management-key response assertion checks that the token material is not exposed.
 ```
 
+Latest pass on 2026-06-05 after adding Docker policy reload assertions:
+
+```text
+bash -n tests/acceptance/docker-dns-integration.sh   PASS
+python3 -m py_compile tests/docker/fixtures/backend-fixtures.py   PASS
+GOCACHE=/tmp/anyns-go-build go run -buildvcs=false ./cmd/anyns-config-check tests/docker/anyns-config.json   PASS; output reported management_auth:true, management_keys:2, management_roles:2, plugins:2, and routes:2
+docker compose -f tests/docker/compose.dns-integration.yml config   PASS
+ANYNS_RUN_DOCKER_DNS_INTEGRATION=0 GOCACHE=/tmp/anyns-go-build bash tests/acceptance/docker-dns-integration.sh   SKIP; Docker daemon is not available
+GOCACHE=/tmp/anyns-go-build go test -buildvcs=false ./...   PASS
+GOCACHE=/tmp/anyns-go-build go vet -buildvcs=false ./...   PASS
+GOCACHE=/tmp/anyns-go-build go build -buildvcs=false ./cmd/anyns-admin-api ./cmd/anyns-plugin-runtime ./cmd/anyns-log-forwarder   PASS
+GOCACHE=/tmp/anyns-go-build bash tests/acceptance/check-local.sh   PASS with runtime socket smoke SKIP: listen tcp 127.0.0.1:18081: socket: operation not permitted
+```
+
+New Docker integration coverage added in this pass:
+
+```text
+tests/docker/anyns-config.json now includes a separate integration-only policy writer role/key.
+tests/acceptance/docker-dns-integration.sh now asserts unauthenticated 401, read-token 403, successful policy-writer reload, and management audit visibility for both admin API and plugin runtime policy reload endpoints.
+Policy writer token material is also checked as absent from management-key metadata.
+```
+
 Additional check-local note from this environment:
 
 ```text
@@ -1456,4 +1478,4 @@ listen tcp 127.0.0.1:18081: socket: operation not permitted
 - Test the new ADA Handle public API adapter against live `api.handle.me` responses and real Handles, then expand record mapping if live responses expose additional Cardano address, personalization, or subHandle fields beyond the currently covered address/profile/image fields.
 - Run the expanded Docker DNS integration fixture stack end to end once Docker daemon access is available.
 - Add HNS `hnsd` / `dns://` Docker profile separately from deterministic fixture tests.
-- Run the authenticated Docker DNS integration assertions end to end once Docker daemon access is available, then expand Docker DNS integration assertions for policy reload.
+- Run the authenticated Docker DNS integration assertions, including policy reload coverage, end to end once Docker daemon access is available.

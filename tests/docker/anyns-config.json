@@ -88,6 +88,12 @@
           "honeypot:read",
           "management:read"
         ]
+      },
+      {
+        "id": "docker-policy-writer",
+        "scopes": [
+          "policy:write"
+        ]
       }
     ],
     "keys": [
@@ -95,6 +101,11 @@
         "id": "docker-integration-reader",
         "api_key": "docker-management-token",
         "roles": ["docker-reader"]
+      },
+      {
+        "id": "docker-integration-policy-writer",
+        "api_key": "docker-policy-token",
+        "roles": ["docker-policy-writer"]
       }
     ]
   }

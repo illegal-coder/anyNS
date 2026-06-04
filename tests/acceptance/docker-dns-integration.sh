@@ -6,6 +6,7 @@ COMPOSE_FILE="$ROOT/tests/docker/compose.dns-integration.yml"
 INTEGRATION_CONFIG="$ROOT/tests/docker/anyns-config.json"
 PROJECT="${ANYNS_DOCKER_PROJECT:-anyns-dns-integration}"
 AUTH_HEADER='Authorization: Bearer docker-management-token'
+POLICY_AUTH_HEADER='Authorization: Bearer docker-policy-token'
 
 cd "$ROOT"
 
@@ -66,10 +67,30 @@ tools 'grep -q "\"mode\":\"admin-runtime-proxy\"" /tmp/admin-boundary.json'
 tools 'curl -fsS -H "'"$AUTH_HEADER"'" http://anyns-admin-api:8080/api/v1/management/keys | tee /tmp/admin-management-keys.json'
 tools 'grep -q "\"auth_required\":true" /tmp/admin-management-keys.json'
 tools 'grep -q "\"id\":\"docker-integration-reader\"" /tmp/admin-management-keys.json'
+tools 'grep -q "\"id\":\"docker-integration-policy-writer\"" /tmp/admin-management-keys.json'
 tools '! grep -q "docker-management-token" /tmp/admin-management-keys.json'
+tools '! grep -q "docker-policy-token" /tmp/admin-management-keys.json'
 tools 'curl -fsS -H "'"$AUTH_HEADER"'" http://anyns-admin-api:8080/api/v1/plugins | tee /tmp/admin-plugins.json'
 tools 'grep -q "\"name\":\"hns\"" /tmp/admin-plugins.json'
 tools 'grep -q "\"name\":\"namecoin-bit\"" /tmp/admin-plugins.json'
+
+tools 'status=$(curl -sS -X POST -o /tmp/admin-policy-reload-unauth.json -w "%{http_code}" http://anyns-admin-api:8080/api/v1/policies/reload); test "$status" = "401"'
+tools 'status=$(curl -sS -X POST -H "'"$AUTH_HEADER"'" -o /tmp/admin-policy-reload-reader.json -w "%{http_code}" http://anyns-admin-api:8080/api/v1/policies/reload); test "$status" = "403"'
+tools 'curl -fsS -X POST -H "'"$POLICY_AUTH_HEADER"'" http://anyns-admin-api:8080/api/v1/policies/reload | tee /tmp/admin-policy-reload.json'
+tools 'grep -q "\"status\":\"loaded\"" /tmp/admin-policy-reload.json'
+tools 'grep -q "\"name\":\"hns-fixture\"" /tmp/admin-policy-reload.json'
+tools 'curl -fsS -H "'"$AUTH_HEADER"'" "http://anyns-admin-api:8080/api/v1/audit/events?source_plugin=management&matched_rule=policy.reload" | tee /tmp/admin-policy-reload-audit.json'
+tools 'grep -q "\"source_plugin\":\"management\"" /tmp/admin-policy-reload-audit.json'
+tools 'grep -q "\"matched_rule\":\"policy.reload\"" /tmp/admin-policy-reload-audit.json'
+
+tools 'status=$(curl -sS -X POST -o /tmp/runtime-policy-reload-unauth.json -w "%{http_code}" http://anyns-plugin-runtime:8081/api/v1/policies/reload); test "$status" = "401"'
+tools 'status=$(curl -sS -X POST -H "'"$AUTH_HEADER"'" -o /tmp/runtime-policy-reload-reader.json -w "%{http_code}" http://anyns-plugin-runtime:8081/api/v1/policies/reload); test "$status" = "403"'
+tools 'curl -fsS -X POST -H "'"$POLICY_AUTH_HEADER"'" http://anyns-plugin-runtime:8081/api/v1/policies/reload | tee /tmp/runtime-policy-reload.json'
+tools 'grep -q "\"status\":\"loaded\"" /tmp/runtime-policy-reload.json'
+tools 'grep -q "\"name\":\"namecoin-bit-fixture\"" /tmp/runtime-policy-reload.json'
+tools 'curl -fsS -H "'"$AUTH_HEADER"'" "http://anyns-plugin-runtime:8081/api/v1/audit/events?source_plugin=management&matched_rule=policy.reload" | tee /tmp/runtime-policy-reload-audit.json'
+tools 'grep -q "\"source_plugin\":\"management\"" /tmp/runtime-policy-reload-audit.json'
+tools 'grep -q "\"matched_rule\":\"policy.reload\"" /tmp/runtime-policy-reload-audit.json'
 
 tools 'dig +time=2 +tries=1 @pdns-recursor example.hns A | tee /tmp/pdns-example-hns.txt'
 tools 'grep -q "198.51.100" /tmp/pdns-example-hns.txt'
