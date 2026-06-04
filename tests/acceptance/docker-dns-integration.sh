@@ -114,6 +114,13 @@ tools 'curl -fsS -H "'"$AUTH_HEADER"'" "http://anyns-admin-api:8080/api/v1/audit
 tools 'grep -q "\"matched_rule\":\"cache.flush\"" /tmp/admin-cache-flush-audit-window.json'
 tools 'curl -fsS -H "'"$AUTH_HEADER"'" "http://anyns-admin-api:8080/api/v1/audit/events?source_plugin=management&matched_rule=cache.flush&until=2000-01-01T00:00:00Z" | tee /tmp/admin-cache-flush-audit-past.json'
 tools '! grep -q "\"matched_rule\":\"cache.flush\"" /tmp/admin-cache-flush-audit-past.json'
+tools 'status=$(curl -sS -o /tmp/admin-audit-summary-unauth.json -w "%{http_code}" "http://anyns-admin-api:8080/api/v1/audit/summary?top_n=5"); test "$status" = "401"'
+tools 'curl -fsS -H "'"$AUTH_HEADER"'" "http://anyns-admin-api:8080/api/v1/audit/summary?top_n=5" | tee /tmp/admin-audit-summary.json'
+tools 'grep -q "\"by_plugin\"" /tmp/admin-audit-summary.json'
+tools 'grep -q "\"management\":" /tmp/admin-audit-summary.json'
+tools 'grep -q "\"management_mutation\":" /tmp/admin-audit-summary.json'
+tools 'grep -q "\"policy.reload\":" /tmp/admin-audit-summary.json'
+tools 'grep -q "\"cache.flush\":" /tmp/admin-audit-summary.json'
 
 tools 'dig +time=2 +tries=1 @pdns-recursor missing.hns A | tee /tmp/pdns-missing-hns.txt'
 tools 'grep -q "status: NXDOMAIN" /tmp/pdns-missing-hns.txt'
