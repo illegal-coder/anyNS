@@ -78,6 +78,24 @@
     "runtime_control_url": "http://anyns-plugin-runtime:8081"
   },
   "management": {
-    "auth_required": false
+    "auth_required": true,
+    "roles": [
+      {
+        "id": "docker-reader",
+        "scopes": [
+          "plugins:read",
+          "audit:read",
+          "honeypot:read",
+          "management:read"
+        ]
+      }
+    ],
+    "keys": [
+      {
+        "id": "docker-integration-reader",
+        "api_key": "docker-management-token",
+        "roles": ["docker-reader"]
+      }
+    ]
   }
 }

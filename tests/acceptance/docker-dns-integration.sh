@@ -5,6 +5,7 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 COMPOSE_FILE="$ROOT/tests/docker/compose.dns-integration.yml"
 INTEGRATION_CONFIG="$ROOT/tests/docker/anyns-config.json"
 PROJECT="${ANYNS_DOCKER_PROJECT:-anyns-dns-integration}"
+AUTH_HEADER='Authorization: Bearer docker-management-token'
 
 cd "$ROOT"
 
@@ -59,9 +60,14 @@ if ! tools 'curl -fsS http://anyns-plugin-runtime:8081/healthz >/dev/null && cur
   exit 1
 fi
 
-tools 'curl -fsS http://anyns-admin-api:8080/api/v1/control-plane/boundary | tee /tmp/admin-boundary.json'
+tools 'status=$(curl -sS -o /tmp/admin-boundary-unauth.json -w "%{http_code}" http://anyns-admin-api:8080/api/v1/control-plane/boundary); test "$status" = "401"'
+tools 'curl -fsS -H "'"$AUTH_HEADER"'" http://anyns-admin-api:8080/api/v1/control-plane/boundary | tee /tmp/admin-boundary.json'
 tools 'grep -q "\"mode\":\"admin-runtime-proxy\"" /tmp/admin-boundary.json'
-tools 'curl -fsS http://anyns-admin-api:8080/api/v1/plugins | tee /tmp/admin-plugins.json'
+tools 'curl -fsS -H "'"$AUTH_HEADER"'" http://anyns-admin-api:8080/api/v1/management/keys | tee /tmp/admin-management-keys.json'
+tools 'grep -q "\"auth_required\":true" /tmp/admin-management-keys.json'
+tools 'grep -q "\"id\":\"docker-integration-reader\"" /tmp/admin-management-keys.json'
+tools '! grep -q "docker-management-token" /tmp/admin-management-keys.json'
+tools 'curl -fsS -H "'"$AUTH_HEADER"'" http://anyns-admin-api:8080/api/v1/plugins | tee /tmp/admin-plugins.json'
 tools 'grep -q "\"name\":\"hns\"" /tmp/admin-plugins.json'
 tools 'grep -q "\"name\":\"namecoin-bit\"" /tmp/admin-plugins.json'
 
@@ -105,14 +111,18 @@ tools 'grep -q "\"rcode\":\"NOERROR\"" /tmp/runtime-sinkhole.json'
 tools 'grep -q "198.51.100.254" /tmp/runtime-sinkhole.json'
 tools 'grep -q "\"rule\":\"sinkhole-domain\"" /tmp/runtime-sinkhole.json'
 
-tools 'curl -fsS http://anyns-plugin-runtime:8081/api/v1/audit/events?source_plugin=namecoin-bit | tee /tmp/runtime-namecoin-audit.json'
+tools 'status=$(curl -sS -o /tmp/runtime-audit-unauth.json -w "%{http_code}" "http://anyns-plugin-runtime:8081/api/v1/audit/events?source_plugin=namecoin-bit"); test "$status" = "401"'
+tools 'curl -fsS -H "'"$AUTH_HEADER"'" http://anyns-plugin-runtime:8081/api/v1/audit/events?source_plugin=namecoin-bit | tee /tmp/runtime-namecoin-audit.json'
 tools 'grep -q "example.bit" /tmp/runtime-namecoin-audit.json'
 
 tools 'curl -fsS -X POST http://anyns-log-forwarder:8082/api/v1/dns-events -H "Content-Type: application/json" -d "{\"events\":[{\"trace_id\":\"docker-forwarder-event\",\"client_ip\":\"192.0.2.58\",\"client_view\":\"default\",\"tenant\":\"default\",\"qname\":\"forwarder.integration.test\",\"qtype\":\"TXT\",\"rcode\":\"NOERROR\",\"source_plugin\":\"security\",\"risk_level\":\"high\",\"action\":\"forward_to_honeypot\",\"matched_rule\":\"docker-forwarder-fixture\",\"latency_ms\":7}]}" | tee /tmp/log-forwarder-post.json'
 tools 'grep -q "\"accepted\":1" /tmp/log-forwarder-post.json'
 tools 'grep -q "\"forwarded\":false" /tmp/log-forwarder-post.json'
-tools 'curl -fsS "http://anyns-log-forwarder:8082/api/v1/audit/events?trace_id=docker-forwarder-event&source_plugin=security&action=forward_to_honeypot&matched_rule=docker-forwarder-fixture" | tee /tmp/log-forwarder-audit.json'
+tools 'status=$(curl -sS -o /tmp/log-forwarder-audit-unauth.json -w "%{http_code}" "http://anyns-log-forwarder:8082/api/v1/audit/events?trace_id=docker-forwarder-event"); test "$status" = "401"'
+tools 'curl -fsS -H "'"$AUTH_HEADER"'" "http://anyns-log-forwarder:8082/api/v1/audit/events?trace_id=docker-forwarder-event&source_plugin=security&action=forward_to_honeypot&matched_rule=docker-forwarder-fixture" | tee /tmp/log-forwarder-audit.json'
 tools 'grep -q "forwarder.integration.test" /tmp/log-forwarder-audit.json'
+tools 'curl -fsS -H "'"$AUTH_HEADER"'" http://anyns-log-forwarder:8082/api/v1/honeypot/status | tee /tmp/log-forwarder-honeypot-status.json'
+tools 'grep -q "\"failed_queue_length\":1" /tmp/log-forwarder-honeypot-status.json'
 tools 'curl -fsS http://anyns-log-forwarder:8082/metrics | tee /tmp/log-forwarder-metrics.txt'
 tools 'grep -q "anyns_dnslog_events_by_action{service=\"log-forwarder\",action=\"forward_to_honeypot\"} 1" /tmp/log-forwarder-metrics.txt'
 tools 'grep -q "anyns_honeypot_failed_queue_length{service=\"log-forwarder\"} 1" /tmp/log-forwarder-metrics.txt'
