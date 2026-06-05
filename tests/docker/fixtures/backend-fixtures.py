@@ -88,6 +88,12 @@ class Handler(BaseHTTPRequestHandler):
         if parsed.path == "/api/v3/dns/records":
             self.handle_ton_dns(parse_qs(parsed.query))
             return
+        if self.path == "/api/mainnet/v3/address/alice":
+            self.handle_aptos_names()
+            return
+        if self.path == "/api/mainnet/v3/address/missing":
+            self._json(404, {"message": "name not found"})
+            return
         self._json(404, {"error": "not found"})
 
     def do_POST(self):
@@ -356,6 +362,11 @@ class Handler(BaseHTTPRequestHandler):
             self._json(200, {"data": {"domain": None}})
             return
         self._json(200, {"errors": [{"message": "unexpected Tezos fixture domain"}]})
+
+    def handle_aptos_names(self):
+        self._json(200, {
+            "address": "0x8888888888888888888888888888888888888888"
+        })
 
     def handle_pulsechain_json_rpc(self):
         req = self._read_json()

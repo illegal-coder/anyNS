@@ -74,6 +74,7 @@ If `git status` is unavailable on the server, this file is still the required gi
 - Current Codex run extended the deterministic Docker DNS integration fixture path with an enabled SPACE ID adapter fixture. `tests/docker/anyns-config.json` now enables `space-id` with `backend_type: "space-id-api"` against the fixture server, adds `.bnb` / `.arb` routes, and `tests/acceptance/docker-dns-integration.sh` asserts admin plugin visibility, PowerDNS-routed `alice.bnb TYPE262` NOERROR posture, runtime `alice.bnb WALLET`, and authenticated audit visibility.
 - Current Codex run extended the deterministic Docker DNS integration fixture path with an enabled TON DNS adapter fixture. `tests/docker/anyns-config.json` now enables `ton-dns` with `backend_type: "toncenter-v3-dns"` against the fixture server, adds a `.ton` route, and `tests/acceptance/docker-dns-integration.sh` asserts admin plugin visibility, PowerDNS-routed `alice.ton TXT`, runtime `alice.ton WALLET`, and authenticated audit visibility.
 - Current Codex run extended the deterministic Docker DNS integration fixture path with an enabled Tezos Domains adapter fixture. `tests/docker/anyns-config.json` now enables `tezos-domains` with `backend_type: "tezos-domains-api"` against the fixture server, adds a `.tez` route, and `tests/acceptance/docker-dns-integration.sh` asserts admin plugin visibility, PowerDNS-routed `alice.tez TXT`, runtime `alice.tez WALLET`, and authenticated audit visibility.
+- Current Codex run extended the deterministic Docker DNS integration fixture path with an enabled Aptos Names adapter fixture. `tests/docker/anyns-config.json` now enables `aptos-names` with `backend_type: "aptos-names-api"` against the fixture server, adds a `.apt` route, and `tests/acceptance/docker-dns-integration.sh` asserts admin plugin visibility, PowerDNS-routed `alice.apt TYPE262`, runtime `alice.apt WALLET`, and authenticated audit visibility.
 - Latest available git commit before this run's commit attempt is `b93e074`.
 
 ## Important Changed Files
@@ -86,6 +87,33 @@ If `git status` is unavailable on the server, this file is still the required gi
 - `GIT_PROGRESS.md`
 
 ## Verified Commands
+
+- Current Codex run at `2026-06-05 13:28 CST` reported these commands:
+  - `ls -la docs` - PASS.
+  - `sed -n '1,240p' CODEX_RUN_CONTEXT.md` - PASS.
+  - `sed -n '1,260p' DEVELOPMENT_LESSONS.md` - PASS.
+  - `sed -n ... docs/README.md REMOTE_CODEX_HANDOFF.md IMPLEMENTATION_STATUS.md GIT_PROGRESS.md BACKEND_STORAGE_AND_DOCKER_TEST_PLAN.md` - PASS.
+  - `git status --short && git rev-parse --short HEAD` - PASS; latest commit before implementation work was `7daed50`, with automation-maintained `CODEX_RUN_CONTEXT.md`, `DEVELOPMENT_LESSONS.md`, and `GIT_PROGRESS.md` already dirty.
+  - `sed -n ... tests/docker/anyns-config.json tests/docker/fixtures/backend-fixtures.py tests/acceptance/docker-dns-integration.sh internal/plugins/wave1/plugin.go internal/plugins/wave1/plugin_test.go` - PASS.
+  - `rg -n "aptos-names|suins|aptos-names-api|suins-json-rpc" internal configs tests -S` - PASS; Aptos Names was selected as the next uncovered deterministic Docker fixture adapter.
+  - `sed -n '1,260p' internal/plugins/wave2/plugin.go` and `sed -n '1,300p' internal/plugins/wave2/plugin_test.go` - FAIL once because Wave 2 concrete adapters live in `internal/plugins/wave1`; the correct file was read immediately and no retry loop used the wrong path.
+  - `bash -n tests/acceptance/docker-dns-integration.sh` - PASS.
+  - `python3 -m py_compile tests/docker/fixtures/backend-fixtures.py` - PASS.
+  - `GOCACHE=/tmp/anyns-go-build go run -buildvcs=false ./cmd/anyns-config-check tests/docker/anyns-config.json` - PASS; output reported `management_auth:true`, `management_keys:3`, `management_roles:3`, `plugins:11`, `routes:11`, and `admin_proxy_runtime:true`.
+  - `docker compose -f tests/docker/compose.dns-integration.yml config >/tmp/anyns-docker-compose-rendered.yml && wc -l /tmp/anyns-docker-compose-rendered.yml` - PASS; rendered 151 lines.
+  - `ANYNS_RUN_DOCKER_DNS_INTEGRATION=0 GOCACHE=/tmp/anyns-go-build bash tests/acceptance/docker-dns-integration.sh` - SKIP because Docker daemon is not available: `SKIP: docker daemon is not available`.
+  - `GOCACHE=/tmp/anyns-go-build go test -buildvcs=false ./...` - PASS.
+  - `GOCACHE=/tmp/anyns-go-build go vet -buildvcs=false ./...` - PASS.
+  - `GOCACHE=/tmp/anyns-go-build go build -buildvcs=false ./cmd/anyns-admin-api ./cmd/anyns-plugin-runtime ./cmd/anyns-log-forwarder` - PASS.
+  - `GOCACHE=/tmp/anyns-go-build bash tests/acceptance/check-local.sh` - PASS with runtime socket smoke SKIP: `anyns-plugin-runtime exited before listening on 127.0.0.1:18081`; runtime log detail was `listen tcp 127.0.0.1:18081: socket: operation not permitted`.
+  - No `gofmt` was run because no Go files changed.
+  - `date '+%Y-%m-%d %H:%M %Z'` - PASS; output `2026-06-05 13:28 CST`.
+  - `git diff --check -- tests/acceptance/docker-dns-integration.sh tests/docker/anyns-config.json tests/docker/fixtures/backend-fixtures.py IMPLEMENTATION_STATUS.md GIT_PROGRESS.md BACKEND_STORAGE_AND_DOCKER_TEST_PLAN.md` - PASS.
+  - `git diff --stat -- tests/acceptance/docker-dns-integration.sh tests/docker/anyns-config.json tests/docker/fixtures/backend-fixtures.py IMPLEMENTATION_STATUS.md GIT_PROGRESS.md BACKEND_STORAGE_AND_DOCKER_TEST_PLAN.md` - PASS; reported 6 files changed.
+  - `git status --short && git rev-parse --short HEAD` - PASS; latest committed hash before commit attempt was `7daed50`, with this run's Docker Aptos Names fixture changes, required ledger updates, and automation-maintained context/lesson files dirty.
+  - `git add tests/acceptance/docker-dns-integration.sh tests/docker/anyns-config.json tests/docker/fixtures/backend-fixtures.py BACKEND_STORAGE_AND_DOCKER_TEST_PLAN.md IMPLEMENTATION_STATUS.md GIT_PROGRESS.md && git commit -m "test: add docker aptos names fixture assertions"` - FAIL because Git could not create `.git/index.lock`: `Read-only file system`. Latest committed hash remains `7daed50`.
+  - Final `git status --short && git rev-parse --short HEAD` - PASS; latest commit remains `7daed50`, with this run's six touched files plus automation-maintained `CODEX_RUN_CONTEXT.md` and `DEVELOPMENT_LESSONS.md` dirty.
+  - Final `date '+%Y-%m-%d %H:%M %Z'` - PASS; output `2026-06-05 13:30 CST`.
 
 - Current Codex run at `2026-06-05 12:04 CST` reported these commands:
   - `find docs -maxdepth 2 -type f | sort` - PASS.
@@ -1396,6 +1424,7 @@ If `git status` is unavailable on the server, this file is still the required gi
 - Do not re-add the SPACE ID Web3 Name API adapter; `space-id-api` is loaded, validated, wired through existing plugin construction, demonstrated in `configs/anyns/config.example.json`, and covered with no-socket tests for `getAddress` wallet mapping plus no-address-to-`NXDOMAIN`.
 - Do not re-add the Tezos Domains GraphQL adapter; `tezos-domains-api` is loaded, validated, wired through existing plugin construction, demonstrated in `configs/anyns/config.example.json`, and covered with no-socket tests for GraphQL wallet/profile/content/DNS-style mapping plus missing-domain-to-`NXDOMAIN` and GraphQL-error-to-`SERVFAIL`.
 - Do not re-add the Aptos Names REST adapter; `aptos-names-api` is loaded, validated, wired through existing plugin construction, demonstrated in `configs/anyns/config.example.json`, and covered with no-socket tests for `v3/address` wallet mapping plus not-found-to-`NXDOMAIN` and API-error-to-`SERVFAIL`.
+- Do not re-add deterministic Docker Aptos Names fixture coverage; `tests/docker/anyns-config.json`, `tests/docker/fixtures/backend-fixtures.py`, and `tests/acceptance/docker-dns-integration.sh` now cover `.apt` through `aptos-names-api` with PowerDNS `TYPE262`, runtime `WALLET`, and authenticated audit assertions.
 - Do not re-add the Solana SNS QuickNode adapter; `solana-sns-quicknode` is loaded, validated, wired through existing plugin construction, demonstrated in `configs/anyns/config.example.json`, and covered with no-socket tests for `sns_resolveDomain` wallet mapping plus empty-result-to-`NXDOMAIN` and JSON-RPC-error-to-`SERVFAIL`.
 - Do not re-add the TON Center v3 DNS records adapter; `toncenter-v3-dns` is loaded, validated, wired through existing plugin construction, demonstrated in `configs/anyns/config.example.json`, and covered with no-socket tests for TON wallet/site/storage/delegation/NFT metadata mapping plus empty-record-to-`NXDOMAIN` and API-error-to-`SERVFAIL`.
 - Do not re-add the SuiNS JSON-RPC adapter; `suins-json-rpc` is loaded, validated, wired through existing plugin construction, demonstrated in `configs/anyns/config.example.json`, and covered with no-socket tests for `suix_resolveNameServiceAddress` wallet mapping plus null-result-to-`NXDOMAIN` and JSON-RPC-error-to-`SERVFAIL`.
@@ -1418,13 +1447,18 @@ If `git status` is unavailable on the server, this file is still the required gi
 - Do not re-add audit event time-window filters; `GET /api/v1/audit/events?since=...&until=...` now uses inclusive RFC3339 bounds through the shared admin/runtime/log-forwarder parser and store path, with no-socket store/parser/admin/runtime tests.
 
 <!-- AUTO:run-context:start -->
-Last automation scan: 2026-06-05T13:09:09+08:00
+Last automation scan: 2026-06-05T13:31:08+08:00
 
-- Latest run log: `/root/anyNS/codex-run-20260605-130822.log`
+- Latest run log: `/root/anyNS/codex-run-20260605-132602.log`
 - Git status: `available`
-- Git detail: `M CODEX_RUN_CONTEXT.md
+- Git detail: `M BACKEND_STORAGE_AND_DOCKER_TEST_PLAN.md
+ M CODEX_RUN_CONTEXT.md
  M DEVELOPMENT_LESSONS.md
- M GIT_PROGRESS.md`
+ M GIT_PROGRESS.md
+ M IMPLEMENTATION_STATUS.md
+ M tests/acceptance/docker-dns-integration.sh
+ M tests/docker/anyns-config.json
+ M tests/docker/fi...`
 
 Frequent errors to avoid next run:
 - `socket_listen_denied`: Prefer no-socket handler tests and acceptance scripts that SKIP cleanly in socket-restricted environments.

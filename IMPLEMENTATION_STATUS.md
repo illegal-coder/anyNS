@@ -426,8 +426,32 @@ This repository has moved from requirements-only documentation to a runnable fir
 - Extended the deterministic Docker DNS integration fixture path with an enabled SPACE ID adapter fixture. The Docker config now routes `.bnb` / `.arb` through `space-id` using the existing `space-id-api` backend contract, the fixture serves deterministic `/getAddress?domain=alice.bnb` responses, and the acceptance script asserts admin plugin visibility, PowerDNS routed `TYPE262` posture, runtime `WALLET` mapping, and authenticated audit visibility without live SPACE ID API credentials.
 - Extended the deterministic Docker DNS integration fixture path with an enabled TON DNS adapter fixture. The Docker config now routes `.ton` through `ton-dns` using the existing `toncenter-v3-dns` backend contract, the fixture serves deterministic `/api/v3/dns/records?domain=alice.ton` responses, and the acceptance script asserts admin plugin visibility, PowerDNS-routed `TXT` resolution, runtime `WALLET` mapping, and authenticated audit visibility without live TON Center API credentials.
 - Extended the deterministic Docker DNS integration fixture path with an enabled Tezos Domains adapter fixture. The Docker config now routes `.tez` through `tezos-domains` using the existing `tezos-domains-api` GraphQL backend contract, the fixture serves deterministic `/graphql` domain data for `alice.tez`, and the acceptance script asserts admin plugin visibility, PowerDNS-routed `TXT` resolution, runtime `WALLET` mapping, and authenticated audit visibility without live Tezos Domains API credentials.
+- Extended the deterministic Docker DNS integration fixture path with an enabled Aptos Names adapter fixture. The Docker config now routes `.apt` through `aptos-names` using the existing `aptos-names-api` backend contract, the fixture serves deterministic `/api/mainnet/v3/address/alice` data, and the acceptance script asserts admin plugin visibility, PowerDNS-routed `TYPE262` posture, runtime `WALLET` mapping, and authenticated audit visibility without live Aptos Names API credentials.
 
 ## Latest Validation
+
+Validated on 2026-06-05 13:28 CST after adding deterministic Docker Aptos Names fixture assertions:
+
+```bash
+bash -n tests/acceptance/docker-dns-integration.sh
+python3 -m py_compile tests/docker/fixtures/backend-fixtures.py
+GOCACHE=/tmp/anyns-go-build go run -buildvcs=false ./cmd/anyns-config-check tests/docker/anyns-config.json
+docker compose -f tests/docker/compose.dns-integration.yml config >/tmp/anyns-docker-compose-rendered.yml && wc -l /tmp/anyns-docker-compose-rendered.yml
+ANYNS_RUN_DOCKER_DNS_INTEGRATION=0 GOCACHE=/tmp/anyns-go-build bash tests/acceptance/docker-dns-integration.sh
+GOCACHE=/tmp/anyns-go-build go test -buildvcs=false ./...
+GOCACHE=/tmp/anyns-go-build go vet -buildvcs=false ./...
+GOCACHE=/tmp/anyns-go-build go build -buildvcs=false ./cmd/anyns-admin-api ./cmd/anyns-plugin-runtime ./cmd/anyns-log-forwarder
+GOCACHE=/tmp/anyns-go-build bash tests/acceptance/check-local.sh
+```
+
+Results:
+
+- PASS: Docker acceptance shell syntax, Python fixture compilation, Docker integration config validation with 11 plugins / 11 routes, Docker Compose rendering, broad Go tests, broad Go vet, and service builds.
+- SKIP: `tests/acceptance/docker-dns-integration.sh` runtime execution because the Docker daemon is unavailable in this session.
+- PASS with documented SKIP: `tests/acceptance/check-local.sh` completed while runtime socket smoke skipped because `listen tcp 127.0.0.1:18081` is denied in this sandbox.
+- No Go files changed, so no `gofmt` was needed.
+- Git commit was attempted once after validation and failed because `.git/index.lock` could not be created on a read-only filesystem. Latest committed hash remains `7daed50`; the working tree contains this run's validated Docker Aptos Names fixture assertions plus required ledger updates and automation-maintained context/lesson updates.
+- No new recurring error pattern was observed; `DEVELOPMENT_LESSONS.md` did not need a manual rule update.
 
 Validated on 2026-06-05 12:04 CST after adding deterministic Docker Tezos Domains fixture assertions:
 

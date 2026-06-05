@@ -73,6 +73,13 @@
       "backend_type": "tezos-domains-api",
       "backend_url": "http://backend-fixtures:8090",
       "request_timeout": "3s"
+    },
+    {
+      "name": "aptos-names",
+      "enabled": true,
+      "backend_type": "aptos-names-api",
+      "backend_url": "http://backend-fixtures:8090/api/mainnet",
+      "request_timeout": "3s"
     }
   ],
   "routes": [
@@ -163,6 +170,15 @@
       "client_views": ["default"],
       "tenants": ["default"],
       "plugin": "tezos-domains",
+      "priority": 80,
+      "fallback": "nxdomain"
+    },
+    {
+      "name": "aptos-names-fixture",
+      "suffixes": [".apt"],
+      "client_views": ["default"],
+      "tenants": ["default"],
+      "plugin": "aptos-names",
       "priority": 80,
       "fallback": "nxdomain"
     }
