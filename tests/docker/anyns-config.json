@@ -87,6 +87,13 @@
       "backend_type": "suins-json-rpc",
       "backend_url": "http://backend-fixtures:8090/sui",
       "request_timeout": "3s"
+    },
+    {
+      "name": "freename-fns",
+      "enabled": true,
+      "backend_type": "freename-resolution-api",
+      "backend_url": "http://backend-fixtures:8090",
+      "request_timeout": "3s"
     }
   ],
   "routes": [
@@ -196,6 +203,15 @@
       "tenants": ["default"],
       "plugin": "suins",
       "priority": 80,
+      "fallback": "nxdomain"
+    },
+    {
+      "name": "freename-fns-fixture",
+      "suffixes": [".fns"],
+      "client_views": ["default"],
+      "tenants": ["default"],
+      "plugin": "freename-fns",
+      "priority": 70,
       "fallback": "nxdomain"
     }
   ],

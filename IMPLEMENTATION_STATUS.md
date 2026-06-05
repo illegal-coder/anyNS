@@ -207,6 +207,7 @@ This repository has moved from requirements-only documentation to a runnable fir
   - The adapter maps Freename `token.*` records into DNS `WALLET` answers, website redirects into `URI`, TXT records into `TXT`, and profile fields into DNS-safe `TXT`, preserving `WALLET` as RR type 262 / `TYPE262` compatible output.
   - Empty record sets and HTTP 404 responses are preserved as routed `NXDOMAIN`; non-2xx, request, and decode failures return isolated `SERVFAIL` results without leaking matched `.fns` names into ICANN fallback.
   - Config validation accepts `freename-resolution-api` only on the `freename-fns` plugin, and `configs/anyns/config.example.json` demonstrates the disabled-by-default adapter.
+- Added deterministic Docker fixture coverage for the Freename/FNS `.fns` adapter path. `tests/docker/anyns-config.json` now enables `freename-fns` with `backend_type: "freename-resolution-api"` against the no-secret `backend-fixtures` container, and `tests/acceptance/docker-dns-integration.sh` asserts admin plugin visibility, PowerDNS-routed `alice.fns TXT`, runtime `alice.fns WALLET`, and authenticated Freename audit visibility.
 - Added an opt-in concrete Solana SNS QuickNode JSON-RPC backend adapter for the `solana-sns` Wave 2 plugin:
   - `backend_type: "solana-sns-quicknode"` posts JSON-RPC requests to a QuickNode Solana endpoint with the SNS marketplace plugin enabled, using the `sns_resolveDomain` method.
   - The adapter maps resolved `.sol` public keys into DNS `WALLET` answers with the `sol` chain label while preserving `WALLET` as RR type 262 / `TYPE262` compatible output.
@@ -1814,6 +1815,28 @@ Git note:
 
 ```text
 git add tests/acceptance/docker-dns-integration.sh tests/docker/anyns-config.json tests/docker/fixtures/backend-fixtures.py BACKEND_STORAGE_AND_DOCKER_TEST_PLAN.md IMPLEMENTATION_STATUS.md GIT_PROGRESS.md && git commit -m "test: add docker suins fixture assertions"   FAIL; Git could not create .git/index.lock because the repository metadata is read-only. Latest committed hash remains 08bed09.
+```
+
+Latest pass on 2026-06-05 after adding Docker Freename/FNS fixture assertions:
+
+```text
+bash -n tests/acceptance/docker-dns-integration.sh   PASS
+python3 -m py_compile tests/docker/fixtures/backend-fixtures.py   PASS
+GOCACHE=/tmp/anyns-go-build go run -buildvcs=false ./cmd/anyns-config-check tests/docker/anyns-config.json   PASS; output reported management_auth:true, management_keys:3, management_roles:3, plugins:13, routes:13, and admin_proxy_runtime:true
+docker compose -f tests/docker/compose.dns-integration.yml config >/tmp/anyns-docker-compose-rendered.yml && wc -l /tmp/anyns-docker-compose-rendered.yml   PASS; rendered 151 lines
+ANYNS_RUN_DOCKER_DNS_INTEGRATION=0 GOCACHE=/tmp/anyns-go-build bash tests/acceptance/docker-dns-integration.sh   SKIP; Docker daemon is not available
+GOCACHE=/tmp/anyns-go-build go test -buildvcs=false ./...   PASS
+GOCACHE=/tmp/anyns-go-build go vet -buildvcs=false ./...   PASS
+GOCACHE=/tmp/anyns-go-build go build -buildvcs=false ./cmd/anyns-admin-api ./cmd/anyns-plugin-runtime ./cmd/anyns-log-forwarder   PASS
+GOCACHE=/tmp/anyns-go-build bash tests/acceptance/check-local.sh   PASS with runtime socket smoke SKIP: listen tcp 127.0.0.1:18081: socket: operation not permitted
+```
+
+New Docker integration coverage added in this pass:
+
+```text
+tests/docker/anyns-config.json now enables `freename-fns` with `backend_type: "freename-resolution-api"` against the deterministic backend fixture.
+tests/docker/fixtures/backend-fixtures.py now serves no-secret Freename Resolution API `/domain/resolve?q=alice.fns` responses with ETH/BTC wallet, website, TXT, owner, and IPFS-style records.
+tests/acceptance/docker-dns-integration.sh now asserts admin plugin visibility, PowerDNS-routed `alice.fns TXT`, runtime `alice.fns WALLET`, and authenticated Freename/FNS audit visibility.
 ```
 
 Latest pass on 2026-06-05 after adding Docker reflection rate-limit assertions:

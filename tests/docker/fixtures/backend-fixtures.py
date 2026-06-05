@@ -94,6 +94,10 @@ class Handler(BaseHTTPRequestHandler):
         if self.path == "/api/mainnet/v3/address/missing":
             self._json(404, {"message": "name not found"})
             return
+        parsed = urlparse(self.path)
+        if parsed.path == "/domain/resolve":
+            self.handle_freename(parse_qs(parsed.query))
+            return
         self._json(404, {"error": "not found"})
 
     def do_POST(self):
@@ -402,6 +406,53 @@ class Handler(BaseHTTPRequestHandler):
             "id": req.get("id"),
             "error": {"code": -32000, "message": "unexpected SuiNS fixture domain"},
         })
+
+    def handle_freename(self, query):
+        domain = query.get("q", [""])[0]
+        if domain == "alice.fns":
+            self._json(200, {
+                "host": "alice.fns",
+                "network": "POLYGON",
+                "tld": "fns",
+                "sld": "alice",
+                "records": [
+                    {
+                        "key": "token.ETH.0",
+                        "type": "ETH",
+                        "value": "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+                    },
+                    {
+                        "key": "token.BTC.0",
+                        "type": "BTC",
+                        "value": "bc1qfreenamefixture"
+                    },
+                    {
+                        "key": "redirect.WEBSITE.0",
+                        "type": "WEBSITE",
+                        "value": "alice.fns.example.test"
+                    },
+                    {
+                        "key": "record.TXT.0",
+                        "type": "TXT",
+                        "value": "docker freename fixture"
+                    },
+                    {
+                        "key": "profile.OWNER.0",
+                        "type": "OWNER",
+                        "value": "Alice FNS"
+                    },
+                    {
+                        "key": "content.ipfs.0",
+                        "type": "IPFS",
+                        "value": "bafybeigfreenamefixture"
+                    }
+                ]
+            })
+            return
+        if domain == "missing.fns":
+            self._json(200, {"host": "missing.fns", "records": []})
+            return
+        self._json(404, {"message": "domain not found"})
 
     def handle_pulsechain_json_rpc(self):
         req = self._read_json()
