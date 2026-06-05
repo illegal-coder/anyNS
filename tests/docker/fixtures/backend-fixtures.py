@@ -116,6 +116,9 @@ class Handler(BaseHTTPRequestHandler):
         if self.path == "/rsk":
             self.handle_rsk_json_rpc()
             return
+        if self.path == "/v1/chain/get_pub_address":
+            self.handle_fio_chain()
+            return
         if self.path == "/sui":
             self.handle_suins_json_rpc()
             return
@@ -456,6 +459,21 @@ class Handler(BaseHTTPRequestHandler):
             self._json(200, {"host": "missing.fns", "records": []})
             return
         self._json(404, {"message": "domain not found"})
+
+    def handle_fio_chain(self):
+        req = self._read_json()
+        fio_address = req.get("fio_address", "")
+        chain_code = str(req.get("chain_code", "")).upper()
+        token_code = str(req.get("token_code", "")).upper()
+        if fio_address == "alice@safu" and chain_code == "ETH" and token_code == "USDT":
+            self._json(200, {
+                "public_address": "0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045"
+            })
+            return
+        if fio_address == "missing@safu":
+            self._json(404, {"message": "Public address not found"})
+            return
+        self._json(400, {"error": "unexpected FIO fixture request"})
 
     def handle_pulsechain_json_rpc(self):
         req = self._read_json()
