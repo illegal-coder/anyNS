@@ -169,8 +169,8 @@
     {
       "name": "did-bit",
       "enabled": false,
-      "backend_type": "runtime-json",
-      "backend_url": "https://did-bit-backend.example/resolve",
+      "backend_type": "did-universal-resolver",
+      "backend_url": "https://did-universal-resolver.example",
       "backend_api_key": "",
       "backend_api_key_file": "",
       "request_timeout": "3s"

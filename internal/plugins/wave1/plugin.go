@@ -184,6 +184,9 @@ func (p *Plugin) Resolve(ctx context.Context, req plugins.ResolveRequest) (plugi
 		if p.name == "ada-handle" && backendType == "ada-handle-api" {
 			return p.resolveADAHandleAPI(ctx, req, backendURL, apiKey, timeout, client, started)
 		}
+		if p.name == "did-bit" && backendType == "did-universal-resolver" {
+			return p.resolveDIDUniversalResolver(ctx, req, backendURL, apiKey, timeout, client, started)
+		}
 		return p.resolveRemote(ctx, req, backendURL, apiKey, timeout, client, started)
 	}
 	result := plugins.NewResult(p.name, plugins.RCodeServFail, 5, nil, started)
@@ -2383,6 +2386,206 @@ func freenameContentURI(value string) string {
 		return value
 	}
 	return "ipfs://" + value
+}
+
+func (p *Plugin) resolveDIDUniversalResolver(ctx context.Context, req plugins.ResolveRequest, backendURL, apiKey string, timeout time.Duration, client *http.Client, started time.Time) (plugins.ResolveResult, error) {
+	did, ok := bitDID(req.QName)
+	if !ok {
+		result := plugins.NewResult(p.name, plugins.RCodeNXDomain, 300, nil, started)
+		result.AuditMetadata["reason"] = "invalid_did_bit_name"
+		return result, nil
+	}
+	endpoint, err := didUniversalResolverEndpoint(backendURL, did)
+	if err != nil {
+		return plugins.ResolveResult{}, err
+	}
+	callCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+	httpReq, err := http.NewRequestWithContext(callCtx, http.MethodGet, endpoint, nil)
+	if err != nil {
+		return plugins.ResolveResult{}, err
+	}
+	httpReq.Header.Set("Accept", "application/did+json, application/json")
+	httpReq.Header.Set("User-Agent", "anyns-did-universal-resolver/0")
+	if apiKey != "" {
+		httpReq.Header.Set("Authorization", "Bearer "+apiKey)
+	}
+	resp, err := client.Do(httpReq)
+	if err != nil {
+		return serviceFailure(p.name, "backend_request_failed", started), err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode == http.StatusNotFound || resp.StatusCode == http.StatusGone {
+		result := plugins.NewResult(p.name, plugins.RCodeNXDomain, 300, nil, started)
+		result.RawRecord["backend"] = "did-universal-resolver"
+		result.RawRecord["did"] = did
+		result.AuditMetadata["reason"] = "did_not_found"
+		result.AuditMetadata["backend_url"] = backendURL
+		return result, nil
+	}
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return serviceFailure(p.name, fmt.Sprintf("backend_status_%d", resp.StatusCode), started), fmt.Errorf("%s backend status %d", p.name, resp.StatusCode)
+	}
+	var resolution didResolutionResult
+	if err := json.NewDecoder(resp.Body).Decode(&resolution); err != nil {
+		return serviceFailure(p.name, "backend_decode_failed", started), err
+	}
+	if resolution.Document == nil {
+		result := plugins.NewResult(p.name, plugins.RCodeNXDomain, 300, nil, started)
+		result.RawRecord["backend"] = "did-universal-resolver"
+		result.RawRecord["did"] = did
+		result.RawRecord["did_resolution_metadata"] = resolution.ResolutionMetadata
+		result.AuditMetadata["reason"] = "did_document_not_found"
+		result.AuditMetadata["backend_url"] = backendURL
+		return result, nil
+	}
+	allRecords := didDocumentRecords(plugins.NormalizeQName(req.QName), resolution.Document)
+	records := filterRecords(allRecords, plugins.NormalizeQType(req.QType))
+	result := plugins.NewResult(p.name, plugins.RCodeNoError, minPositiveTTL(records, 300), records, started)
+	result.RawRecord["backend"] = "did-universal-resolver"
+	result.RawRecord["did"] = did
+	result.RawRecord["did_document_id"] = stringField(resolution.Document["id"])
+	result.RawRecord["did_resolution_metadata"] = resolution.ResolutionMetadata
+	result.AuditMetadata["backend_url"] = backendURL
+	if len(allRecords) == 0 {
+		result.AuditMetadata["reason"] = "did_document_has_no_dns_records"
+	} else if len(records) == 0 {
+		result.AuditMetadata["reason"] = "did_type_not_found"
+	}
+	return result, nil
+}
+
+type didResolutionResult struct {
+	Document           map[string]any `json:"didDocument"`
+	ResolutionMetadata map[string]any `json:"didResolutionMetadata"`
+	DocumentMetadata   map[string]any `json:"didDocumentMetadata"`
+}
+
+func bitDID(qname string) (string, bool) {
+	normalized := plugins.NormalizeQName(qname)
+	trimmed := strings.TrimSuffix(normalized, ".")
+	if trimmed == "" || strings.Contains(trimmed, "/") {
+		return "", false
+	}
+	var label string
+	switch {
+	case strings.HasSuffix(trimmed, ".did.bit"):
+		label = strings.TrimSuffix(trimmed, ".did.bit")
+	case strings.HasSuffix(trimmed, ".bit"):
+		label = strings.TrimSuffix(trimmed, ".bit")
+	default:
+		return "", false
+	}
+	label = strings.Trim(label, ".")
+	if label == "" || strings.Contains(label, ".") {
+		return "", false
+	}
+	return "did:bit:" + label, true
+}
+
+func didUniversalResolverEndpoint(baseURL, did string) (string, error) {
+	parsed, err := url.Parse(strings.TrimSpace(baseURL))
+	if err != nil {
+		return "", err
+	}
+	if parsed.Scheme == "" || parsed.Host == "" {
+		return "", errors.New("DID Universal Resolver backend url must be absolute")
+	}
+	basePath := strings.TrimRight(parsed.Path, "/")
+	if !strings.HasSuffix(basePath, "/identifiers") {
+		basePath += "/1.0/identifiers"
+	}
+	parsed.Path = basePath + "/" + url.PathEscape(did)
+	parsed.RawQuery = ""
+	parsed.Fragment = ""
+	return parsed.String(), nil
+}
+
+func didDocumentRecords(name string, doc map[string]any) []plugins.RR {
+	var records []plugins.RR
+	for _, value := range didDocumentWalletValues(doc) {
+		records = append(records, plugins.RR{Name: name, Type: "WALLET", TTL: 300, Value: value})
+	}
+	for _, value := range didDocumentTXTValues(doc) {
+		records = append(records, plugins.RR{Name: name, Type: "TXT", TTL: 300, Value: value})
+	}
+	for _, value := range didDocumentURIValues(doc) {
+		records = append(records, plugins.RR{Name: name, Type: "URI", TTL: 300, Value: value})
+	}
+	return records
+}
+
+func didDocumentWalletValues(doc map[string]any) []string {
+	var out []string
+	for _, item := range objectList(doc["verificationMethod"]) {
+		for _, field := range []string{"blockchainAccountId", "ethereumAddress", "publicKeyBase58", "publicKeyMultibase"} {
+			value := stringField(item[field])
+			if value == "" {
+				continue
+			}
+			chain := "did"
+			if before, _, ok := strings.Cut(value, ":"); ok && before != "" {
+				chain = strings.ToLower(before)
+			}
+			out = append(out, chain+" "+value)
+			break
+		}
+	}
+	return out
+}
+
+func didDocumentTXTValues(doc map[string]any) []string {
+	var out []string
+	if id := stringField(doc["id"]); id != "" {
+		out = append(out, "id="+id)
+	}
+	if controller := stringField(doc["controller"]); controller != "" {
+		out = append(out, "controller="+controller)
+	}
+	for _, item := range objectList(doc["service"]) {
+		if serviceType := stringField(item["type"]); serviceType != "" {
+			out = append(out, "service="+serviceType)
+		}
+	}
+	return out
+}
+
+func didDocumentURIValues(doc map[string]any) []string {
+	var out []string
+	for _, item := range objectList(doc["service"]) {
+		for _, endpoint := range stringValues(item["serviceEndpoint"]) {
+			if strings.Contains(endpoint, "://") {
+				out = append(out, endpoint)
+			}
+		}
+	}
+	return out
+}
+
+func objectList(value any) []map[string]any {
+	switch v := value.(type) {
+	case map[string]any:
+		return []map[string]any{v}
+	case []any:
+		out := make([]map[string]any, 0, len(v))
+		for _, item := range v {
+			if mapped, ok := item.(map[string]any); ok {
+				out = append(out, mapped)
+			}
+		}
+		return out
+	default:
+		return nil
+	}
+}
+
+func stringField(value any) string {
+	switch v := value.(type) {
+	case string:
+		return strings.TrimSpace(v)
+	default:
+		return ""
+	}
 }
 
 func (p *Plugin) resolveOpenAliasDNSTXT(ctx context.Context, req plugins.ResolveRequest, backendURL, apiKey string, timeout time.Duration, client *http.Client, started time.Time) (plugins.ResolveResult, error) {

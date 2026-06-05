@@ -41,7 +41,7 @@ Conclusion: the server has enough space for source, test images, and lightweight
 | FIO Handle | Implemented | FIO Chain API or fake HTTP fixture; deterministic Docker fixture now covers the current adapter contract | No local FIO node | P3 |
 | OpenAlias | Implemented | HTTP TXT lookup adapter or fake DNS/TXT adapter; deterministic Docker fixture now covers the current adapter contract | Lightweight fixture first | P3 |
 | ADA Handle | Implemented | ADA Handle API or fake HTTP fixture; deterministic Docker fixture now covers the current adapter contract | No local Cardano node | P3 |
-| d.id/.bit | Runtime-json fixture covered | Generic runtime JSON adapter with exact-domain Docker fixture; concrete live backend still needs selection | No local chain node until upstream contract is selected | P3 |
+| d.id/.bit | Implemented | DID Universal Resolver-compatible HTTP endpoint for live testing, plus generic runtime JSON adapter with exact-domain Docker fixture | No local chain node; use external resolver or deterministic fixture first | P3 |
 
 ## Docker Network Test Topology
 
@@ -86,7 +86,7 @@ Minimum DNS assertions:
 - `dig @pdns-recursor alice.safu.fio TYPE262` confirms routed PowerDNS posture for the FIO Handle fixture while runtime HTTP `alice.safu.fio WALLET` returns deterministic `fio-chain-api` wallet records.
 - `dig @pdns-recursor alice.openalias TXT` and runtime HTTP `alice.openalias WALLET` return deterministic OpenAlias fixture records through the `openalias-dns-txt` adapter contract.
 - `dig @pdns-recursor alice.ada TXT` and runtime HTTP `alice.ada WALLET` return deterministic ADA Handle fixture records through the `ada-handle-api` adapter contract.
-- `dig @pdns-recursor alice.did.bit TXT` and runtime HTTP `alice.did.bit WALLET` return deterministic d.id/.bit fixture records through the generic `runtime-json` adapter contract, while the broad `.bit` suffix remains routed to Namecoin by default.
+- `dig @pdns-recursor alice.did.bit TXT` and runtime HTTP `alice.did.bit WALLET` return deterministic d.id/.bit fixture records through the generic `runtime-json` adapter contract, while the broad `.bit` suffix remains routed to Namecoin by default. Live d.id/.bit testing should use the opt-in `did-universal-resolver` backend against a Universal Resolver-compatible endpoint.
 - `dig @pdns-recursor wallet.hns TYPE262` or runtime HTTP equivalent returns WALLET/TYPE262-compatible data.
 - `dig @bind-latest example.hns A` forwards through the configured path and receives the same answer.
 - ICANN domain such as `example.com` still resolves through normal recursive behavior when no anyNS route matches, and the runtime no-route path returns auditable `source_plugin=router` / `NXDOMAIN` without routing the public domain to decentralized plugins when external recursion is unavailable.

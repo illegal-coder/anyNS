@@ -436,11 +436,38 @@ This repository has moved from requirements-only documentation to a runnable fir
 - Extended the deterministic Docker DNS integration fixture path with an enabled OpenAlias adapter fixture. The Docker config now routes `.openalias` through `openalias` using the existing `openalias-dns-txt` backend contract, the fixture serves deterministic `oa1:xmr` TXT data for `alice.openalias`, and the acceptance script asserts admin plugin visibility, PowerDNS-routed `TXT` resolution, runtime `WALLET` mapping, and authenticated audit visibility without live DNS-over-HTTP credentials.
 - Extended the deterministic Docker DNS integration fixture path with an enabled ADA Handle adapter fixture. The Docker config now routes `.ada` through `ada-handle` using the existing `ada-handle-api` backend contract, the fixture serves deterministic `/handles/alice` profile/address/image data, and the acceptance script asserts admin plugin visibility, PowerDNS-routed `alice.ada TXT`, runtime `alice.ada WALLET`, and authenticated ADA Handle audit visibility without live `api.handle.me` credentials.
 - Extended the deterministic Docker DNS integration fixture path with enabled d.id/.bit runtime-json fixture coverage while preserving the Namecoin-over-`.bit` default. The Docker config now enables `did-bit` only for the exact `alice.did.bit` route at higher priority than the broad Namecoin `.bit` route, the fixture returns deterministic TXT/URI/WALLET records through the generic runtime-json contract, and the acceptance script asserts admin plugin visibility, PowerDNS-routed `alice.did.bit TXT`, runtime `alice.did.bit WALLET`, and authenticated d.id audit visibility.
+- Added an opt-in concrete DID Universal Resolver backend adapter for the `did-bit` Wave 3 plugin. `backend_type: "did-universal-resolver"` calls a Universal Resolver-compatible `/1.0/identifiers/{did}` endpoint, derives conservative `did:bit:{label}` identifiers from `.bit` or exact-route `.did.bit` names, maps DID document verification methods into `WALLET`, document/controller/service metadata into `TXT`, URI service endpoints into `URI`, and keeps 404/410 or missing-document responses as routed `NXDOMAIN` without ICANN fallback leakage. The adapter is disabled by default and accepted by config validation only for `did-bit`, so Namecoin remains the broad `.bit` default unless an operator explicitly installs a higher-priority d.id route.
 - Extended the deterministic Docker DNS integration script with a runtime-level public-domain no-route assertion. The script now proves `example.com A` returns HTTP `404` from `source_plugin=router`, writes an auditable `NXDOMAIN` no-route event, and is not routed to HNS or Namecoin even when the external recursive `example.com` probe can only prove `NOERROR` or environment-dependent `SERVFAIL`.
 - Extended the deterministic Docker DNS integration script with end-to-end audit ordering assertions for admin, runtime, and log-forwarder audit reads. The script now checks `order=asc` and `order=desc` with bounded `limit=2` queries over management mutation events, Namecoin runtime events, and log-forwarder ingested events.
 - Added partial qname audit filtering through `GET /api/v1/audit/events?qname_contains=...` on the shared admin/runtime/log-forwarder audit path. Matching is case-insensitive, composes with exact filters, applies before bounded limits/order, and is covered by no-socket store/parser/admin/runtime tests plus deterministic Docker-script assertions for runtime Namecoin and log-forwarder events.
 
 ## Latest Validation
+
+Validated on 2026-06-06 01:10 CST after adding the opt-in d.id/.bit DID Universal Resolver backend:
+
+```bash
+gofmt -w internal/plugins/wave1/plugin.go internal/plugins/wave1/plugin_test.go internal/config/config.go internal/config/config_test.go
+GOCACHE=/tmp/anyns-go-build go test -buildvcs=false ./internal/plugins/wave1
+GOCACHE=/tmp/anyns-go-build go test -buildvcs=false ./internal/config
+GOCACHE=/tmp/anyns-go-build go run -buildvcs=false ./cmd/anyns-config-check configs/anyns/config.example.json
+GOCACHE=/tmp/anyns-go-build go run -buildvcs=false ./cmd/anyns-config-check tests/docker/anyns-config.json
+git diff --check -- internal/plugins/wave1/plugin.go internal/plugins/wave1/plugin_test.go internal/config/config.go internal/config/config_test.go configs/anyns/config.example.json
+bash -n tests/acceptance/docker-dns-integration.sh && bash -n tests/acceptance/docker-hnsd-integration.sh && bash -n tests/acceptance/check-local.sh
+GOCACHE=/tmp/anyns-go-build go test -buildvcs=false ./...
+GOCACHE=/tmp/anyns-go-build go vet -buildvcs=false ./...
+GOCACHE=/tmp/anyns-go-build go build -buildvcs=false ./cmd/anyns-admin-api ./cmd/anyns-plugin-runtime ./cmd/anyns-log-forwarder
+ANYNS_RUN_DOCKER_DNS_INTEGRATION=0 GOCACHE=/tmp/anyns-go-build bash tests/acceptance/docker-dns-integration.sh
+docker compose -f tests/docker/compose.dns-integration.yml config >/tmp/anyns-docker-compose-rendered.yml && wc -l /tmp/anyns-docker-compose-rendered.yml
+GOCACHE=/tmp/anyns-go-build bash tests/acceptance/check-local.sh
+```
+
+Results:
+
+- PASS: gofmt, targeted Wave 3 adapter/config tests, sample config validation, Docker fixture config validation with 19 plugins / 19 routes, whitespace diff check, acceptance shell syntax checks, full Go tests, full Go vet, service builds, and Docker Compose rendering at 151 lines.
+- SKIP: `tests/acceptance/docker-dns-integration.sh` runtime execution because Docker daemon is not available.
+- PASS with documented SKIP: `tests/acceptance/check-local.sh` completed while runtime socket smoke skipped because `listen tcp 127.0.0.1:18081` is denied in this sandbox.
+- Git commit was attempted once after validation and failed because `.git/index.lock` could not be created on a read-only filesystem. Latest committed hash remains `e6e367e`, and no files were staged after the failed index write.
+- No new recurring error pattern was observed; `DEVELOPMENT_LESSONS.md` did not need a manual rule update.
 
 Validated on 2026-06-05 21:41 CST after adding opt-in audit-event cursor pages:
 
@@ -2080,7 +2107,7 @@ git add internal/plugins/wave1/plugin.go internal/plugins/wave1/plugin_test.go t
 - Test the new RIF/RNS JSON-RPC adapter against a live RSK RPC endpoint, actual RNS registry address, and real `.rsk` names, then expand record mapping if live resolver responses require resolver methods beyond direct `addr`, `text`, and `contenthash` calls.
 - Test the new OpenAlias DNS TXT adapter against live DNS TXT records or the selected production DNS-over-HTTP adapter, then expand parsing if real records expose additional standard or ecosystem-specific key-value fields beyond `recipient_address`, `recipient_name`, `tx_description`, `tx_amount`, `tx_payment_id`, `address_signature`, and `checksum`.
 - Test the new ADA Handle public API adapter against live `api.handle.me` responses and real Handles, then expand record mapping if live responses expose additional Cardano address, personalization, or subHandle fields beyond the currently covered address/profile/image fields.
-- Select and test a concrete live d.id/.bit backend contract if d.id support needs to move beyond the current generic runtime-json fixture; keep any broader `.bit` route below Namecoin unless an operator explicitly opts into a higher-priority override.
+- Test the new d.id/.bit DID Universal Resolver backend against a live resolver that supports `did:bit:*`, then expand mapping if live DID documents expose additional d.id-specific service, address, or profile shapes beyond verification-method wallet fields, document/controller/service TXT metadata, and URI service endpoints. Keep any broader `.bit` route below Namecoin unless an operator explicitly opts into a higher-priority override.
 - Run the expanded Docker DNS integration fixture stack end to end once Docker daemon access is available.
 - Run the new HNS `hnsd` / `dns://` Docker topology end to end with `ANYNS_RUN_DOCKER_HNSD_INTEGRATION=1` once Docker daemon access is available.
 - Run the authenticated Docker DNS integration assertions, including policy reload coverage, end to end once Docker daemon access is available.

@@ -601,6 +601,23 @@ func TestValidateAcceptsADAHandleAPIBackendType(t *testing.T) {
 	}
 }
 
+func TestValidateAcceptsDIDUniversalResolverBackendType(t *testing.T) {
+	cfg := Default()
+	cfg.Plugins = []PluginConfig{
+		{Name: "did-bit", Enabled: true, BackendType: "did-universal-resolver", BackendURL: "https://resolver.example"},
+	}
+	cfg.Routes = []plugins.Route{{
+		Name:     "did-bit",
+		Domains:  []string{"alice.did.bit"},
+		Plugin:   "did-bit",
+		Priority: 95,
+		Fallback: "nxdomain",
+	}}
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("validate DID Universal Resolver backend type: %v", err)
+	}
+}
+
 func TestValidateRejectsInvalidIntegrationConfig(t *testing.T) {
 	cfg := Default()
 	cfg.RequestTimeout = 0

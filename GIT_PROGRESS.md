@@ -10,6 +10,60 @@ If `git status` is unavailable on the server, this file is still the required gi
 - PowerDNS remains the primary path: Recursor Lua hook calls the runtime, preserves ICANN fallback for unavailable runtime/dependencies, and handles routed decentralized `NOERROR`/`NXDOMAIN`/`SERVFAIL` without unsafe ICANN leakage.
 - HNS now has static, HTTP JSON, and `dns://` backend modes. The DNS backend includes UDP truncation detection and TCP retry, with backend transport recorded in `raw_record.backend_transport`.
 - Security, DNSLog, honeypot queue/replay, management auth, audit summaries, policy reload, Wave 1 plugin skeletons, Wave 2 runtime-json skeletons, Wave 3 runtime-json skeletons, and no-socket acceptance checks have been implemented and documented in `IMPLEMENTATION_STATUS.md`.
+- This run selected and implemented a concrete d.id/.bit live backend contract without changing the deterministic exact-domain fixture route. The `did-bit` plugin now supports opt-in `backend_type: "did-universal-resolver"`, calls Universal Resolver-style `/1.0/identifiers/{did}` endpoints, maps DID document verification methods into `WALLET`, service endpoints into `URI`, and document/controller/service metadata into `TXT`, while preserving not-found/missing-document responses as routed `NXDOMAIN` and backend failures as isolated `SERVFAIL`.
+- `configs/anyns/config.example.json` now demonstrates disabled-by-default `did-universal-resolver` for `did-bit`; config validation accepts that backend type only for `did-bit`, leaving Namecoin as the default broad `.bit` route unless operators explicitly configure a higher-priority d.id route.
+- Current Codex run at `2026-06-06 01:10 CST` reported these commands:
+  - `find docs -maxdepth 2 -type f | sort` - PASS.
+  - `sed -n '1,240p' CODEX_RUN_CONTEXT.md` - PASS.
+  - `sed -n '1,260p' DEVELOPMENT_LESSONS.md` - PASS.
+  - `sed -n ... docs/*.md REMOTE_CODEX_HANDOFF.md IMPLEMENTATION_STATUS.md GIT_PROGRESS.md BACKEND_STORAGE_AND_DOCKER_TEST_PLAN.md` - PASS.
+  - `git status --short && git rev-parse --short HEAD` - PASS; latest committed hash before implementation work was `e6e367e`, with automation-maintained `CODEX_RUN_CONTEXT.md`, `DEVELOPMENT_LESSONS.md`, and `GIT_PROGRESS.md` already dirty.
+  - `rg -n "Remaining Work|Next small plan|next small plan|d\\.id|did|PowerDNS Web|Partially done|TODO|Current Codex run|latest committed|management key|secret" IMPLEMENTATION_STATUS.md GIT_PROGRESS.md BACKEND_STORAGE_AND_DOCKER_TEST_PLAN.md -S` - PASS.
+  - `rg --files | sort | sed -n '1,240p'` - PASS.
+  - Web lookup for d.id/.bit and DID resolution docs - PASS; no stable public d.id-specific DNS resolver API was visible, so the implementation used the common DID Resolution / Universal Resolver result shape as an opt-in backend contract.
+  - `rg -n "backend_type|runtime-json|did-bit|allowed|Validate|unsupported" internal/config internal/app configs/anyns/config.example.json tests/docker/anyns-config.json internal/plugins/wave1/plugin.go -S` - PASS.
+  - `sed -n ... internal/plugins/wave1/plugin.go internal/plugins/wave1/plugin_test.go internal/config/config.go internal/config/config_test.go configs/anyns/config.example.json tests/docker/anyns-config.json` - PASS.
+  - `gofmt -w internal/plugins/wave1/plugin.go internal/plugins/wave1/plugin_test.go internal/config/config.go internal/config/config_test.go` - PASS.
+  - `GOCACHE=/tmp/anyns-go-build go test -buildvcs=false ./internal/plugins/wave1` - PASS.
+  - `GOCACHE=/tmp/anyns-go-build go test -buildvcs=false ./internal/config` - PASS.
+  - `GOCACHE=/tmp/anyns-go-build go run -buildvcs=false ./cmd/anyns-config-check configs/anyns/config.example.json` - PASS; output reported `management_auth:false`, `management_keys:2`, `management_roles:2`, `plugins:19`, `routes:19`, and `admin_proxy_runtime:true`.
+  - `GOCACHE=/tmp/anyns-go-build go run -buildvcs=false ./cmd/anyns-config-check tests/docker/anyns-config.json` - PASS; output reported `management_auth:true`, `management_keys:3`, `management_roles:3`, `plugins:19`, `routes:19`, and `admin_proxy_runtime:true`.
+  - `git diff --check -- internal/plugins/wave1/plugin.go internal/plugins/wave1/plugin_test.go internal/config/config.go internal/config/config_test.go configs/anyns/config.example.json` - PASS.
+  - `bash -n tests/acceptance/docker-dns-integration.sh && bash -n tests/acceptance/docker-hnsd-integration.sh && bash -n tests/acceptance/check-local.sh` - PASS.
+  - `GOCACHE=/tmp/anyns-go-build go test -buildvcs=false ./...` - PASS.
+  - `GOCACHE=/tmp/anyns-go-build go vet -buildvcs=false ./...` - PASS.
+  - `GOCACHE=/tmp/anyns-go-build go build -buildvcs=false ./cmd/anyns-admin-api ./cmd/anyns-plugin-runtime ./cmd/anyns-log-forwarder` - PASS.
+  - `ANYNS_RUN_DOCKER_DNS_INTEGRATION=0 GOCACHE=/tmp/anyns-go-build bash tests/acceptance/docker-dns-integration.sh` - SKIP because Docker daemon is not available: `SKIP: docker daemon is not available`.
+  - `docker compose -f tests/docker/compose.dns-integration.yml config >/tmp/anyns-docker-compose-rendered.yml && wc -l /tmp/anyns-docker-compose-rendered.yml` - PASS; rendered 151 lines.
+  - `GOCACHE=/tmp/anyns-go-build bash tests/acceptance/check-local.sh` - PASS with runtime socket smoke SKIP: `anyns-plugin-runtime exited before listening on 127.0.0.1:18081`; runtime log detail was `listen tcp 127.0.0.1:18081: socket: operation not permitted`.
+  - `date '+%Y-%m-%d %H:%M %Z' && git status --short && git rev-parse --short HEAD` - PASS; output date was `2026-06-06 01:10 CST`, latest committed hash before documentation updates was `e6e367e`, and the working tree contained this run's d.id/.bit Universal Resolver changes plus required ledger updates and automation-maintained context/lesson files.
+  - `git diff --check -- internal/plugins/wave1/plugin.go internal/plugins/wave1/plugin_test.go internal/config/config.go internal/config/config_test.go configs/anyns/config.example.json IMPLEMENTATION_STATUS.md GIT_PROGRESS.md BACKEND_STORAGE_AND_DOCKER_TEST_PLAN.md` - PASS.
+  - `git add internal/plugins/wave1/plugin.go internal/plugins/wave1/plugin_test.go internal/config/config.go internal/config/config_test.go configs/anyns/config.example.json IMPLEMENTATION_STATUS.md GIT_PROGRESS.md BACKEND_STORAGE_AND_DOCKER_TEST_PLAN.md && git commit -m "feat: add did universal resolver backend"` - FAIL because Git could not create `.git/index.lock`: `Read-only file system`.
+  - `git status --short && git rev-parse --short HEAD && git diff --cached --stat` - PASS after failed commit; latest committed hash remains `e6e367e`, and no files were staged because the index write failed before staging.
+  - `date '+%Y-%m-%d %H:%M %Z'` - PASS after failed commit; output `2026-06-06 01:13 CST`.
+- Changed files in this run:
+  - `internal/plugins/wave1/plugin.go`
+  - `internal/plugins/wave1/plugin_test.go`
+  - `internal/config/config.go`
+  - `internal/config/config_test.go`
+  - `configs/anyns/config.example.json`
+  - `IMPLEMENTATION_STATUS.md`
+  - `GIT_PROGRESS.md`
+  - `BACKEND_STORAGE_AND_DOCKER_TEST_PLAN.md`
+- Repeated errors observed in this run:
+  - `docker daemon unavailable` appeared once through `tests/acceptance/docker-dns-integration.sh` and was handled by the existing Docker SKIP path.
+  - `socket_listen_denied` appeared once through `tests/acceptance/runtime-smoke.sh` under `check-local.sh` and was handled by the existing acceptance SKIP path.
+  - Git commit was attempted once and failed with the known read-only `.git/index.lock` metadata error, so no further commit retry or git repair was attempted. Latest available git commit remains `e6e367e`.
+  - No targeted package failure occurred.
+  - No new recurring error pattern was observed; `DEVELOPMENT_LESSONS.md` did not need a manual rule update.
+- Next small plan for the following run:
+  - Add deterministic Docker fixture coverage for `did-universal-resolver` only if it can be done without overriding the existing `runtime-json` d.id exact-route fixture or Namecoin broad `.bit` route; otherwise prefer a different no-socket live-response shape from an existing adapter.
+  - If Docker daemon access becomes available, run the deterministic Docker DNS integration stack once before adding more fixture scope.
+  - Live-test the new d.id/.bit Universal Resolver contract only when a resolver endpoint that supports `did:bit:*` is selected.
+- Work that should not be repeated next run:
+  - Do not re-select the d.id/.bit backend contract; `did-universal-resolver` is now implemented and disabled by default.
+  - Do not re-add the exact-domain d.id `runtime-json` Docker fixture; it already covers `alice.did.bit` without disturbing Namecoin `.bit`.
+  - Do not rerun live Docker DNS integration unless Docker daemon access is available; the default skip path already passed.
 - This run extended the Namecoin `.bit` JSON-RPC adapter with conservative modern DNS presentation mapping. Namecoin `mx`, `srv`, `uri`, and `caa` values now produce DNS `MX`, `SRV`, `URI`, and `CAA` records from strings, string lists, or simple numeric/string tuples; MX and SRV target names are normalized.
 - This run also extended the deterministic Docker fixture path with a Namecoin `CAA` assertion: `tests/docker/fixtures/backend-fixtures.py` now returns `caa: [[0, "issue", "letsencrypt.org"]]` for `d/example`, and `tests/acceptance/docker-dns-integration.sh` asserts PowerDNS-routed `example.bit CAA`.
 - Current Codex run at `2026-06-06 00:31 CST` reported these commands:
@@ -2073,18 +2127,18 @@ If `git status` is unavailable on the server, this file is still the required gi
 - Do not re-add audit event cursor pagination; `GET /api/v1/audit/events?page=true` and follow-up `cursor=<offset>` reads now return an opt-in `{events,next_cursor}` envelope on the shared admin/runtime/log-forwarder path while default reads still return the legacy JSON array.
 
 <!-- AUTO:run-context:start -->
-Last automation scan: 2026-06-06T00:34:32+08:00
+Last automation scan: 2026-06-06T01:14:19+08:00
 
-- Latest run log: `/root/anyNS/codex-run-20260606-002532.log`
+- Latest run log: `/root/anyNS/codex-run-20260606-010437.log`
 - Git status: `available`
 - Git detail: `M BACKEND_STORAGE_AND_DOCKER_TEST_PLAN.md
  M CODEX_RUN_CONTEXT.md
  M DEVELOPMENT_LESSONS.md
  M GIT_PROGRESS.md
  M IMPLEMENTATION_STATUS.md
- M internal/plugins/wave1/plugin.go
- M internal/plugins/wave1/plugin_test.go
- M tests/acceptance/d...`
+ M configs/anyns/config.example.json
+ M internal/config/config.go
+ M internal/config/config_test.g...`
 
 Frequent errors to avoid next run:
 - `socket_listen_denied`: Prefer no-socket handler tests and acceptance scripts that SKIP cleanly in socket-restricted environments.

@@ -659,6 +659,8 @@ func validPluginBackendType(pluginName, backendType string) bool {
 		return backendType == "openalias-dns-txt"
 	case "ada-handle":
 		return backendType == "ada-handle-api"
+	case "did-bit":
+		return backendType == "did-universal-resolver"
 	default:
 		return false
 	}

@@ -136,6 +136,107 @@ func TestRemoteBackendAcceptsDirectResolveResult(t *testing.T) {
 	}
 }
 
+func TestDIDUniversalResolverBackendMapsDocumentRecords(t *testing.T) {
+	plugin := New("did-bit", []string{".bit"})
+	plugin.SetEnabled(true)
+	plugin.ConfigureBackend(BackendConfig{
+		Type:   "did-universal-resolver",
+		URL:    "https://resolver.example",
+		APIKey: "resolver-secret",
+		HTTPClient: &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+			if r.Method != http.MethodGet {
+				t.Fatalf("method = %s", r.Method)
+			}
+			if r.URL.String() != "https://resolver.example/1.0/identifiers/did:bit:alice" {
+				t.Fatalf("url = %s", r.URL.String())
+			}
+			if r.Header.Get("Authorization") != "Bearer resolver-secret" {
+				t.Fatalf("authorization = %q", r.Header.Get("Authorization"))
+			}
+			return &http.Response{
+				StatusCode: http.StatusOK,
+				Header:     make(http.Header),
+				Body: io.NopCloser(strings.NewReader(`{
+					"didDocument": {
+						"id": "did:bit:alice",
+						"controller": "did:bit:controller",
+						"verificationMethod": [{
+							"id": "did:bit:alice#owner",
+							"type": "EcdsaSecp256k1RecoveryMethod2020",
+							"blockchainAccountId": "eip155:1:0x1234567890abcdef1234567890abcdef12345678"
+						}],
+						"service": [{
+							"id": "did:bit:alice#website",
+							"type": "LinkedDomains",
+							"serviceEndpoint": "https://alice.example"
+						}]
+					},
+					"didResolutionMetadata": {"contentType": "application/did+json"}
+				}`)),
+			}, nil
+		})},
+	})
+
+	result, err := plugin.Resolve(context.Background(), plugins.ResolveRequest{QName: "Alice.DID.Bit", QType: "ANY"})
+	if err != nil {
+		t.Fatalf("resolve: %v", err)
+	}
+	if result.SourcePlugin != "did-bit" || result.RCode != plugins.RCodeNoError {
+		t.Fatalf("result = %#v", result)
+	}
+	if result.RawRecord["backend"] != "did-universal-resolver" || result.RawRecord["did"] != "did:bit:alice" {
+		t.Fatalf("raw record = %#v", result.RawRecord)
+	}
+	want := map[string]bool{
+		"WALLET=eip155 eip155:1:0x1234567890abcdef1234567890abcdef12345678": false,
+		"TXT=id=did:bit:alice":              false,
+		"TXT=controller=did:bit:controller": false,
+		"TXT=service=LinkedDomains":         false,
+		"URI=https://alice.example":         false,
+	}
+	for _, rr := range result.RRSet {
+		key := rr.Type + "=" + rr.Value
+		if _, ok := want[key]; ok {
+			want[key] = true
+		}
+	}
+	for key, seen := range want {
+		if !seen {
+			t.Fatalf("missing rr %s in %#v", key, result.RRSet)
+		}
+	}
+}
+
+func TestDIDUniversalResolverBackendMissingDocumentReturnsNXDomain(t *testing.T) {
+	plugin := New("did-bit", []string{".bit"})
+	plugin.SetEnabled(true)
+	plugin.ConfigureBackend(BackendConfig{
+		Type: "did-universal-resolver",
+		URL:  "https://resolver.example/1.0/identifiers",
+		HTTPClient: &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+			if r.URL.String() != "https://resolver.example/1.0/identifiers/did:bit:missing" {
+				t.Fatalf("url = %s", r.URL.String())
+			}
+			return &http.Response{
+				StatusCode: http.StatusOK,
+				Header:     make(http.Header),
+				Body: io.NopCloser(strings.NewReader(`{
+					"didDocument": null,
+					"didResolutionMetadata": {"error": "notFound"}
+				}`)),
+			}, nil
+		})},
+	})
+
+	result, err := plugin.Resolve(context.Background(), plugins.ResolveRequest{QName: "missing.bit", QType: "WALLET"})
+	if err != nil {
+		t.Fatalf("resolve: %v", err)
+	}
+	if result.RCode != plugins.RCodeNXDomain || result.AuditMetadata["reason"] != "did_document_not_found" {
+		t.Fatalf("result = %#v", result)
+	}
+}
+
 func TestENSJSONRPCBackendMapsWalletTextAndContenthash(t *testing.T) {
 	plugin := New("ens", []string{".eth"})
 	plugin.SetEnabled(true)
