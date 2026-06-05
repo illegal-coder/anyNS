@@ -72,20 +72,21 @@ func QueryIntBounded(r *http.Request, name string, fallback, min, max int) int {
 func AuditEventFilterFromQuery(r *http.Request) dnslog.EventFilter {
 	query := r.URL.Query()
 	return dnslog.EventFilter{
-		TraceID:      strings.TrimSpace(query.Get("trace_id")),
-		ClientIP:     strings.TrimSpace(query.Get("client_ip")),
-		ClientView:   strings.TrimSpace(query.Get("client_view")),
-		Tenant:       strings.TrimSpace(query.Get("tenant")),
-		QName:        strings.TrimSpace(query.Get("qname")),
-		QType:        strings.TrimSpace(query.Get("qtype")),
-		SourcePlugin: strings.TrimSpace(query.Get("source_plugin")),
-		RiskLevel:    strings.TrimSpace(query.Get("risk_level")),
-		Action:       strings.TrimSpace(query.Get("action")),
-		MatchedRule:  strings.TrimSpace(query.Get("matched_rule")),
-		RCode:        strings.TrimSpace(query.Get("rcode")),
-		Since:        queryTime(query.Get("since")),
-		Until:        queryTime(query.Get("until")),
-		Order:        queryAuditOrder(query.Get("order")),
+		TraceID:       strings.TrimSpace(query.Get("trace_id")),
+		ClientIP:      strings.TrimSpace(query.Get("client_ip")),
+		ClientView:    strings.TrimSpace(query.Get("client_view")),
+		Tenant:        strings.TrimSpace(query.Get("tenant")),
+		QName:         strings.TrimSpace(query.Get("qname")),
+		QNameContains: strings.TrimSpace(query.Get("qname_contains")),
+		QType:         strings.TrimSpace(query.Get("qtype")),
+		SourcePlugin:  strings.TrimSpace(query.Get("source_plugin")),
+		RiskLevel:     strings.TrimSpace(query.Get("risk_level")),
+		Action:        strings.TrimSpace(query.Get("action")),
+		MatchedRule:   strings.TrimSpace(query.Get("matched_rule")),
+		RCode:         strings.TrimSpace(query.Get("rcode")),
+		Since:         queryTime(query.Get("since")),
+		Until:         queryTime(query.Get("until")),
+		Order:         queryAuditOrder(query.Get("order")),
 	}
 }
 

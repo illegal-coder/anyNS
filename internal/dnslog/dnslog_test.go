@@ -63,6 +63,28 @@ func TestStoreListFilteredAppliesFiltersBeforeLimit(t *testing.T) {
 	}
 }
 
+func TestStoreListFilteredSupportsQNameContains(t *testing.T) {
+	store := NewStore(10)
+	store.Append(Event{TraceID: "one", QName: "wallet.example.hns."})
+	store.Append(Event{TraceID: "two", QName: "alice.crypto."})
+	store.Append(Event{TraceID: "three", QName: "blocked.integration.test."})
+	store.Append(Event{TraceID: "four", QName: "deep.WALLET.example.hns."})
+
+	events := store.ListFiltered(EventFilter{QNameContains: "wallet"}, 10)
+	if len(events) != 2 || events[0].TraceID != "one" || events[1].TraceID != "four" {
+		t.Fatalf("qname_contains events = %#v", events)
+	}
+
+	events = store.ListFiltered(EventFilter{QNameContains: ".integration."}, 10)
+	if len(events) != 1 || events[0].TraceID != "three" {
+		t.Fatalf("integration qname_contains events = %#v", events)
+	}
+
+	if events := store.ListFiltered(EventFilter{QName: "alice.crypto.", QNameContains: "wallet"}, 10); len(events) != 0 {
+		t.Fatalf("exact qname should still narrow qname_contains, got %#v", events)
+	}
+}
+
 func TestStoreListFilteredAppliesTimeWindow(t *testing.T) {
 	store := NewStore(10)
 	base := time.Date(2026, 6, 5, 1, 0, 0, 0, time.UTC)

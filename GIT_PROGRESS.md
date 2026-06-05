@@ -10,7 +10,43 @@ If `git status` is unavailable on the server, this file is still the required gi
 - PowerDNS remains the primary path: Recursor Lua hook calls the runtime, preserves ICANN fallback for unavailable runtime/dependencies, and handles routed decentralized `NOERROR`/`NXDOMAIN`/`SERVFAIL` without unsafe ICANN leakage.
 - HNS now has static, HTTP JSON, and `dns://` backend modes. The DNS backend includes UDP truncation detection and TCP retry, with backend transport recorded in `raw_record.backend_transport`.
 - Security, DNSLog, honeypot queue/replay, management auth, audit summaries, policy reload, Wave 1 plugin skeletons, Wave 2 runtime-json skeletons, Wave 3 runtime-json skeletons, and no-socket acceptance checks have been implemented and documented in `IMPLEMENTATION_STATUS.md`.
-- This run extended `tests/acceptance/docker-dns-integration.sh` with deterministic audit event ordering assertions. Admin management mutation events, runtime Namecoin events, and log-forwarder ingested events now exercise `order=asc` and `order=desc` with `limit=2` in the Docker network script.
+- This run added partial qname audit filtering on the shared `GET /api/v1/audit/events` path. `qname_contains` is parsed by `internal/httpapi`, applied by `internal/dnslog` before limit/order handling, works across admin/runtime/log-forwarder handlers, and is covered by no-socket store/parser/admin/runtime tests plus Docker-script runtime/log-forwarder assertions.
+- Prior runs extended `tests/acceptance/docker-dns-integration.sh` with deterministic audit event ordering assertions. Admin management mutation events, runtime Namecoin events, and log-forwarder ingested events now exercise `order=asc` and `order=desc` with `limit=2` in the Docker network script.
+- Current Codex run at `2026-06-05 21:01 CST` reported these commands:
+  - `find docs -maxdepth 2 -type f | sort` - PASS.
+  - `sed -n ... CODEX_RUN_CONTEXT.md DEVELOPMENT_LESSONS.md docs/*.md REMOTE_CODEX_HANDOFF.md IMPLEMENTATION_STATUS.md GIT_PROGRESS.md BACKEND_STORAGE_AND_DOCKER_TEST_PLAN.md` - PASS.
+  - `git status --short && git rev-parse --short HEAD` - PASS; latest committed hash before implementation work was `b56c321`, with automation-maintained context/progress files already dirty.
+  - `sed -n ... internal/dnslog/dnslog.go internal/httpapi/httpapi.go internal/dnslog/dnslog_test.go internal/httpapi/httpapi_test.go cmd/anyns-admin-api/main_test.go cmd/anyns-plugin-runtime/main_test.go tests/acceptance/docker-dns-integration.sh` - PASS.
+  - `rg -n "qname_contains|partial qname|materially new query mode|bounded \`limit\`|audit API hardening|Do not re-add audit event" GIT_PROGRESS.md BACKEND_STORAGE_AND_DOCKER_TEST_PLAN.md IMPLEMENTATION_STATUS.md -S` - FAIL because unescaped Markdown backticks were interpreted by the shell; this is the known one-off search quoting pitfall and was not retried in the same form.
+  - `gofmt -w internal/dnslog/dnslog.go internal/dnslog/dnslog_test.go internal/httpapi/httpapi.go internal/httpapi/httpapi_test.go cmd/anyns-admin-api/main_test.go cmd/anyns-plugin-runtime/main_test.go` - PASS.
+  - `bash -n tests/acceptance/docker-dns-integration.sh` - PASS.
+  - `GOCACHE=/tmp/anyns-go-build go test -buildvcs=false ./internal/dnslog ./internal/httpapi ./cmd/anyns-admin-api ./cmd/anyns-plugin-runtime` - PASS.
+  - `GOCACHE=/tmp/anyns-go-build go test -buildvcs=false ./...` - PASS.
+  - `GOCACHE=/tmp/anyns-go-build go vet -buildvcs=false ./...` - PASS.
+  - `GOCACHE=/tmp/anyns-go-build go build -buildvcs=false ./cmd/anyns-admin-api ./cmd/anyns-plugin-runtime ./cmd/anyns-log-forwarder` - PASS.
+  - `GOCACHE=/tmp/anyns-go-build bash tests/acceptance/check-local.sh` - PASS with runtime socket smoke SKIP: `anyns-plugin-runtime exited before listening on 127.0.0.1:18081`; runtime log detail was `listen tcp 127.0.0.1:18081: socket: operation not permitted`.
+  - `ANYNS_RUN_DOCKER_DNS_INTEGRATION=0 GOCACHE=/tmp/anyns-go-build bash tests/acceptance/docker-dns-integration.sh` - SKIP because Docker daemon is not available: `SKIP: docker daemon is not available`.
+  - `GOCACHE=/tmp/anyns-go-build go run -buildvcs=false ./cmd/anyns-config-check tests/docker/anyns-config.json` - PASS; output reported `management_auth:true`, `management_keys:3`, `management_roles:3`, `plugins:19`, `routes:19`, and `admin_proxy_runtime:true`.
+  - `docker compose -f tests/docker/compose.dns-integration.yml config >/tmp/anyns-docker-compose-rendered.yml && wc -l /tmp/anyns-docker-compose-rendered.yml` - PASS; rendered 151 lines.
+  - `git diff --check -- cmd/anyns-admin-api/main_test.go cmd/anyns-plugin-runtime/main_test.go internal/dnslog/dnslog.go internal/dnslog/dnslog_test.go internal/httpapi/httpapi.go internal/httpapi/httpapi_test.go tests/acceptance/docker-dns-integration.sh IMPLEMENTATION_STATUS.md GIT_PROGRESS.md BACKEND_STORAGE_AND_DOCKER_TEST_PLAN.md` - PASS.
+  - `git add internal/dnslog/dnslog.go internal/dnslog/dnslog_test.go internal/httpapi/httpapi.go internal/httpapi/httpapi_test.go cmd/anyns-admin-api/main_test.go cmd/anyns-plugin-runtime/main_test.go tests/acceptance/docker-dns-integration.sh IMPLEMENTATION_STATUS.md GIT_PROGRESS.md BACKEND_STORAGE_AND_DOCKER_TEST_PLAN.md && git commit -m "feat: add audit qname contains filter"` - FAIL because Git could not create `.git/index.lock`: `Read-only file system`. Latest committed hash remains `b56c321`.
+  - `git status --short && git rev-parse --short HEAD` - PASS after failed commit; working tree remains dirty with this run's validated changes plus automation-maintained context/lesson files.
+  - `git diff --cached --stat` - PASS; no files were staged because the index write failed before staging.
+- Changed files in this run:
+  - `internal/dnslog/dnslog.go`
+  - `internal/dnslog/dnslog_test.go`
+  - `internal/httpapi/httpapi.go`
+  - `internal/httpapi/httpapi_test.go`
+  - `cmd/anyns-admin-api/main_test.go`
+  - `cmd/anyns-plugin-runtime/main_test.go`
+  - `tests/acceptance/docker-dns-integration.sh`
+  - `IMPLEMENTATION_STATUS.md`
+  - `GIT_PROGRESS.md`
+  - `BACKEND_STORAGE_AND_DOCKER_TEST_PLAN.md`
+- `docker daemon unavailable` appeared once through `tests/acceptance/docker-dns-integration.sh` and was handled by the existing Docker SKIP path.
+- `socket_listen_denied` appeared once through `tests/acceptance/runtime-smoke.sh` under `check-local.sh` and was handled by the existing acceptance SKIP path.
+- Git commit was attempted once and failed with the known read-only git metadata error, so no further commit retry or git repair was attempted.
+- No new recurring error pattern was observed in this run.
 - Prior runs made admin-to-runtime proxying the shipped deployment default in `configs/anyns/config.example.json` and `.env.example`, while keeping the Go library default process-local for local tests. Config validation rejects proxy mode without a valid HTTP(S) runtime control URL, and `anyns-config-check` reports the effective control-plane proxy settings.
 - Prior runs added optional management key rotation windows (`not_before` / `expires_at`) for scoped management keys. Config validation checks RFC3339 timestamp syntax and ordering, and shared HTTP auth rejects expired or not-yet-active keys without opening sockets.
 - Prior runs added read-scoped management key rotation observability on admin/runtime control-plane handlers at `GET /api/v1/management/keys`. The endpoint reports key IDs, scopes, rotation windows, and active/future/expired status without exposing API key material.
@@ -1777,7 +1813,7 @@ If `git status` is unavailable on the server, this file is still the required gi
 - Select a concrete live d.id/.bit backend before moving beyond the current exact-domain runtime-json fixture; keep `.bit` conflict tests intact so d.id/.bit cannot silently override Namecoin `.bit`.
 - For no-socket runtime hardening, prefer small contract improvements on the existing PowerDNS/runtime path, with targeted package tests before broad validation.
 - For no-socket observability work, the next useful gap is a new metric family or runtime handler contract not already exposed by current DNSLog/honeypot summaries; source-plugin counts, RCODE counts, latency aggregates, top qname metrics, and honeypot replay retained/dropped counters are now implemented.
-- For no-socket audit API hardening, only extend `/api/v1/audit/events` further if adding a materially new query mode such as partial qname matching or stable pagination cursors; bounded `limit`, explicit `order=asc|desc`, inclusive `since`/`until` time windows, and exact-match `source_plugin`, `risk_level`, `action`, `rcode`, `trace_id`, `client_ip`, `client_view`, `tenant`, `qname`, `qtype`, and `matched_rule` filters are now implemented.
+- For no-socket audit API hardening, only extend `/api/v1/audit/events` further if adding a materially new query mode such as stable pagination cursors; bounded `limit`, explicit `order=asc|desc`, inclusive `since`/`until` time windows, case-insensitive `qname_contains`, and exact-match `source_plugin`, `risk_level`, `action`, `rcode`, `trace_id`, `client_ip`, `client_view`, `tenant`, `qname`, `qtype`, and `matched_rule` filters are now implemented.
 
 ## Avoid Next Run
 
@@ -1861,18 +1897,21 @@ If `git status` is unavailable on the server, this file is still the required gi
 - Do not re-add audit event filters for `source_plugin`, `risk_level`, `action`, or `rcode`; they are implemented on admin, runtime, and log-forwarder with shared store filtering and no-socket admin/runtime tests.
 - Do not re-add audit event filters for `trace_id`, `client_ip`, `client_view`, `tenant`, `qname`, `qtype`, or `matched_rule`; they are implemented on admin, runtime, and log-forwarder through the shared store/query parser and covered by no-socket store/parser/admin/runtime tests.
 - Do not re-add audit event time-window filters; `GET /api/v1/audit/events?since=...&until=...` now uses inclusive RFC3339 bounds through the shared admin/runtime/log-forwarder parser and store path, with no-socket store/parser/admin/runtime tests.
+- Do not re-add partial qname audit filtering; `GET /api/v1/audit/events?qname_contains=...` is implemented on the shared admin/runtime/log-forwarder path, covered by no-socket store/parser/admin/runtime tests, and scripted in Docker integration assertions for runtime and log-forwarder events.
 
 <!-- AUTO:run-context:start -->
-Last automation scan: 2026-06-05T20:26:40+08:00
+Last automation scan: 2026-06-05T21:05:29+08:00
 
-- Latest run log: `/root/anyNS/codex-run-20260605-201954.log`
+- Latest run log: `/root/anyNS/codex-run-20260605-205641.log`
 - Git status: `available`
 - Git detail: `M BACKEND_STORAGE_AND_DOCKER_TEST_PLAN.md
  M CODEX_RUN_CONTEXT.md
  M DEVELOPMENT_LESSONS.md
  M GIT_PROGRESS.md
  M IMPLEMENTATION_STATUS.md
- M tests/acceptance/docker-dns-integration.sh`
+ M cmd/anyns-admin-api/main_test.go
+ M cmd/anyns-plugin-runtime/main_test.go
+ M internal/dnslog/dn...`
 
 Frequent errors to avoid next run:
 - `socket_listen_denied`: Prefer no-socket handler tests and acceptance scripts that SKIP cleanly in socket-restricted environments.

@@ -388,6 +388,9 @@ tools 'grep -q "reflection.integration.test" /tmp/runtime-reflection-rate-limit-
 tools 'status=$(curl -sS -o /tmp/runtime-audit-unauth.json -w "%{http_code}" "http://anyns-plugin-runtime:8081/api/v1/audit/events?source_plugin=namecoin-bit"); test "$status" = "401"'
 tools 'curl -fsS -H "'"$AUTH_HEADER"'" http://anyns-plugin-runtime:8081/api/v1/audit/events?source_plugin=namecoin-bit | tee /tmp/runtime-namecoin-audit.json'
 tools 'grep -q "example.bit" /tmp/runtime-namecoin-audit.json'
+tools 'curl -fsS -H "'"$AUTH_HEADER"'" "http://anyns-plugin-runtime:8081/api/v1/audit/events?source_plugin=namecoin-bit&qname_contains=www.example" | tee /tmp/runtime-namecoin-audit-qname-contains.json'
+tools 'grep -q "\"qname\":\"www.example.bit\"" /tmp/runtime-namecoin-audit-qname-contains.json'
+tools '! grep -q "\"qname\":\"example.bit\"" /tmp/runtime-namecoin-audit-qname-contains.json'
 tools 'curl -fsS -H "'"$AUTH_HEADER"'" "http://anyns-plugin-runtime:8081/api/v1/audit/events?source_plugin=namecoin-bit&since=2000-01-01T00:00:00Z&until=2999-12-31T23:59:59Z" | tee /tmp/runtime-namecoin-audit-window.json'
 tools 'grep -q "example.bit" /tmp/runtime-namecoin-audit-window.json'
 tools 'curl -fsS -H "'"$AUTH_HEADER"'" "http://anyns-plugin-runtime:8081/api/v1/audit/events?source_plugin=namecoin-bit&until=2000-01-01T00:00:00Z" | tee /tmp/runtime-namecoin-audit-past.json'
@@ -428,5 +431,8 @@ tools 'grep -o "\"qname\":\"[^\"]*\"" /tmp/log-forwarder-audit-order-asc.json | 
 tools 'curl -fsS -H "'"$AUTH_HEADER"'" "http://anyns-log-forwarder:8082/api/v1/audit/events?source_plugin=security&matched_rule=docker-forwarder-fixture&limit=2&order=desc" | tee /tmp/log-forwarder-audit-order-desc.json'
 tools 'grep -o "\"qname\":\"[^\"]*\"" /tmp/log-forwarder-audit-order-desc.json | sed -n "1p" | grep -q "\"qname\":\"forwarder-second.integration.test\""'
 tools 'grep -o "\"qname\":\"[^\"]*\"" /tmp/log-forwarder-audit-order-desc.json | sed -n "2p" | grep -q "\"qname\":\"forwarder.integration.test\""'
+tools 'curl -fsS -H "'"$AUTH_HEADER"'" "http://anyns-log-forwarder:8082/api/v1/audit/events?source_plugin=security&qname_contains=second.integration" | tee /tmp/log-forwarder-audit-qname-contains.json'
+tools 'grep -q "\"qname\":\"forwarder-second.integration.test\"" /tmp/log-forwarder-audit-qname-contains.json'
+tools '! grep -q "\"qname\":\"forwarder.integration.test\"" /tmp/log-forwarder-audit-qname-contains.json'
 
 echo "docker DNS integration passed"

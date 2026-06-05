@@ -437,8 +437,33 @@ This repository has moved from requirements-only documentation to a runnable fir
 - Extended the deterministic Docker DNS integration fixture path with enabled d.id/.bit runtime-json fixture coverage while preserving the Namecoin-over-`.bit` default. The Docker config now enables `did-bit` only for the exact `alice.did.bit` route at higher priority than the broad Namecoin `.bit` route, the fixture returns deterministic TXT/URI/WALLET records through the generic runtime-json contract, and the acceptance script asserts admin plugin visibility, PowerDNS-routed `alice.did.bit TXT`, runtime `alice.did.bit WALLET`, and authenticated d.id audit visibility.
 - Extended the deterministic Docker DNS integration script with a runtime-level public-domain no-route assertion. The script now proves `example.com A` returns HTTP `404` from `source_plugin=router`, writes an auditable `NXDOMAIN` no-route event, and is not routed to HNS or Namecoin even when the external recursive `example.com` probe can only prove `NOERROR` or environment-dependent `SERVFAIL`.
 - Extended the deterministic Docker DNS integration script with end-to-end audit ordering assertions for admin, runtime, and log-forwarder audit reads. The script now checks `order=asc` and `order=desc` with bounded `limit=2` queries over management mutation events, Namecoin runtime events, and log-forwarder ingested events.
+- Added partial qname audit filtering through `GET /api/v1/audit/events?qname_contains=...` on the shared admin/runtime/log-forwarder audit path. Matching is case-insensitive, composes with exact filters, applies before bounded limits/order, and is covered by no-socket store/parser/admin/runtime tests plus deterministic Docker-script assertions for runtime Namecoin and log-forwarder events.
 
 ## Latest Validation
+
+Validated on 2026-06-05 21:01 CST after adding partial qname audit filtering:
+
+```bash
+gofmt -w internal/dnslog/dnslog.go internal/dnslog/dnslog_test.go internal/httpapi/httpapi.go internal/httpapi/httpapi_test.go cmd/anyns-admin-api/main_test.go cmd/anyns-plugin-runtime/main_test.go
+bash -n tests/acceptance/docker-dns-integration.sh
+GOCACHE=/tmp/anyns-go-build go test -buildvcs=false ./internal/dnslog ./internal/httpapi ./cmd/anyns-admin-api ./cmd/anyns-plugin-runtime
+GOCACHE=/tmp/anyns-go-build go test -buildvcs=false ./...
+GOCACHE=/tmp/anyns-go-build go vet -buildvcs=false ./...
+GOCACHE=/tmp/anyns-go-build go build -buildvcs=false ./cmd/anyns-admin-api ./cmd/anyns-plugin-runtime ./cmd/anyns-log-forwarder
+GOCACHE=/tmp/anyns-go-build bash tests/acceptance/check-local.sh
+ANYNS_RUN_DOCKER_DNS_INTEGRATION=0 GOCACHE=/tmp/anyns-go-build bash tests/acceptance/docker-dns-integration.sh
+GOCACHE=/tmp/anyns-go-build go run -buildvcs=false ./cmd/anyns-config-check tests/docker/anyns-config.json
+docker compose -f tests/docker/compose.dns-integration.yml config >/tmp/anyns-docker-compose-rendered.yml && wc -l /tmp/anyns-docker-compose-rendered.yml
+git diff --check -- cmd/anyns-admin-api/main_test.go cmd/anyns-plugin-runtime/main_test.go internal/dnslog/dnslog.go internal/dnslog/dnslog_test.go internal/httpapi/httpapi.go internal/httpapi/httpapi_test.go tests/acceptance/docker-dns-integration.sh IMPLEMENTATION_STATUS.md GIT_PROGRESS.md BACKEND_STORAGE_AND_DOCKER_TEST_PLAN.md
+```
+
+Results:
+
+- PASS: gofmt, Docker acceptance shell syntax, targeted no-socket package/handler tests, broad Go tests, broad Go vet, service builds, Docker integration config validation with 19 plugins / 19 routes, Docker Compose rendering, and whitespace diff check.
+- SKIP: `tests/acceptance/docker-dns-integration.sh` runtime execution because the Docker daemon is unavailable in this session.
+- PASS with documented SKIP: `tests/acceptance/check-local.sh` completed while runtime socket smoke skipped because `listen tcp 127.0.0.1:18081` is denied in this sandbox.
+- Git commit was attempted once after validation and documentation updates, but failed because `.git/index.lock` could not be created on a read-only filesystem. Latest committed hash remains `b56c321`; the working tree contains this run's validated audit `qname_contains` filter changes plus required ledger updates and automation-maintained context/lesson updates.
+- No new recurring error pattern was observed; `DEVELOPMENT_LESSONS.md` did not need a manual rule update.
 
 Validated on 2026-06-05 20:23 CST after adding Docker audit-ordering assertions:
 

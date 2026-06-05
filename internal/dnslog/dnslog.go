@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 )
@@ -36,20 +37,21 @@ type Store struct {
 }
 
 type EventFilter struct {
-	TraceID      string
-	ClientIP     string
-	ClientView   string
-	Tenant       string
-	QName        string
-	QType        string
-	SourcePlugin string
-	RiskLevel    string
-	Action       string
-	MatchedRule  string
-	RCode        string
-	Since        time.Time
-	Until        time.Time
-	Order        string
+	TraceID       string
+	ClientIP      string
+	ClientView    string
+	Tenant        string
+	QName         string
+	QNameContains string
+	QType         string
+	SourcePlugin  string
+	RiskLevel     string
+	Action        string
+	MatchedRule   string
+	RCode         string
+	Since         time.Time
+	Until         time.Time
+	Order         string
 }
 
 type Summary struct {
@@ -169,6 +171,9 @@ func (f EventFilter) Matches(event Event) bool {
 		return false
 	}
 	if f.QName != "" && event.QName != f.QName {
+		return false
+	}
+	if f.QNameContains != "" && !strings.Contains(strings.ToLower(event.QName), strings.ToLower(f.QNameContains)) {
 		return false
 	}
 	if f.QType != "" && event.QType != f.QType {
