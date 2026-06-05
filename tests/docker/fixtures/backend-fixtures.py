@@ -85,6 +85,9 @@ class Handler(BaseHTTPRequestHandler):
         if parsed.path == "/getAddress":
             self.handle_space_id(parse_qs(parsed.query))
             return
+        if parsed.path == "/api/v3/dns/records":
+            self.handle_ton_dns(parse_qs(parsed.query))
+            return
         self._json(404, {"error": "not found"})
 
     def do_POST(self):
@@ -284,6 +287,28 @@ class Handler(BaseHTTPRequestHandler):
                 "code": 1,
                 "msg": "no address found"
             })
+            return
+        self._json(404, {"message": "domain not found"})
+
+    def handle_ton_dns(self, query):
+        domain = query.get("domain", [""])[0]
+        if domain == "alice.ton":
+            self._json(200, {
+                "records": [
+                    {
+                        "domain": "alice.ton",
+                        "dns_wallet": "EQCDockerWallet",
+                        "dns_site_adnl": "0123456789abcdef",
+                        "dns_storage_bag_id": "dockerbagid",
+                        "dns_next_resolver": "EQCDockerResolver",
+                        "nft_item_address": "EQCDockerNFT",
+                        "nft_item_owner": "EQCDockerOwner"
+                    }
+                ]
+            })
+            return
+        if domain == "missing.ton":
+            self._json(200, {"records": []})
             return
         self._json(404, {"message": "domain not found"})
 

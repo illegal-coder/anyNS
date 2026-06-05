@@ -59,6 +59,13 @@
       "backend_type": "space-id-api",
       "backend_url": "http://backend-fixtures:8090",
       "request_timeout": "3s"
+    },
+    {
+      "name": "ton-dns",
+      "enabled": true,
+      "backend_type": "toncenter-v3-dns",
+      "backend_url": "http://backend-fixtures:8090",
+      "request_timeout": "3s"
     }
   ],
   "routes": [
@@ -131,6 +138,15 @@
       "client_views": ["default"],
       "tenants": ["default"],
       "plugin": "space-id",
+      "priority": 80,
+      "fallback": "nxdomain"
+    },
+    {
+      "name": "ton-dns-fixture",
+      "suffixes": [".ton"],
+      "client_views": ["default"],
+      "tenants": ["default"],
+      "plugin": "ton-dns",
       "priority": 80,
       "fallback": "nxdomain"
     }
