@@ -204,6 +204,43 @@ func TestAuditEventsEndpointHonorsExplicitOrder(t *testing.T) {
 	}
 }
 
+func TestAuditEventsEndpointSupportsCursorPages(t *testing.T) {
+	cfg := config.Default()
+	application, err := app.NewFromConfig(cfg)
+	if err != nil {
+		t.Fatalf("new app: %v", err)
+	}
+	application.DNSLog.Append(dnslog.Event{TraceID: "first", QName: "one.hns.", Action: "allow", SourcePlugin: "hns"})
+	application.DNSLog.Append(dnslog.Event{TraceID: "second", QName: "two.hns.", Action: "allow", SourcePlugin: "hns"})
+	application.DNSLog.Append(dnslog.Event{TraceID: "third", QName: "three.hns.", Action: "allow", SourcePlugin: "hns"})
+	mux := newRuntimeMux(application, cfg)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/audit/events?limit=2&order=asc&page=true", nil)
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("audit events page status = %d body=%s", rec.Code, rec.Body.String())
+	}
+	var page dnslog.EventPage
+	if err := json.Unmarshal(rec.Body.Bytes(), &page); err != nil {
+		t.Fatalf("decode audit page: %v", err)
+	}
+	if len(page.Events) != 2 || page.Events[0].TraceID != "first" || page.Events[1].TraceID != "second" || page.NextCursor != "2" {
+		t.Fatalf("first audit page = %#v", page)
+	}
+
+	req = httptest.NewRequest(http.MethodGet, "/api/v1/audit/events?limit=2&order=asc&cursor="+page.NextCursor, nil)
+	rec = httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+	page = dnslog.EventPage{}
+	if err := json.Unmarshal(rec.Body.Bytes(), &page); err != nil {
+		t.Fatalf("decode next audit page: %v", err)
+	}
+	if len(page.Events) != 1 || page.Events[0].TraceID != "third" || page.NextCursor != "" {
+		t.Fatalf("next audit page = %#v", page)
+	}
+}
+
 func TestAuditEventsEndpointFiltersEvents(t *testing.T) {
 	cfg := config.Default()
 	application, err := app.NewFromConfig(cfg)

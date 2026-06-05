@@ -155,6 +155,7 @@ This repository has moved from requirements-only documentation to a runnable fir
 - `GET /api/v1/audit/events` now also accepts exact-match filters for `trace_id`, `client_ip`, `client_view`, `tenant`, `qname`, `qtype`, and `matched_rule` across `anyns-admin-api`, `anyns-plugin-runtime`, and `anyns-log-forwarder`. These filters use the same shared store and HTTP parser as the existing audit filters, and are covered by no-socket store/parser/admin/runtime tests.
 - `GET /api/v1/audit/events` now accepts inclusive RFC3339 time-window filters with `since` and `until` across the shared admin/runtime/log-forwarder audit path. Invalid timestamp query values are ignored safely, filters are applied before the bounded newest-event limit, and no-socket store/parser/admin/runtime tests cover the contract.
 - `GET /api/v1/audit/events` now accepts explicit `order=asc` and `order=desc` query modes on the shared admin/runtime/log-forwarder audit path. The default response shape remains the existing latest-window chronological order for compatibility, while explicit order modes support oldest-first and newest-first investigations; no-socket store/parser/admin/runtime tests cover the contract.
+- `GET /api/v1/audit/events` now supports opt-in cursor-page responses on the shared admin/runtime/log-forwarder audit path. Existing callers still receive the legacy JSON array by default; requests with `page=true` or `cursor=<offset>` receive `{ "events": [...], "next_cursor": "..." }` after the existing filters and `order` rules are applied. No-socket store/parser/admin/runtime tests cover the cursor contract, and the deterministic Docker script now asserts runtime and log-forwarder cursor pages.
 
 ### Wave 1 Plugin Skeletons
 
@@ -440,6 +441,30 @@ This repository has moved from requirements-only documentation to a runnable fir
 - Added partial qname audit filtering through `GET /api/v1/audit/events?qname_contains=...` on the shared admin/runtime/log-forwarder audit path. Matching is case-insensitive, composes with exact filters, applies before bounded limits/order, and is covered by no-socket store/parser/admin/runtime tests plus deterministic Docker-script assertions for runtime Namecoin and log-forwarder events.
 
 ## Latest Validation
+
+Validated on 2026-06-05 21:41 CST after adding opt-in audit-event cursor pages:
+
+```bash
+gofmt -w internal/dnslog/dnslog.go internal/dnslog/dnslog_test.go internal/httpapi/httpapi.go internal/httpapi/httpapi_test.go cmd/anyns-admin-api/main.go cmd/anyns-admin-api/main_test.go cmd/anyns-plugin-runtime/main.go cmd/anyns-plugin-runtime/main_test.go cmd/anyns-log-forwarder/main.go
+bash -n tests/acceptance/docker-dns-integration.sh
+GOCACHE=/tmp/anyns-go-build go test -buildvcs=false ./internal/dnslog ./internal/httpapi ./cmd/anyns-admin-api ./cmd/anyns-plugin-runtime ./cmd/anyns-log-forwarder
+GOCACHE=/tmp/anyns-go-build go test -buildvcs=false ./...
+GOCACHE=/tmp/anyns-go-build go vet -buildvcs=false ./...
+GOCACHE=/tmp/anyns-go-build go build -buildvcs=false ./cmd/anyns-admin-api ./cmd/anyns-plugin-runtime ./cmd/anyns-log-forwarder
+GOCACHE=/tmp/anyns-go-build bash tests/acceptance/check-local.sh
+ANYNS_RUN_DOCKER_DNS_INTEGRATION=0 GOCACHE=/tmp/anyns-go-build bash tests/acceptance/docker-dns-integration.sh
+GOCACHE=/tmp/anyns-go-build go run -buildvcs=false ./cmd/anyns-config-check tests/docker/anyns-config.json
+docker compose -f tests/docker/compose.dns-integration.yml config >/tmp/anyns-docker-compose-rendered.yml && wc -l /tmp/anyns-docker-compose-rendered.yml
+git diff --check -- cmd/anyns-admin-api/main.go cmd/anyns-admin-api/main_test.go cmd/anyns-log-forwarder/main.go cmd/anyns-plugin-runtime/main.go cmd/anyns-plugin-runtime/main_test.go internal/dnslog/dnslog.go internal/dnslog/dnslog_test.go internal/httpapi/httpapi.go internal/httpapi/httpapi_test.go tests/acceptance/docker-dns-integration.sh
+```
+
+Results:
+
+- PASS: gofmt, Docker acceptance shell syntax, targeted no-socket package/handler tests after one test-only expectation fix, broad Go tests, broad Go vet, service builds, Docker integration config validation with 19 plugins / 19 routes, Docker Compose rendering, and whitespace diff check.
+- SKIP: `tests/acceptance/docker-dns-integration.sh` runtime execution because the Docker daemon is unavailable in this session.
+- PASS with documented SKIP: `tests/acceptance/check-local.sh` completed while runtime socket smoke skipped because `listen tcp 127.0.0.1:18081` is denied in this sandbox.
+- Git commit was attempted once after validation and documentation updates, but failed because `.git/index.lock` could not be created on a read-only filesystem. Latest committed hash remains `4d26a18`; the working tree contains this run's validated cursor-page changes plus required ledger updates and automation-maintained context/lesson updates.
+- No new recurring error pattern was observed; `DEVELOPMENT_LESSONS.md` did not need a manual rule update.
 
 Validated on 2026-06-05 21:01 CST after adding partial qname audit filtering:
 

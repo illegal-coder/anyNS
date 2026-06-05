@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -52,6 +53,11 @@ type EventFilter struct {
 	Since         time.Time
 	Until         time.Time
 	Order         string
+}
+
+type EventPage struct {
+	Events     []Event `json:"events"`
+	NextCursor string  `json:"next_cursor,omitempty"`
 }
 
 type Summary struct {
@@ -122,6 +128,44 @@ func (s *Store) List(limit int) []Event {
 }
 
 func (s *Store) ListFiltered(filter EventFilter, limit int) []Event {
+	events := s.filteredOrderedEvents(filter)
+	if limit <= 0 || limit > len(events) {
+		limit = len(events)
+	}
+	if filter.Order == "" {
+		start := len(events) - limit
+		out := make([]Event, limit)
+		copy(out, events[start:])
+		return out
+	}
+	out := make([]Event, limit)
+	copy(out, events[:limit])
+	return out
+}
+
+func (s *Store) ListFilteredPage(filter EventFilter, limit int, cursor string) EventPage {
+	events := s.filteredOrderedEvents(filter)
+	if limit <= 0 || limit > 1000 {
+		limit = 1000
+	}
+	offset := parseCursor(cursor)
+	if offset > len(events) {
+		offset = len(events)
+	}
+	end := offset + limit
+	if end > len(events) {
+		end = len(events)
+	}
+	out := make([]Event, end-offset)
+	copy(out, events[offset:end])
+	page := EventPage{Events: out}
+	if end < len(events) {
+		page.NextCursor = strconv.Itoa(end)
+	}
+	return page
+}
+
+func (s *Store) filteredOrderedEvents(filter EventFilter) []Event {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	events := make([]Event, 0, len(s.events))
@@ -130,25 +174,24 @@ func (s *Store) ListFiltered(filter EventFilter, limit int) []Event {
 			events = append(events, event)
 		}
 	}
-	if limit <= 0 || limit > len(events) {
-		limit = len(events)
-	}
-	if filter.Order == "asc" {
-		out := make([]Event, limit)
-		copy(out, events[:limit])
-		return out
-	}
 	if filter.Order == "desc" {
-		out := make([]Event, limit)
-		for i := 0; i < limit; i++ {
-			out[i] = events[len(events)-1-i]
+		for i, j := 0, len(events)-1; i < j; i, j = i+1, j-1 {
+			events[i], events[j] = events[j], events[i]
 		}
-		return out
 	}
-	start := len(events) - limit
-	out := make([]Event, limit)
-	copy(out, events[start:])
-	return out
+	return events
+}
+
+func parseCursor(cursor string) int {
+	cursor = strings.TrimSpace(cursor)
+	if cursor == "" {
+		return 0
+	}
+	offset, err := strconv.Atoi(cursor)
+	if err != nil || offset < 0 {
+		return 0
+	}
+	return offset
 }
 
 func (f EventFilter) Matches(event Event) bool {

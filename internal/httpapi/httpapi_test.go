@@ -70,6 +70,26 @@ func TestAuditEventFilterFromQueryIgnoresInvalidTimeWindow(t *testing.T) {
 	}
 }
 
+func TestAuditEventCursorQuery(t *testing.T) {
+	req := httptest.NewRequest(http.MethodGet, "/audit?page=true&cursor=25", nil)
+	if !AuditEventPageRequested(req) {
+		t.Fatal("page=true should request cursor envelope")
+	}
+	if got := AuditEventCursor(req); got != "25" {
+		t.Fatalf("cursor = %q, want 25", got)
+	}
+
+	req = httptest.NewRequest(http.MethodGet, "/audit?cursor=7", nil)
+	if !AuditEventPageRequested(req) {
+		t.Fatal("cursor should request cursor envelope")
+	}
+
+	req = httptest.NewRequest(http.MethodGet, "/audit?page=false", nil)
+	if AuditEventPageRequested(req) {
+		t.Fatal("page=false should preserve legacy array response")
+	}
+}
+
 func TestPrincipalFromRequestHonorsManagementKeyRotationWindow(t *testing.T) {
 	now := time.Now().UTC()
 	cfg := config.Default()

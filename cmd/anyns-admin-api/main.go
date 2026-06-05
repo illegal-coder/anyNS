@@ -104,10 +104,13 @@ func newAdminMux(application *app.App, cfg config.Config) *http.ServeMux {
 		if !httpapi.RequireScope(w, r, cfg, httpapi.ScopeAuditRead) {
 			return
 		}
-		httpapi.WriteJSON(w, http.StatusOK, application.DNSLog.ListFiltered(
-			httpapi.AuditEventFilterFromQuery(r),
-			httpapi.QueryIntBounded(r, "limit", 100, 1, 1000),
-		))
+		filter := httpapi.AuditEventFilterFromQuery(r)
+		limit := httpapi.QueryIntBounded(r, "limit", 100, 1, 1000)
+		if httpapi.AuditEventPageRequested(r) {
+			httpapi.WriteJSON(w, http.StatusOK, application.DNSLog.ListFilteredPage(filter, limit, httpapi.AuditEventCursor(r)))
+			return
+		}
+		httpapi.WriteJSON(w, http.StatusOK, application.DNSLog.ListFiltered(filter, limit))
 	})
 	mux.HandleFunc("/api/v1/audit/summary", func(w http.ResponseWriter, r *http.Request) {
 		if !httpapi.RequireScope(w, r, cfg, httpapi.ScopeAuditRead) {

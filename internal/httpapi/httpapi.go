@@ -90,6 +90,23 @@ func AuditEventFilterFromQuery(r *http.Request) dnslog.EventFilter {
 	}
 }
 
+func AuditEventCursor(r *http.Request) string {
+	return strings.TrimSpace(r.URL.Query().Get("cursor"))
+}
+
+func AuditEventPageRequested(r *http.Request) bool {
+	query := r.URL.Query()
+	if strings.TrimSpace(query.Get("cursor")) != "" {
+		return true
+	}
+	switch strings.ToLower(strings.TrimSpace(query.Get("page"))) {
+	case "1", "true", "yes":
+		return true
+	default:
+		return false
+	}
+}
+
 func queryAuditOrder(value string) string {
 	switch strings.ToLower(strings.TrimSpace(value)) {
 	case "asc", "desc":

@@ -130,6 +130,29 @@ func TestStoreListFilteredHonorsExplicitOrder(t *testing.T) {
 	}
 }
 
+func TestStoreListFilteredPageReturnsCursorPages(t *testing.T) {
+	store := NewStore(10)
+	store.Append(Event{TraceID: "one", SourcePlugin: "hns"})
+	store.Append(Event{TraceID: "two", SourcePlugin: "security"})
+	store.Append(Event{TraceID: "three", SourcePlugin: "hns"})
+	store.Append(Event{TraceID: "four", SourcePlugin: "hns"})
+
+	page := store.ListFilteredPage(EventFilter{SourcePlugin: "hns", Order: "asc"}, 2, "")
+	if len(page.Events) != 2 || page.Events[0].TraceID != "one" || page.Events[1].TraceID != "three" || page.NextCursor != "2" {
+		t.Fatalf("first page = %#v", page)
+	}
+
+	page = store.ListFilteredPage(EventFilter{SourcePlugin: "hns", Order: "asc"}, 2, page.NextCursor)
+	if len(page.Events) != 1 || page.Events[0].TraceID != "four" || page.NextCursor != "" {
+		t.Fatalf("second page = %#v", page)
+	}
+
+	page = store.ListFilteredPage(EventFilter{SourcePlugin: "hns", Order: "desc"}, 2, "not-a-cursor")
+	if len(page.Events) != 2 || page.Events[0].TraceID != "four" || page.Events[1].TraceID != "three" || page.NextCursor != "2" {
+		t.Fatalf("descending page = %#v", page)
+	}
+}
+
 func TestStoreSummaryAggregatesSecurityAndTopValues(t *testing.T) {
 	store := NewStore(10)
 	store.Append(Event{TraceID: "one", ClientIP: "192.0.2.10", QName: "one.hns.", RCode: "NOERROR", SourcePlugin: "hns", RiskLevel: "none", Action: "allow", MatchedRule: "hns-default", LatencyMS: 9})
