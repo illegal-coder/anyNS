@@ -19,6 +19,13 @@
       "request_timeout": "3s"
     },
     {
+      "name": "ens",
+      "enabled": true,
+      "backend_type": "ens-json-rpc",
+      "backend_url": "http://backend-fixtures:8090/ethereum",
+      "request_timeout": "3s"
+    },
+    {
       "name": "stacks-bns",
       "enabled": true,
       "backend_type": "stacks-bns-api",
@@ -56,6 +63,15 @@
       "client_views": ["default"],
       "tenants": ["default"],
       "plugin": "namecoin-bit",
+      "priority": 90,
+      "fallback": "nxdomain"
+    },
+    {
+      "name": "ens-fixture",
+      "suffixes": [".eth"],
+      "client_views": ["default"],
+      "tenants": ["default"],
+      "plugin": "ens",
       "priority": 90,
       "fallback": "nxdomain"
     },

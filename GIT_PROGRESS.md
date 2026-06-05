@@ -44,6 +44,7 @@ If `git status` is unavailable on the server, this file is still the required gi
 - Prior runs replaced the `freename-fns` Wave 3 runtime-json placeholder in the sample config with an opt-in concrete Freename Resolution API adapter. `backend_type: "freename-resolution-api"` calls `/domain/resolve?q=...` on a configured Freename-compatible base URL, maps `token.*` records into `WALLET` / `TYPE262` compatible answers, maps website redirects into `URI`, maps TXT/profile fields into `TXT`, preserves empty/404 responses as routed `NXDOMAIN`, and isolates backend failures as `SERVFAIL` without ICANN fallback leakage for matched `.fns` names.
 - Prior runs hardened the PowerDNS Recursor Lua hook to normalize runtime-returned RR types and RCODEs before mapping them. Lowercase or mixed-case external runtime-json adapter responses now follow the same routed `NOERROR` / `NXDOMAIN` / `SERVFAIL` handling and supported-RR mapping without unsafe ICANN fallback leakage.
 - Prior runs hardened the PowerDNS Recursor Lua hook to honor valid runtime `ResolveResult` bodies returned with HTTP `403` and `429` security decisions. Runtime block and rate-limit responses now suppress ICANN fallback on the PowerDNS path, while no-route `404` responses for unmatched public domains still fall through to normal ICANN recursion.
+- Current Codex run added deterministic Docker fixture coverage for the ENS `.eth` adapter path. `tests/docker/anyns-config.json` now enables `ens` with `backend_type: "ens-json-rpc"` against `backend-fixtures`, the Python fixture serves no-secret Ethereum JSON-RPC `eth_call` responses for resolver lookup, wallet address, text records, and contenthash, and `tests/acceptance/docker-dns-integration.sh` asserts admin plugin visibility, PowerDNS-routed `alice.eth TXT`, runtime `alice.eth WALLET`, and authenticated ENS audit visibility.
 - Prior runs added a bounded `limit` query parameter to `GET /api/v1/audit/events` on `anyns-admin-api`, `anyns-plugin-runtime`, and `anyns-log-forwarder`. The default remains 100 events, invalid values fall back safely, and responses are clamped to `1..1000` events. No-socket tests cover the shared parser plus admin/runtime handler behavior.
 - Prior runs added exact-match audit event query filters for `source_plugin`, `risk_level`, `action`, and `rcode` on `GET /api/v1/audit/events` across admin API, plugin runtime, and log forwarder. Filtering is applied before the bounded newest-event limit, with no-socket store/admin/runtime tests covering the contract.
 - Prior runs expanded exact-match audit event query filters for `trace_id`, `client_ip`, `client_view`, `tenant`, `qname`, `qtype`, and `matched_rule` on the shared `GET /api/v1/audit/events` path used by admin API, plugin runtime, and log forwarder. The shared store and HTTP query parser are covered by no-socket tests, and admin/runtime handler tests verify the expanded filter contract.
@@ -980,9 +981,49 @@ If `git status` is unavailable on the server, this file is still the required gi
 - `git status --short` was not rerun because the current run context already records the known repository metadata issue: `fatal: not a git repository (or any of the parent directories): .git`.
 - Runtime socket smoke is expected to SKIP in the current environment because listening on `127.0.0.1:18081` is denied with `socket: operation not permitted`.
 - `git status` is unavailable on the server, so this file is the current git/change explanation ledger.
+- Current Codex run at `2026-06-05 09:36 CST` changed:
+  - `tests/docker/anyns-config.json`
+  - `tests/docker/fixtures/backend-fixtures.py`
+  - `tests/acceptance/docker-dns-integration.sh`
+  - `IMPLEMENTATION_STATUS.md`
+  - `BACKEND_STORAGE_AND_DOCKER_TEST_PLAN.md`
+  - `GIT_PROGRESS.md`
+- Current Codex run at `2026-06-05 09:36 CST` reported these commands:
+  - `find docs -maxdepth 2 -type f | sort` - PASS.
+  - `sed -n '1,220p' CODEX_RUN_CONTEXT.md` - PASS.
+  - `sed -n '1,260p' DEVELOPMENT_LESSONS.md` - PASS.
+  - `sed -n ... docs/*.md REMOTE_CODEX_HANDOFF.md IMPLEMENTATION_STATUS.md GIT_PROGRESS.md BACKEND_STORAGE_AND_DOCKER_TEST_PLAN.md` - PASS.
+  - `git status --short && git rev-parse --short HEAD` - PASS; latest committed hash before implementation work was `00e577e`, with automation-maintained `CODEX_RUN_CONTEXT.md`, `DEVELOPMENT_LESSONS.md`, and `GIT_PROGRESS.md` already dirty.
+  - `rg -n "ENS|PulseChain|alice\\.eth|pns-pulsechain|ens-json-rpc|pulsechain" tests/docker tests/acceptance internal/plugins configs/anyns/config.example.json -S` - PASS.
+  - `sed -n ... tests/docker/anyns-config.json tests/docker/fixtures/backend-fixtures.py tests/acceptance/docker-dns-integration.sh internal/plugins/wave1/plugin.go internal/plugins/wave1/plugin_test.go` - PASS.
+  - `bash -n tests/acceptance/docker-dns-integration.sh` - PASS.
+  - `python3 -m py_compile tests/docker/fixtures/backend-fixtures.py` - PASS.
+  - `GOCACHE=/tmp/anyns-go-build go run -buildvcs=false ./cmd/anyns-config-check tests/docker/anyns-config.json` - PASS; output reported `management_auth:true`, `management_keys:3`, `management_roles:3`, `plugins:6`, and `routes:6`.
+  - `docker compose -f tests/docker/compose.dns-integration.yml config >/tmp/anyns-docker-compose-rendered.yml && wc -l /tmp/anyns-docker-compose-rendered.yml` - PASS; rendered 151 lines.
+  - `ANYNS_RUN_DOCKER_DNS_INTEGRATION=0 GOCACHE=/tmp/anyns-go-build bash tests/acceptance/docker-dns-integration.sh` - SKIP because Docker daemon is not available: `SKIP: docker daemon is not available`.
+  - `git diff -- tests/docker/anyns-config.json tests/docker/fixtures/backend-fixtures.py tests/acceptance/docker-dns-integration.sh` - PASS.
+  - `git diff --check -- tests/docker/anyns-config.json tests/docker/fixtures/backend-fixtures.py tests/acceptance/docker-dns-integration.sh` - PASS.
+  - `GOCACHE=/tmp/anyns-go-build go test -buildvcs=false ./...` - PASS.
+  - `GOCACHE=/tmp/anyns-go-build go vet -buildvcs=false ./...` - PASS.
+  - `GOCACHE=/tmp/anyns-go-build go build -buildvcs=false ./cmd/anyns-admin-api ./cmd/anyns-plugin-runtime ./cmd/anyns-log-forwarder` - PASS.
+  - `GOCACHE=/tmp/anyns-go-build bash tests/acceptance/check-local.sh` - PASS with runtime socket smoke SKIP: `anyns-plugin-runtime exited before listening on 127.0.0.1:18081`; runtime log detail was `listen tcp 127.0.0.1:18081: socket: operation not permitted`.
+  - `date '+%Y-%m-%d %H:%M %Z'` - PASS; output `2026-06-05 09:36 CST`.
+  - `git status --short && git rev-parse --short HEAD` - PASS before documentation updates; latest committed hash was `00e577e`.
+  - `git diff --check -- tests/docker/anyns-config.json tests/docker/fixtures/backend-fixtures.py tests/acceptance/docker-dns-integration.sh IMPLEMENTATION_STATUS.md GIT_PROGRESS.md BACKEND_STORAGE_AND_DOCKER_TEST_PLAN.md` - PASS.
+  - `git diff --stat -- tests/docker/anyns-config.json tests/docker/fixtures/backend-fixtures.py tests/acceptance/docker-dns-integration.sh IMPLEMENTATION_STATUS.md GIT_PROGRESS.md BACKEND_STORAGE_AND_DOCKER_TEST_PLAN.md` - PASS; reported 6 files changed.
+  - `git add tests/docker/anyns-config.json tests/docker/fixtures/backend-fixtures.py tests/acceptance/docker-dns-integration.sh IMPLEMENTATION_STATUS.md GIT_PROGRESS.md BACKEND_STORAGE_AND_DOCKER_TEST_PLAN.md && git commit -m "test: add docker ens fixture assertions"` - FAIL because Git could not create `.git/index.lock`: `Read-only file system`. Latest committed hash remains `00e577e`.
 
 ## Repeated Errors Observed
 
+- `docker daemon unavailable` appeared once through `tests/acceptance/docker-dns-integration.sh` in the `2026-06-05 09:36 CST` run and was handled by the existing Docker SKIP path:
+  - `SKIP: docker daemon is not available`
+- `socket_listen_denied` appeared once through `tests/acceptance/runtime-smoke.sh` in the `2026-06-05 09:36 CST` run and was handled by the existing acceptance SKIP path:
+  - `listen tcp 127.0.0.1:18081: socket: operation not permitted`
+- One documentation search command in the `2026-06-05 09:36 CST` run failed because shell backticks in the search pattern were interpreted by `bash`; this is the already-known shell quoting pitfall and was not retried in a loop.
+- No targeted package failure occurred in the `2026-06-05 09:36 CST` run; shell syntax, fixture syntax, Docker integration config validation, and Compose rendering passed before broad validation.
+- No broad Go test, vet, or build failure occurred in the `2026-06-05 09:36 CST` run.
+- Git commit was attempted once in the `2026-06-05 09:36 CST` run and failed because `.git/index.lock` could not be created on a read-only filesystem. This repeats the known git metadata write failure, so no further commit retry or git repair was attempted. Latest committed hash remains `00e577e`.
+- No new recurring error pattern was observed in the `2026-06-05 09:36 CST` run.
 - `docker daemon unavailable` appeared once through `tests/acceptance/docker-dns-integration.sh` in the `2026-06-05 06:46 CST` run and was handled by the existing Docker SKIP path:
   - `SKIP: docker daemon is not available`
 - `socket_listen_denied` appeared once through `tests/acceptance/runtime-smoke.sh` in the `2026-06-05 06:46 CST` run and was handled by the existing acceptance SKIP path:
@@ -1149,7 +1190,7 @@ If `git status` is unavailable on the server, this file is still the required gi
 - First, read `CODEX_RUN_CONTEXT.md` and `DEVELOPMENT_LESSONS.md`; do not repeat checks already marked as environmental SKIP.
 - If Docker daemon access is available, run `ANYNS_RUN_DOCKER_DNS_INTEGRATION=1 GOCACHE=/tmp/anyns-go-build bash tests/acceptance/docker-dns-integration.sh` and fix only the smallest failing service/assertion.
 - If Docker daemon access is available and live HNS/SPV behavior is intentionally being exercised, run `ANYNS_RUN_DOCKER_HNSD_INTEGRATION=1 GOCACHE=/tmp/anyns-go-build bash tests/acceptance/docker-hnsd-integration.sh`; otherwise keep using its default config/render-only mode.
-- If Docker daemon access is still unavailable, extend the Docker integration fixture path only with a new no-secret assertion that is not already scripted; admin proxy visibility, admin plugin listing, management-auth rejection/authorized-read checks, redacted management-key metadata, admin/runtime policy reload authorization and audit checks, proxied cache stats/flush authorization and audit checks, admin/runtime/log-forwarder audit-summary checks, admin/runtime/log-forwarder audit time-window checks, security denylist/sinkhole/rebinding/reflection-rate-limit, HNS `WALLET`, HNS `TYPE262`, Stacks BNS `.btc` TXT/WALLET fixture routing, Unstoppable `.crypto` TXT/WALLET fixture routing, PNS-Polkadot `.dot` TXT/WALLET fixture routing, runtime honeypot failed-queue metrics, log-forwarder ingestion/audit/honeypot-status/metrics checks, and audit-event `since`/`until` parser/store behavior are now present.
+- If Docker daemon access is still unavailable, extend the Docker integration fixture path only with a new no-secret assertion that is not already scripted; admin proxy visibility, admin plugin listing, management-auth rejection/authorized-read checks, redacted management-key metadata, admin/runtime policy reload authorization and audit checks, proxied cache stats/flush authorization and audit checks, admin/runtime/log-forwarder audit-summary checks, admin/runtime/log-forwarder audit time-window checks, security denylist/sinkhole/rebinding/reflection-rate-limit, HNS `WALLET`, HNS `TYPE262`, ENS `.eth` TXT/WALLET fixture routing, Stacks BNS `.btc` TXT/WALLET fixture routing, Unstoppable `.crypto` TXT/WALLET fixture routing, PNS-Polkadot `.dot` TXT/WALLET fixture routing, runtime honeypot failed-queue metrics, log-forwarder ingestion/audit/honeypot-status/metrics checks, and audit-event `since`/`until` parser/store behavior are now present.
 - If repository metadata writes are available, commit the current dirty working tree with a small message such as `test: add docker unstoppable fixture assertions`; do not attempt git repair unless a metadata write failure recurs.
 - Exercise the PowerDNS Recursor Lua hook inside a real PowerDNS container and confirm Lua module availability (`socket.http`, `ltn12`, `cjson.safe`).
 - Run HNS `dns://` backend against a real hsd/hnsd DNS resolver, then verify end-to-end HNS resolution through PowerDNS Recursor.
@@ -1192,6 +1233,7 @@ If `git status` is unavailable on the server, this file is still the required gi
 - Do not re-add Docker integration Unstoppable Domains `.crypto` fixture routing; `tests/docker/anyns-config.json`, `tests/docker/fixtures/backend-fixtures.py`, and `tests/acceptance/docker-dns-integration.sh` now cover admin plugin visibility, PowerDNS-routed `alice.crypto TXT`, runtime `alice.crypto WALLET`, and authenticated audit reads.
 - Do not re-add Docker integration Stacks BNS `.btc` fixture routing; `tests/docker/anyns-config.json`, `tests/docker/fixtures/backend-fixtures.py`, and `tests/acceptance/docker-dns-integration.sh` now cover admin plugin visibility, PowerDNS-routed `alice.btc TXT`, runtime `alice.btc WALLET`, and authenticated audit reads.
 - Do not re-add Docker integration PNS-Polkadot `.dot` fixture routing; `tests/docker/anyns-config.json`, `tests/docker/fixtures/backend-fixtures.py`, and `tests/acceptance/docker-dns-integration.sh` now cover admin plugin visibility, PowerDNS-routed `alice.dot TXT`, runtime `alice.dot WALLET`, and authenticated audit reads.
+- Do not re-add Docker integration ENS `.eth` fixture routing; `tests/docker/anyns-config.json`, `tests/docker/fixtures/backend-fixtures.py`, and `tests/acceptance/docker-dns-integration.sh` now cover admin plugin visibility, PowerDNS-routed `alice.eth TXT`, runtime `alice.eth WALLET`, and authenticated audit reads.
 - Do not re-add the Docker integration `anyns-log-forwarder` service or log-forwarder DNSLog ingestion/audit/metrics/failed-queue assertions; `tests/docker/compose.dns-integration.yml` and `tests/acceptance/docker-dns-integration.sh` now cover them.
 - Do not re-add Docker integration management-auth rejection or authorized-read checks for admin boundary/plugins/management-key metadata, runtime audit events, or log-forwarder audit/honeypot status; `tests/docker/anyns-config.json` now requires fixture-scoped management auth and `tests/acceptance/docker-dns-integration.sh` scripts those assertions.
 - Do not re-add Docker integration policy reload authorization or management-audit assertions for admin API and plugin runtime; `tests/docker/anyns-config.json` now has a fixture-scoped policy writer role/key and `tests/acceptance/docker-dns-integration.sh` scripts the 401, 403, successful reload, and audit checks.
@@ -1245,9 +1287,9 @@ If `git status` is unavailable on the server, this file is still the required gi
 - Do not re-add audit event time-window filters; `GET /api/v1/audit/events?since=...&until=...` now uses inclusive RFC3339 bounds through the shared admin/runtime/log-forwarder parser and store path, with no-socket store/parser/admin/runtime tests.
 
 <!-- AUTO:run-context:start -->
-Last automation scan: 2026-06-05T09:02:52+08:00
+Last automation scan: 2026-06-05T09:39:32+08:00
 
-- Latest run log: `/root/anyNS/codex-run-20260605-085716.log`
+- Latest run log: `/root/anyNS/codex-run-20260605-093254.log`
 - Git status: `available`
 - Git detail: `M BACKEND_STORAGE_AND_DOCKER_TEST_PLAN.md
  M CODEX_RUN_CONTEXT.md

@@ -3,8 +3,39 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
 
 
+ENS_RESOLVER_SELECTOR = "0178b8bf"
+ENS_ADDR_SELECTOR = "3b3b57de"
+ENS_TEXT_SELECTOR = "59d1d43c"
+ENS_CONTENTHASH_SELECTOR = "bc1c58d1"
+
+
 def rr(name, rrtype, value, ttl=300):
     return {"name": name, "type": rrtype, "ttl": ttl, "value": value}
+
+
+def left_pad_hex(value, size):
+    return str(value).rjust(size, "0")
+
+
+def right_pad_hex(value, block_size):
+    remainder = len(value) % block_size
+    if remainder == 0:
+        return value
+    return value + ("0" * (block_size - remainder))
+
+
+def abi_string_return(value):
+    encoded = value.encode("utf-8").hex()
+    return "0x" + left_pad_hex("20", 64) + left_pad_hex(format(len(value), "x"), 64) + right_pad_hex(encoded, 64)
+
+
+def abi_bytes_return(value):
+    encoded = bytes(value).hex()
+    return "0x" + left_pad_hex("20", 64) + left_pad_hex(format(len(value), "x"), 64) + right_pad_hex(encoded, 64)
+
+
+def abi_address_return(address):
+    return "0x" + ("0" * 24) + address.lower().removeprefix("0x")
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -57,6 +88,9 @@ class Handler(BaseHTTPRequestHandler):
             return
         if self.path == "/namecoin":
             self.handle_namecoin()
+            return
+        if self.path == "/ethereum":
+            self.handle_ens_json_rpc()
             return
         if self.path == "/honeypot/fail":
             self._json(503, {"accepted": 0, "rejected": 1})
@@ -135,6 +169,37 @@ class Handler(BaseHTTPRequestHandler):
             "result": {"name": "d/example", "value": json.dumps(value)},
             "error": None,
             "id": req.get("id"),
+        })
+
+    def handle_ens_json_rpc(self):
+        req = self._read_json()
+        params = req.get("params", [])
+        call = params[0] if params else {}
+        data = str(call.get("data", "")).lower().removeprefix("0x")
+        if data.startswith(ENS_RESOLVER_SELECTOR):
+            result = abi_address_return("0x1234567890abcdef1234567890abcdef12345678")
+        elif data.startswith(ENS_ADDR_SELECTOR):
+            result = abi_address_return("0x4444444444444444444444444444444444444444")
+        elif data.startswith(ENS_TEXT_SELECTOR):
+            if "656d61696c" in data:
+                result = abi_string_return("alice.eth@example.test")
+            elif "75726c" in data:
+                result = abi_string_return("https://alice.eth.example.test")
+            else:
+                result = abi_string_return("")
+        elif data.startswith(ENS_CONTENTHASH_SELECTOR):
+            result = abi_bytes_return([0xe3, 0x01, 0x01, 0x70])
+        else:
+            self._json(200, {
+                "jsonrpc": "2.0",
+                "id": req.get("id"),
+                "error": {"code": -32602, "message": "unexpected eth_call data"},
+            })
+            return
+        self._json(200, {
+            "jsonrpc": "2.0",
+            "id": req.get("id"),
+            "result": result,
         })
 
     def handle_unstoppable(self):
