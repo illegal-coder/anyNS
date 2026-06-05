@@ -192,6 +192,7 @@ This repository has moved from requirements-only documentation to a runnable fir
   - The adapter maps resolver `addr(bytes32)` into DNS `WALLET` answers with the `rbtc` chain label, selected `text(bytes32,string)` records into DNS `TXT`, and `contenthash(bytes32)` into DNS-safe `URI`, preserving `WALLET` as RR type 262 / `TYPE262` compatible output.
   - Names without a resolver are preserved as routed `NXDOMAIN`; missing, malformed, or zero registry configuration and JSON-RPC transport/status/decode failures return isolated `SERVFAIL` results without leaking matched `.rsk` names into ICANN fallback.
   - Config validation accepts `rif-rns-json-rpc` only on the `rif-rns` plugin, and `configs/anyns/config.example.json` demonstrates the disabled-by-default adapter.
+- Added deterministic Docker fixture coverage for the RIF/RNS `.rsk` adapter path. `tests/docker/anyns-config.json` now enables `rif-rns` with `backend_type: "rif-rns-json-rpc"` against the no-secret `backend-fixtures` container, and `tests/acceptance/docker-dns-integration.sh` asserts admin plugin visibility, PowerDNS-routed `alice.rsk TXT`, runtime `alice.rsk WALLET`, and authenticated RIF/RNS audit visibility.
 - Added an opt-in concrete OpenAlias DNS TXT backend adapter for the `openalias` Wave 3 plugin:
   - `backend_type: "openalias-dns-txt"` calls a configured HTTP TXT lookup adapter with `name={domain}` and `type=TXT`, then parses OpenAlias `oa1:<asset>` TXT records.
   - The adapter maps required `recipient_address` fields into DNS `WALLET` answers with the OpenAlias asset prefix, maps standard optional fields such as `recipient_name`, `tx_description`, `tx_amount`, `tx_payment_id`, `address_signature`, and `checksum` into DNS `TXT`, and preserves `WALLET` as RR type 262 / `TYPE262` compatible output.
@@ -1837,6 +1838,28 @@ New Docker integration coverage added in this pass:
 tests/docker/anyns-config.json now enables `freename-fns` with `backend_type: "freename-resolution-api"` against the deterministic backend fixture.
 tests/docker/fixtures/backend-fixtures.py now serves no-secret Freename Resolution API `/domain/resolve?q=alice.fns` responses with ETH/BTC wallet, website, TXT, owner, and IPFS-style records.
 tests/acceptance/docker-dns-integration.sh now asserts admin plugin visibility, PowerDNS-routed `alice.fns TXT`, runtime `alice.fns WALLET`, and authenticated Freename/FNS audit visibility.
+```
+
+Latest pass on 2026-06-05 14:19 CST after adding Docker RIF/RNS fixture assertions:
+
+```text
+bash -n tests/acceptance/docker-dns-integration.sh   PASS
+python3 -m py_compile tests/docker/fixtures/backend-fixtures.py   PASS
+GOCACHE=/tmp/anyns-go-build go run -buildvcs=false ./cmd/anyns-config-check tests/docker/anyns-config.json   PASS; output reported management_auth:true, management_keys:3, management_roles:3, plugins:14, routes:14, and admin_proxy_runtime:true
+docker compose -f tests/docker/compose.dns-integration.yml config >/tmp/anyns-docker-compose-rendered.yml && wc -l /tmp/anyns-docker-compose-rendered.yml   PASS; rendered 151 lines
+ANYNS_RUN_DOCKER_DNS_INTEGRATION=0 GOCACHE=/tmp/anyns-go-build bash tests/acceptance/docker-dns-integration.sh   SKIP; Docker daemon is not available
+GOCACHE=/tmp/anyns-go-build go test -buildvcs=false ./...   PASS
+GOCACHE=/tmp/anyns-go-build go vet -buildvcs=false ./...   PASS
+GOCACHE=/tmp/anyns-go-build go build -buildvcs=false ./cmd/anyns-admin-api ./cmd/anyns-plugin-runtime ./cmd/anyns-log-forwarder   PASS
+GOCACHE=/tmp/anyns-go-build bash tests/acceptance/check-local.sh   PASS with runtime socket smoke SKIP: listen tcp 127.0.0.1:18081: socket: operation not permitted
+```
+
+New Docker integration coverage added in this pass:
+
+```text
+tests/docker/anyns-config.json now enables `rif-rns` with `backend_type: "rif-rns-json-rpc"` against the deterministic backend fixture.
+tests/docker/fixtures/backend-fixtures.py now serves no-secret RSK JSON-RPC `eth_call` responses for `alice.rsk` resolver lookup, wallet address, URL text, and contenthash.
+tests/acceptance/docker-dns-integration.sh now asserts admin plugin visibility, PowerDNS-routed `alice.rsk TXT`, runtime `alice.rsk WALLET`, and authenticated RIF/RNS audit visibility.
 ```
 
 Latest pass on 2026-06-05 after adding Docker reflection rate-limit assertions:

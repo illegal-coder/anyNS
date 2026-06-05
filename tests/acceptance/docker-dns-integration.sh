@@ -87,6 +87,7 @@ tools 'grep -q "\"name\":\"tezos-domains\"" /tmp/admin-plugins.json'
 tools 'grep -q "\"name\":\"aptos-names\"" /tmp/admin-plugins.json'
 tools 'grep -q "\"name\":\"suins\"" /tmp/admin-plugins.json'
 tools 'grep -q "\"name\":\"freename-fns\"" /tmp/admin-plugins.json'
+tools 'grep -q "\"name\":\"rif-rns\"" /tmp/admin-plugins.json'
 
 tools 'status=$(curl -sS -X POST -o /tmp/admin-policy-reload-unauth.json -w "%{http_code}" http://anyns-admin-api:8080/api/v1/policies/reload); test "$status" = "401"'
 tools 'status=$(curl -sS -X POST -H "'"$AUTH_HEADER"'" -o /tmp/admin-policy-reload-reader.json -w "%{http_code}" http://anyns-admin-api:8080/api/v1/policies/reload); test "$status" = "403"'
@@ -254,6 +255,16 @@ tools 'grep -q "eth 0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" /tmp/runtime-ali
 tools 'grep -q "btc bc1qfreenamefixture" /tmp/runtime-alice-fns-wallet.json'
 tools 'curl -fsS -H "'"$AUTH_HEADER"'" "http://anyns-plugin-runtime:8081/api/v1/audit/events?trace_id=docker-freename-fns-wallet&source_plugin=freename-fns&rcode=NOERROR&qtype=WALLET" | tee /tmp/runtime-freename-fns-audit.json'
 tools 'grep -q "alice.fns" /tmp/runtime-freename-fns-audit.json'
+
+tools 'dig +time=2 +tries=1 @pdns-recursor alice.rsk TXT | tee /tmp/pdns-alice-rsk.txt'
+tools 'grep -q "url=https://alice.rsk.example.test" /tmp/pdns-alice-rsk.txt'
+
+tools 'curl -fsS -X POST http://anyns-plugin-runtime:8081/api/v1/resolve -H "Content-Type: application/json" -d "{\"qname\":\"alice.rsk\",\"qtype\":\"WALLET\",\"context\":{\"trace_id\":\"docker-rif-rns-wallet\",\"client_view\":\"default\",\"tenant\":\"default\"}}" | tee /tmp/runtime-alice-rsk-wallet.json'
+tools 'grep -q "\"source_plugin\":\"rif-rns\"" /tmp/runtime-alice-rsk-wallet.json'
+tools 'grep -q "\"type\":\"WALLET\"" /tmp/runtime-alice-rsk-wallet.json'
+tools 'grep -q "rbtc 0xcccccccccccccccccccccccccccccccccccccccc" /tmp/runtime-alice-rsk-wallet.json'
+tools 'curl -fsS -H "'"$AUTH_HEADER"'" "http://anyns-plugin-runtime:8081/api/v1/audit/events?trace_id=docker-rif-rns-wallet&source_plugin=rif-rns&rcode=NOERROR&qtype=WALLET" | tee /tmp/runtime-rif-rns-audit.json'
+tools 'grep -q "alice.rsk" /tmp/runtime-rif-rns-audit.json'
 
 tools 'curl -fsS -X POST http://anyns-plugin-runtime:8081/api/v1/resolve -H "Content-Type: application/json" -d "{\"qname\":\"wallet.hns\",\"qtype\":\"WALLET\",\"context\":{\"client_view\":\"default\",\"tenant\":\"default\"}}" | tee /tmp/runtime-wallet-hns.json'
 tools 'grep -q "\"type\":\"WALLET\"" /tmp/runtime-wallet-hns.json'

@@ -94,6 +94,13 @@
       "backend_type": "freename-resolution-api",
       "backend_url": "http://backend-fixtures:8090",
       "request_timeout": "3s"
+    },
+    {
+      "name": "rif-rns",
+      "enabled": true,
+      "backend_type": "rif-rns-json-rpc",
+      "backend_url": "http://backend-fixtures:8090/rsk?registry=0x2222222222222222222222222222222222222222",
+      "request_timeout": "3s"
     }
   ],
   "routes": [
@@ -211,6 +218,15 @@
       "client_views": ["default"],
       "tenants": ["default"],
       "plugin": "freename-fns",
+      "priority": 70,
+      "fallback": "nxdomain"
+    },
+    {
+      "name": "rif-rns-fixture",
+      "suffixes": [".rsk"],
+      "client_views": ["default"],
+      "tenants": ["default"],
+      "plugin": "rif-rns",
       "priority": 70,
       "fallback": "nxdomain"
     }

@@ -113,6 +113,9 @@ class Handler(BaseHTTPRequestHandler):
         if self.path == "/pulsechain":
             self.handle_pulsechain_json_rpc()
             return
+        if self.path == "/rsk":
+            self.handle_rsk_json_rpc()
+            return
         if self.path == "/sui":
             self.handle_suins_json_rpc()
             return
@@ -483,6 +486,43 @@ class Handler(BaseHTTPRequestHandler):
                 "jsonrpc": "2.0",
                 "id": req.get("id"),
                 "error": {"code": -32602, "message": "unexpected pulsechain eth_call data"},
+            })
+            return
+        self._json(200, {
+            "jsonrpc": "2.0",
+            "id": req.get("id"),
+            "result": result,
+        })
+
+    def handle_rsk_json_rpc(self):
+        req = self._read_json()
+        params = req.get("params", [])
+        call = params[0] if params else {}
+        data = str(call.get("data", "")).lower().removeprefix("0x")
+        to = str(call.get("to", "")).lower()
+        if data.startswith(ENS_RESOLVER_SELECTOR):
+            if to != "0x2222222222222222222222222222222222222222":
+                self._json(200, {
+                    "jsonrpc": "2.0",
+                    "id": req.get("id"),
+                    "error": {"code": -32602, "message": "unexpected RSK registry target"},
+                })
+                return
+            result = abi_address_return("0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb")
+        elif data.startswith(ENS_ADDR_SELECTOR):
+            result = abi_address_return("0xcccccccccccccccccccccccccccccccccccccccc")
+        elif data.startswith(ENS_TEXT_SELECTOR):
+            if "75726c" in data:
+                result = abi_string_return("https://alice.rsk.example.test")
+            else:
+                result = abi_string_return("")
+        elif data.startswith(ENS_CONTENTHASH_SELECTOR):
+            result = abi_bytes_return([0xe3, 0x01, 0x01, 0x70])
+        else:
+            self._json(200, {
+                "jsonrpc": "2.0",
+                "id": req.get("id"),
+                "error": {"code": -32602, "message": "unexpected rsk eth_call data"},
             })
             return
         self._json(200, {
