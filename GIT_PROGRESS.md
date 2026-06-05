@@ -10,6 +10,48 @@ If `git status` is unavailable on the server, this file is still the required gi
 - PowerDNS remains the primary path: Recursor Lua hook calls the runtime, preserves ICANN fallback for unavailable runtime/dependencies, and handles routed decentralized `NOERROR`/`NXDOMAIN`/`SERVFAIL` without unsafe ICANN leakage.
 - HNS now has static, HTTP JSON, and `dns://` backend modes. The DNS backend includes UDP truncation detection and TCP retry, with backend transport recorded in `raw_record.backend_transport`.
 - Security, DNSLog, honeypot queue/replay, management auth, audit summaries, policy reload, Wave 1 plugin skeletons, Wave 2 runtime-json skeletons, Wave 3 runtime-json skeletons, and no-socket acceptance checks have been implemented and documented in `IMPLEMENTATION_STATUS.md`.
+- This run extended the Namecoin `.bit` JSON-RPC adapter with conservative DNSSEC/TLS record mapping. Namecoin `ds` tuples now produce DNS `DS` records, Namecoin `tls` tuples now produce DNS `TLSA` records with base64 certificate data converted to DNS hex presentation data when possible, and subdomain lookup now honors `map["*"]` wildcard entries used by Namecoin TLS examples.
+- This run also extended the deterministic Docker fixture path with a Namecoin `DS` assertion: `tests/docker/fixtures/backend-fixtures.py` now returns `ds: [[12345, 13, 2, "ABCD1234"]]` for `d/example`, and `tests/acceptance/docker-dns-integration.sh` asserts PowerDNS-routed `example.bit DS`.
+- Current Codex run at `2026-06-05 23:52 CST` reported these commands:
+  - `find docs -maxdepth 2 -type f | sort` - PASS.
+  - `sed -n '1,240p' CODEX_RUN_CONTEXT.md` - PASS.
+  - `sed -n '1,260p' DEVELOPMENT_LESSONS.md` - PASS.
+  - `sed -n ... docs/*.md REMOTE_CODEX_HANDOFF.md IMPLEMENTATION_STATUS.md GIT_PROGRESS.md BACKEND_STORAGE_AND_DOCKER_TEST_PLAN.md` - PASS.
+  - `git status --short && git rev-parse --short HEAD` - PASS; latest committed hash before implementation work was `c9a674f`, with automation-maintained `CODEX_RUN_CONTEXT.md`, `DEVELOPMENT_LESSONS.md`, and `GIT_PROGRESS.md` already dirty.
+  - `rg -n "Namecoin|namecoin|ncdns|Electrum|dns://|docker-hnsd|hnsd|Immediate Implementation|Next Small Plan|Do Not Repeat|Remaining Work|PowerDNS Web" IMPLEMENTATION_STATUS.md GIT_PROGRESS.md BACKEND_STORAGE_AND_DOCKER_TEST_PLAN.md internal tests configs -S` - PASS.
+  - Web lookup of official Namecoin owner docs - PASS; used Namecoin DNSSEC delegation docs for the `ns`/`ds` field mapping and Namecoin TLS docs for the wildcard `tls` array shape.
+  - `sed -n ... internal/plugins/wave1/plugin.go internal/plugins/wave1/plugin_test.go tests/docker/fixtures/backend-fixtures.py tests/acceptance/docker-dns-integration.sh` - PASS.
+  - `gofmt -w internal/plugins/wave1/plugin.go internal/plugins/wave1/plugin_test.go` - PASS.
+  - `bash -n tests/acceptance/docker-dns-integration.sh` - PASS.
+  - `python3 -m py_compile tests/docker/fixtures/backend-fixtures.py` - PASS.
+  - `GOCACHE=/tmp/anyns-go-build go test -buildvcs=false ./internal/plugins/wave1` - PASS.
+  - `GOCACHE=/tmp/anyns-go-build go run -buildvcs=false ./cmd/anyns-config-check tests/docker/anyns-config.json` - PASS; output reported `management_auth:true`, `management_keys:3`, `management_roles:3`, `plugins:19`, `routes:19`, and `admin_proxy_runtime:true`.
+  - `ANYNS_RUN_DOCKER_DNS_INTEGRATION=0 GOCACHE=/tmp/anyns-go-build bash tests/acceptance/docker-dns-integration.sh` - SKIP because Docker daemon is not available: `SKIP: docker daemon is not available`.
+  - `docker compose -f tests/docker/compose.dns-integration.yml config >/tmp/anyns-docker-compose-rendered.yml && wc -l /tmp/anyns-docker-compose-rendered.yml` - PASS; rendered 151 lines.
+  - `git diff --stat -- internal/plugins/wave1/plugin.go internal/plugins/wave1/plugin_test.go tests/docker/fixtures/backend-fixtures.py tests/acceptance/docker-dns-integration.sh` - PASS.
+  - `GOCACHE=/tmp/anyns-go-build go test -buildvcs=false ./...` - PASS.
+  - `GOCACHE=/tmp/anyns-go-build go vet -buildvcs=false ./...` - PASS.
+  - `GOCACHE=/tmp/anyns-go-build go build -buildvcs=false ./cmd/anyns-admin-api ./cmd/anyns-plugin-runtime ./cmd/anyns-log-forwarder` - PASS.
+  - `GOCACHE=/tmp/anyns-go-build bash tests/acceptance/check-local.sh` - PASS with runtime socket smoke SKIP: `anyns-plugin-runtime exited before listening on 127.0.0.1:18081`; runtime log detail was `listen tcp 127.0.0.1:18081: socket: operation not permitted`.
+  - `date '+%Y-%m-%d %H:%M %Z' && git status --short && git rev-parse --short HEAD` - PASS; output date was `2026-06-05 23:52 CST`, latest committed hash before documentation updates was `c9a674f`, and the working tree contained this run's Namecoin DS/TLSA changes plus required ledger updates and automation-maintained context/lesson files.
+  - `git diff --check -- internal/plugins/wave1/plugin.go internal/plugins/wave1/plugin_test.go tests/docker/fixtures/backend-fixtures.py tests/acceptance/docker-dns-integration.sh IMPLEMENTATION_STATUS.md GIT_PROGRESS.md BACKEND_STORAGE_AND_DOCKER_TEST_PLAN.md` - PASS.
+  - `git add internal/plugins/wave1/plugin.go internal/plugins/wave1/plugin_test.go tests/docker/fixtures/backend-fixtures.py tests/acceptance/docker-dns-integration.sh IMPLEMENTATION_STATUS.md GIT_PROGRESS.md BACKEND_STORAGE_AND_DOCKER_TEST_PLAN.md && git commit -m "feat: map namecoin ds and tlsa records"` - FAIL because Git could not create `.git/index.lock`: `Read-only file system`.
+  - `git status --short && git rev-parse --short HEAD && git diff --cached --stat` - PASS after failed commit; latest committed hash remains `c9a674f`, and no files were staged because the index write failed before staging.
+  - `date '+%Y-%m-%d %H:%M %Z'` - PASS after failed commit; output `2026-06-05 23:54 CST`.
+- Changed files in this run:
+  - `internal/plugins/wave1/plugin.go`
+  - `internal/plugins/wave1/plugin_test.go`
+  - `tests/docker/fixtures/backend-fixtures.py`
+  - `tests/acceptance/docker-dns-integration.sh`
+  - `IMPLEMENTATION_STATUS.md`
+  - `GIT_PROGRESS.md`
+  - `BACKEND_STORAGE_AND_DOCKER_TEST_PLAN.md`
+- Repeated errors observed in this run:
+  - `docker daemon unavailable` appeared once through `tests/acceptance/docker-dns-integration.sh` and was handled by the existing Docker SKIP path.
+  - `socket_listen_denied` appeared once through `tests/acceptance/runtime-smoke.sh` under `check-local.sh` and was handled by the existing acceptance SKIP path.
+  - Git commit was attempted once and failed with the known read-only `.git/index.lock` metadata error, so no further commit retry or git repair was attempted. Latest available git commit remains `c9a674f`.
+  - No targeted package failure occurred.
+  - No new recurring error pattern was observed; `DEVELOPMENT_LESSONS.md` did not need a manual rule update.
 - This run added a focused PowerDNS Recursor Lua dependency assertion to `tests/acceptance/docker-dns-integration.sh`. After the first routed `example.hns A` query, the Docker script now inspects Recursor logs, fails if the target image logged the fallback for missing `socket.http`, `ltn12`, or `cjson.safe`, and asserts the hook saw the routed HNS query.
 - Current Codex run at `2026-06-05 23:36 CST` reported these commands:
   - `ls -la docs` - PASS.
@@ -1870,7 +1912,7 @@ If `git status` is unavailable on the server, this file is still the required gi
 - Run HNS `dns://` backend against a real hsd/hnsd DNS resolver, then verify end-to-end HNS resolution through PowerDNS Recursor.
 - Exercise honeypot background replay and Prometheus metrics against a real honeypot endpoint.
 - For no-socket work, extend production management key lifecycle automation only if a concrete external secret-store integration target is selected; file-backed secret references are now implemented.
-- Test the new Namecoin `.bit` JSON-RPC adapter against a live Namecoin Core node, then expand value mapping if real records expose additional shapes beyond `ip`, `ip6`, `ns`, `txt`/`info`, `alias`/`translate`, and `map`.
+- Test the new Namecoin `.bit` JSON-RPC adapter against a live Namecoin Core node, then expand value mapping if real records expose additional shapes beyond the currently covered `ip`, `ip6`, `ns`, `ds`, `tls`, `txt`/`info`, `alias`/`translate`, exact `map` subdomains, and wildcard `map["*"]` subdomains.
 - Test the new Unstoppable Domains Resolution Service adapter against a live API key and real domains, then expand record mapping if real records expose additional shapes beyond `dns.*`, `browser.redirect_url`, `ipfs.*`, and `crypto.*.address`.
 - Test the new Stacks BNS API adapter against a live Hiro/Stacks API and real `.btc` / `.stx` names, then expand mapping if real zonefiles expose additional BNSv2 shapes beyond the covered legacy zonefile and JSON profile/address fields.
 - Test the new ENS JSON-RPC adapter against a live Ethereum RPC endpoint and real `.eth` names, then expand mapping if live resolver responses require ENSIP-10 wildcard or CCIP-Read handling beyond direct resolver calls.
@@ -1938,6 +1980,7 @@ If `git status` is unavailable on the server, this file is still the required gi
 - Do not re-add multi-target management-key CLI reload orchestration; `generate`, `revoke`, and `rotate` now accept repeated `--reload-url` flags and report per-endpoint reload results.
 - Do not re-add file-backed secret references; plugin backend, honeypot, legacy management, and scoped management key secrets now support `*_file` fields with config-directory-relative resolution.
 - Do not re-add the Namecoin `.bit` JSON-RPC adapter or `plugins[].backend_type`; `namecoin-json-rpc` is loaded, validated, wired into app plugin construction, and covered with no-socket Wave 1 tests.
+- Do not re-add Namecoin `ds` -> `DS`, `tls` -> `TLSA`, or `map["*"]` wildcard subdomain mapping; `internal/plugins/wave1` now covers those shapes with no-socket tests, and the Docker fixture path asserts PowerDNS-routed `example.bit DS`.
 - Do not re-add the Unstoppable Domains Resolution Service adapter; `unstoppable-resolution-api` is loaded, validated, wired through existing Wave 1 plugin construction, demonstrated in `configs/anyns/config.example.json`, and covered with no-socket Wave 1 tests.
 - Do not re-add the Stacks BNS API adapter; `stacks-bns-api` is loaded, validated, wired through existing Wave 1 plugin construction, demonstrated in `configs/anyns/config.example.json`, and covered with no-socket Wave 1 tests for legacy and JSON zonefile mapping plus 404-to-`NXDOMAIN`.
 - Do not re-add the ENS JSON-RPC adapter; `ens-json-rpc` is loaded, validated, wired through existing Wave 1 plugin construction, demonstrated in `configs/anyns/config.example.json`, and covered with no-socket Wave 1 tests for resolver lookup, wallet/text/contenthash mapping, no-resolver `NXDOMAIN`, and legacy Keccak namehash.
@@ -1979,16 +2022,18 @@ If `git status` is unavailable on the server, this file is still the required gi
 - Do not re-add audit event cursor pagination; `GET /api/v1/audit/events?page=true` and follow-up `cursor=<offset>` reads now return an opt-in `{events,next_cursor}` envelope on the shared admin/runtime/log-forwarder path while default reads still return the legacy JSON array.
 
 <!-- AUTO:run-context:start -->
-Last automation scan: 2026-06-05T23:41:10+08:00
+Last automation scan: 2026-06-05T23:55:31+08:00
 
-- Latest run log: `/root/anyNS/codex-run-20260605-233401.log`
+- Latest run log: `/root/anyNS/codex-run-20260605-234739.log`
 - Git status: `available`
 - Git detail: `M BACKEND_STORAGE_AND_DOCKER_TEST_PLAN.md
  M CODEX_RUN_CONTEXT.md
  M DEVELOPMENT_LESSONS.md
  M GIT_PROGRESS.md
  M IMPLEMENTATION_STATUS.md
- M tests/acceptance/docker-dns-integration.sh`
+ M internal/plugins/wave1/plugin.go
+ M internal/plugins/wave1/plugin_test.go
+ M tests/acceptance/d...`
 
 Frequent errors to avoid next run:
 - `socket_listen_denied`: Prefer no-socket handler tests and acceptance scripts that SKIP cleanly in socket-restricted environments.

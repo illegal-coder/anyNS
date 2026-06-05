@@ -3,6 +3,7 @@ package wave1
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
@@ -847,6 +848,9 @@ func namecoinSubdomainRecord(raw map[string]any, subdomain string) (map[string]a
 	for i := len(labels) - 1; i >= 0; i-- {
 		next, ok := current[labels[i]].(map[string]any)
 		if !ok {
+			next, ok = current["*"].(map[string]any)
+		}
+		if !ok {
 			return nil, false
 		}
 		if i == 0 {
@@ -880,6 +884,12 @@ func namecoinRecordsFromMap(name string, raw map[string]any) []plugins.RR {
 	for _, value := range stringValues(raw["ns"]) {
 		records = append(records, plugins.RR{Name: name, Type: "NS", TTL: 300, Value: plugins.NormalizeQName(value)})
 	}
+	for _, value := range namecoinTupleRecords(raw["ds"], "DS") {
+		records = append(records, plugins.RR{Name: name, Type: "DS", TTL: 300, Value: value})
+	}
+	for _, value := range namecoinTupleRecords(raw["tls"], "TLSA") {
+		records = append(records, plugins.RR{Name: name, Type: "TLSA", TTL: 300, Value: value})
+	}
 	for _, field := range []string{"txt", "info"} {
 		for _, value := range stringValues(raw[field]) {
 			records = append(records, plugins.RR{Name: name, Type: "TXT", TTL: 300, Value: value})
@@ -893,6 +903,85 @@ func namecoinRecordsFromMap(name string, raw map[string]any) []plugins.RR {
 		}
 	}
 	return records
+}
+
+func namecoinTupleRecords(value any, rrType string) []string {
+	switch v := value.(type) {
+	case string:
+		if strings.TrimSpace(v) == "" {
+			return nil
+		}
+		return []string{strings.TrimSpace(v)}
+	case []any:
+		if tuple, ok := namecoinTupleRecord(v, rrType); ok {
+			return []string{tuple}
+		}
+		out := make([]string, 0, len(v))
+		for _, item := range v {
+			switch nested := item.(type) {
+			case string:
+				if strings.TrimSpace(nested) != "" {
+					out = append(out, strings.TrimSpace(nested))
+				}
+			case []any:
+				if tuple, ok := namecoinTupleRecord(nested, rrType); ok {
+					out = append(out, tuple)
+				}
+			}
+		}
+		return out
+	default:
+		return nil
+	}
+}
+
+func namecoinTupleRecord(tuple []any, rrType string) (string, bool) {
+	if len(tuple) < 4 {
+		return "", false
+	}
+	first, ok := namecoinNumberToken(tuple[0])
+	if !ok {
+		return "", false
+	}
+	second, ok := namecoinNumberToken(tuple[1])
+	if !ok {
+		return "", false
+	}
+	third, ok := namecoinNumberToken(tuple[2])
+	if !ok {
+		return "", false
+	}
+	data, ok := tuple[3].(string)
+	if !ok || strings.TrimSpace(data) == "" {
+		return "", false
+	}
+	data = strings.TrimSpace(data)
+	if rrType == "TLSA" {
+		if decoded, err := base64.StdEncoding.DecodeString(data); err == nil {
+			data = strings.ToUpper(hex.EncodeToString(decoded))
+		} else {
+			data = strings.ToUpper(strings.ReplaceAll(data, " ", ""))
+		}
+	}
+	return strings.Join([]string{first, second, third, data}, " "), true
+}
+
+func namecoinNumberToken(value any) (string, bool) {
+	switch v := value.(type) {
+	case float64:
+		if v < 0 || v != float64(int(v)) {
+			return "", false
+		}
+		return fmt.Sprintf("%d", int(v)), true
+	case string:
+		v = strings.TrimSpace(v)
+		if v == "" {
+			return "", false
+		}
+		return v, true
+	default:
+		return "", false
+	}
 }
 
 func stringValues(value any) []string {

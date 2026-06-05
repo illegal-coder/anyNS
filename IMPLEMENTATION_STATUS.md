@@ -1999,6 +1999,36 @@ New Docker integration coverage added in this pass:
 tests/acceptance/docker-dns-integration.sh now inspects PowerDNS Recursor logs after the first routed `example.hns A` query. The script fails with a focused message if the target Recursor image logs the Lua dependency fallback for missing `socket.http`, `ltn12`, or `cjson.safe`, and it asserts the hook logged the routed HNS query.
 ```
 
+Latest pass on 2026-06-05 23:52 CST after extending the Namecoin `.bit` adapter record mapping:
+
+```text
+gofmt -w internal/plugins/wave1/plugin.go internal/plugins/wave1/plugin_test.go   PASS
+bash -n tests/acceptance/docker-dns-integration.sh   PASS
+python3 -m py_compile tests/docker/fixtures/backend-fixtures.py   PASS
+GOCACHE=/tmp/anyns-go-build go test -buildvcs=false ./internal/plugins/wave1   PASS
+GOCACHE=/tmp/anyns-go-build go run -buildvcs=false ./cmd/anyns-config-check tests/docker/anyns-config.json   PASS; output reported management_auth:true, management_keys:3, management_roles:3, plugins:19, routes:19, and admin_proxy_runtime:true
+ANYNS_RUN_DOCKER_DNS_INTEGRATION=0 GOCACHE=/tmp/anyns-go-build bash tests/acceptance/docker-dns-integration.sh   SKIP; Docker daemon is not available
+docker compose -f tests/docker/compose.dns-integration.yml config >/tmp/anyns-docker-compose-rendered.yml && wc -l /tmp/anyns-docker-compose-rendered.yml   PASS; rendered 151 lines
+GOCACHE=/tmp/anyns-go-build go test -buildvcs=false ./...   PASS
+GOCACHE=/tmp/anyns-go-build go vet -buildvcs=false ./...   PASS
+GOCACHE=/tmp/anyns-go-build go build -buildvcs=false ./cmd/anyns-admin-api ./cmd/anyns-plugin-runtime ./cmd/anyns-log-forwarder   PASS
+GOCACHE=/tmp/anyns-go-build bash tests/acceptance/check-local.sh   PASS with runtime socket smoke SKIP: listen tcp 127.0.0.1:18081: socket: operation not permitted
+```
+
+New Namecoin backend coverage added in this pass:
+
+```text
+internal/plugins/wave1 now maps Namecoin `ds` tuples into DNS `DS` records and Namecoin `tls` tuples into DNS `TLSA` records. TLS tuple certificate data is converted from Namecoin's base64 form to DNS TLSA hex presentation data when possible.
+Namecoin subdomain lookup now honors `map["*"]` wildcard entries, matching the documented wildcard TLS placement pattern for `.bit` domains.
+tests/docker/fixtures/backend-fixtures.py now includes a deterministic Namecoin `ds` fixture, and tests/acceptance/docker-dns-integration.sh asserts PowerDNS-routed `example.bit DS`.
+```
+
+Git note:
+
+```text
+git add internal/plugins/wave1/plugin.go internal/plugins/wave1/plugin_test.go tests/docker/fixtures/backend-fixtures.py tests/acceptance/docker-dns-integration.sh IMPLEMENTATION_STATUS.md GIT_PROGRESS.md BACKEND_STORAGE_AND_DOCKER_TEST_PLAN.md && git commit -m "feat: map namecoin ds and tlsa records"   FAIL; Git could not create .git/index.lock because the repository metadata is read-only. Latest committed hash remains c9a674f.
+```
+
 ## Remaining Work
 
 - Exercise the PowerDNS Recursor Lua hook dependency assertion inside a real PowerDNS container and confirm installed Lua modules (`socket.http`, `ltn12`, `cjson.safe`) in the target image; the Docker DNS script now checks the Recursor logs, but live execution still needs Docker daemon access.
@@ -2007,7 +2037,7 @@ tests/acceptance/docker-dns-integration.sh now inspects PowerDNS Recursor logs a
 - Exercise honeypot background replay and exported Prometheus metrics against a real honeypot endpoint.
 - Revisit a shared control-plane store only if multi-admin or multi-runtime deployments need coordinated state beyond the current deployment-default admin-to-runtime proxy mode.
 - Extend production management key lifecycle automation beyond file-backed secret references only if a concrete external secret store target is selected.
-- Extend the new Namecoin `.bit` JSON-RPC adapter after testing against a live Namecoin Core node, especially for additional Namecoin value shapes beyond `ip`, `ip6`, `ns`, `txt`/`info`, `alias`/`translate`, and `map` subdomains.
+- Extend the new Namecoin `.bit` JSON-RPC adapter after testing against a live Namecoin Core node, especially for additional Namecoin value shapes beyond the currently covered `ip`, `ip6`, `ns`, `ds`, `tls`, `txt`/`info`, `alias`/`translate`, exact `map` subdomains, and wildcard `map["*"]` subdomains.
 - Test the new Unstoppable Domains Resolution Service adapter against a live API key and real domains, then expand record mapping if real records expose additional shapes beyond `dns.*`, `browser.redirect_url`, `ipfs.*`, and `crypto.*.address`.
 - Test the new Stacks BNS API adapter against a live Hiro/Stacks API and real `.btc` / `.stx` names, then expand zonefile mapping if real responses expose additional BNSv2 shapes beyond legacy zonefiles, `owner`, `name`, `bio`, `location`, `website`, `pfp`, `btc`, `addresses`, and `meta`.
 - Test the new ENS JSON-RPC adapter against a live Ethereum RPC endpoint and real `.eth` names, then expand record mapping if live resolver responses require ENSIP-10 wildcard or CCIP-Read handling beyond direct resolver `addr`, `text`, and `contenthash` calls.

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -509,6 +510,75 @@ func TestNamecoinJSONRPCBackendNameNotFoundReturnsNXDomain(t *testing.T) {
 	if result.RCode != plugins.RCodeNXDomain || result.AuditMetadata["reason"] != "namecoin_name_not_found" {
 		t.Fatalf("result = %#v", result)
 	}
+}
+
+func TestNamecoinJSONRPCBackendMapsDSAndWildcardTLSA(t *testing.T) {
+	plugin := New("namecoin-bit", []string{".bit"})
+	plugin.SetEnabled(true)
+	plugin.ConfigureBackend(BackendConfig{
+		Type: "namecoin-json-rpc",
+		URL:  "http://namecoind.example/",
+		HTTPClient: &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+			value := map[string]any{
+				"ip": "203.0.113.9",
+				"ns": "ns1.example.bit",
+				"ds": []any{
+					[]any{12345, 13, 2, "ABCD1234"},
+				},
+				"map": map[string]any{
+					"*": map[string]any{
+						"tls": []any{
+							[]any{2, 1, 0, base64.StdEncoding.EncodeToString([]byte{0x01, 0x02, 0xab})},
+						},
+					},
+				},
+			}
+			payload, err := jsonPayloadForNamecoin(value)
+			if err != nil {
+				t.Fatalf("payload: %v", err)
+			}
+			return &http.Response{
+				StatusCode: http.StatusOK,
+				Header:     make(http.Header),
+				Body:       io.NopCloser(strings.NewReader(payload)),
+			}, nil
+		})},
+	})
+
+	dsResult, err := plugin.Resolve(context.Background(), plugins.ResolveRequest{QName: "example.bit", QType: "DS"})
+	if err != nil {
+		t.Fatalf("resolve DS: %v", err)
+	}
+	if len(dsResult.RRSet) != 1 || dsResult.RRSet[0].Type != "DS" || dsResult.RRSet[0].Value != "12345 13 2 ABCD1234" {
+		t.Fatalf("DS result = %#v", dsResult.RRSet)
+	}
+
+	tlsaResult, err := plugin.Resolve(context.Background(), plugins.ResolveRequest{QName: "www.example.bit", QType: "TLSA"})
+	if err != nil {
+		t.Fatalf("resolve TLSA: %v", err)
+	}
+	if len(tlsaResult.RRSet) != 1 || tlsaResult.RRSet[0].Type != "TLSA" || tlsaResult.RRSet[0].Value != "2 1 0 0102AB" {
+		t.Fatalf("TLSA result = %#v", tlsaResult.RRSet)
+	}
+}
+
+func jsonPayloadForNamecoin(value map[string]any) (string, error) {
+	encoded, err := json.Marshal(value)
+	if err != nil {
+		return "", err
+	}
+	payload, err := json.Marshal(map[string]any{
+		"result": map[string]any{
+			"name":  "d/example",
+			"value": string(encoded),
+		},
+		"error": nil,
+		"id":    "anyns-namecoin-bit",
+	})
+	if err != nil {
+		return "", err
+	}
+	return string(payload), nil
 }
 
 func TestUnstoppableResolutionAPIBackendMapsRecords(t *testing.T) {
