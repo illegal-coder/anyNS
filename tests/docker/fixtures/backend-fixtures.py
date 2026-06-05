@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
+from urllib.parse import parse_qs, urlparse
 
 
 ENS_RESOLVER_SELECTOR = "0178b8bf"
@@ -79,6 +80,10 @@ class Handler(BaseHTTPRequestHandler):
             return
         if self.path == "/name/missing.dot":
             self._json(404, {"message": "name not found"})
+            return
+        parsed = urlparse(self.path)
+        if parsed.path == "/getAddress":
+            self.handle_space_id(parse_qs(parsed.query))
             return
         self._json(404, {"error": "not found"})
 
@@ -263,6 +268,24 @@ class Handler(BaseHTTPRequestHandler):
                 }
             }
         })
+
+    def handle_space_id(self, query):
+        domain = query.get("domain", [""])[0]
+        if domain == "alice.bnb":
+            self._json(200, {
+                "address": "0x7777777777777777777777777777777777777777",
+                "code": 0,
+                "msg": "success"
+            })
+            return
+        if domain == "missing.arb":
+            self._json(200, {
+                "address": "",
+                "code": 1,
+                "msg": "no address found"
+            })
+            return
+        self._json(404, {"message": "domain not found"})
 
     def handle_pulsechain_json_rpc(self):
         req = self._read_json()

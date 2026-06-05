@@ -52,6 +52,13 @@
       "backend_type": "pulsechain-pns-json-rpc",
       "backend_url": "http://backend-fixtures:8090/pulsechain?registry=0x1111111111111111111111111111111111111111",
       "request_timeout": "3s"
+    },
+    {
+      "name": "space-id",
+      "enabled": true,
+      "backend_type": "space-id-api",
+      "backend_url": "http://backend-fixtures:8090",
+      "request_timeout": "3s"
     }
   ],
   "routes": [
@@ -116,6 +123,15 @@
       "tenants": ["default"],
       "plugin": "pns-pulsechain",
       "priority": 90,
+      "fallback": "nxdomain"
+    },
+    {
+      "name": "space-id-fixture",
+      "suffixes": [".bnb", ".arb"],
+      "client_views": ["default"],
+      "tenants": ["default"],
+      "plugin": "space-id",
+      "priority": 80,
       "fallback": "nxdomain"
     }
   ],
