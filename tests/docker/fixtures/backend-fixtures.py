@@ -43,6 +43,12 @@ class Handler(BaseHTTPRequestHandler):
         if self.path == "/v1/names/missing.btc/zonefile":
             self._json(404, {"message": "name not found"})
             return
+        if self.path == "/name/alice.dot":
+            self.handle_pns_polkadot()
+            return
+        if self.path == "/name/missing.dot":
+            self._json(404, {"message": "name not found"})
+            return
         self._json(404, {"error": "not found"})
 
     def do_POST(self):
@@ -167,6 +173,28 @@ class Handler(BaseHTTPRequestHandler):
             ]
         }
         self._json(200, {"zonefile": json.dumps(zonefile)})
+
+    def handle_pns_polkadot(self):
+        self._json(200, {
+            "result": "ok",
+            "data": {
+                "name": "alice.dot",
+                "records": {
+                    "address": "15DOTDockerFixture",
+                    "addresses": [
+                        {
+                            "network": "ksm",
+                            "address": "KSMDockerFixture"
+                        }
+                    ],
+                    "website": "alice.dot.example.test",
+                    "ipfs": "bafybeigdotfixture",
+                    "twitter": "@dotfixture",
+                    "dns.A": "198.51.100.99",
+                    "dns.TXT": "docker pns polkadot fixture"
+                }
+            }
+        })
 
 
 if __name__ == "__main__":
