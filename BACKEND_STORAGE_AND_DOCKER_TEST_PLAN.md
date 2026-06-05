@@ -24,7 +24,7 @@ Conclusion: the server has enough space for source, test images, and lightweight
 | Plugin | Status | Minimal backend path | Storage posture | Priority |
 | --- | --- | --- | --- | --- |
 | HNS `.hns` / `.hsd` | Implemented | `hnsd` container, then HNS `dns://` backend | Lightweight SPV resolver; suitable for this server | P0 |
-| Namecoin `.bit` | Implemented | `ncdns` + Electrum-NMC/Namecoin lookup client, or mocked Namecoin Core JSON-RPC first; deterministic fixture now covers A/AAAA/NS/DS/TXT/map and adapter unit tests cover wildcard TLSA mapping | Avoid full Namecoin Core until storage/runtime measured | P0 |
+| Namecoin `.bit` | Implemented | `ncdns` + Electrum-NMC/Namecoin lookup client, or mocked Namecoin Core JSON-RPC first; deterministic fixture now covers A/AAAA/NS/DS/CAA/TXT/map and adapter unit tests cover MX/SRV/URI/CAA plus wildcard TLSA mapping | Avoid full Namecoin Core until storage/runtime measured | P0 |
 | ENS `.eth` | Implemented | External Ethereum JSON-RPC endpoint or local fake JSON-RPC test server; deterministic Docker fixture now covers the current adapter contract | Avoid local Ethereum node | P1 |
 | Unstoppable | Implemented | Resolution Service API or fake HTTP fixture | No local chain node | P1 |
 | Stacks BNS | Implemented | Hiro-compatible API or fake HTTP fixture | No local Stacks node | P1 |
@@ -68,6 +68,7 @@ Minimum DNS assertions:
 - `dig @pdns-recursor missing.hns A` returns routed NXDOMAIN and does not fall through to ICANN.
 - `dig @pdns-recursor example.bit A` returns the deterministic Namecoin JSON-RPC fixture answer.
 - `dig @pdns-recursor example.bit DS` returns the deterministic Namecoin JSON-RPC fixture delegation answer.
+- `dig @pdns-recursor example.bit CAA` returns the deterministic Namecoin JSON-RPC fixture CAA answer.
 - Runtime HTTP resolution for `www.example.bit A` returns the fixture subdomain answer from Namecoin `map`.
 - `dig @pdns-recursor alice.eth TXT` and runtime HTTP `alice.eth WALLET` return deterministic ENS JSON-RPC fixture records through the `ens-json-rpc` adapter contract.
 - `dig @pdns-recursor alice.btc TXT` and runtime HTTP `alice.btc WALLET` return deterministic Stacks BNS fixture records through the `stacks-bns-api` adapter contract.

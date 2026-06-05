@@ -562,6 +562,57 @@ func TestNamecoinJSONRPCBackendMapsDSAndWildcardTLSA(t *testing.T) {
 	}
 }
 
+func TestNamecoinJSONRPCBackendMapsModernPresentationRecords(t *testing.T) {
+	plugin := New("namecoin-bit", []string{".bit"})
+	plugin.SetEnabled(true)
+	plugin.ConfigureBackend(BackendConfig{
+		Type: "namecoin-json-rpc",
+		URL:  "http://namecoind.example/",
+		HTTPClient: &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+			value := map[string]any{
+				"mx":  []any{10, "mail.example.bit"},
+				"srv": []any{0, 5, 443, "service.example.bit"},
+				"uri": []any{
+					"10 1 https://example.bit/",
+					"20 1 ipfs://bafyexample",
+				},
+				"caa": []any{0, "issue", "letsencrypt.org"},
+			}
+			payload, err := jsonPayloadForNamecoin(value)
+			if err != nil {
+				t.Fatalf("payload: %v", err)
+			}
+			return &http.Response{
+				StatusCode: http.StatusOK,
+				Header:     make(http.Header),
+				Body:       io.NopCloser(strings.NewReader(payload)),
+			}, nil
+		})},
+	})
+
+	tests := []struct {
+		qtype string
+		want  string
+	}{
+		{qtype: "MX", want: "10 mail.example.bit."},
+		{qtype: "SRV", want: "0 5 443 service.example.bit."},
+		{qtype: "URI", want: "10 1 https://example.bit/"},
+		{qtype: "CAA", want: "0 issue letsencrypt.org"},
+	}
+	for _, tt := range tests {
+		result, err := plugin.Resolve(context.Background(), plugins.ResolveRequest{QName: "example.bit", QType: tt.qtype})
+		if err != nil {
+			t.Fatalf("resolve %s: %v", tt.qtype, err)
+		}
+		if len(result.RRSet) == 0 {
+			t.Fatalf("%s result has no records", tt.qtype)
+		}
+		if result.RRSet[0].Type != tt.qtype || result.RRSet[0].Value != tt.want {
+			t.Fatalf("%s result = %#v, want %q", tt.qtype, result.RRSet, tt.want)
+		}
+	}
+}
+
 func jsonPayloadForNamecoin(value map[string]any) (string, error) {
 	encoded, err := json.Marshal(value)
 	if err != nil {

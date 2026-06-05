@@ -890,6 +890,11 @@ func namecoinRecordsFromMap(name string, raw map[string]any) []plugins.RR {
 	for _, value := range namecoinTupleRecords(raw["tls"], "TLSA") {
 		records = append(records, plugins.RR{Name: name, Type: "TLSA", TTL: 300, Value: value})
 	}
+	for _, rrType := range []string{"MX", "SRV", "URI", "CAA"} {
+		for _, value := range namecoinPresentationRecords(raw[strings.ToLower(rrType)], rrType) {
+			records = append(records, plugins.RR{Name: name, Type: rrType, TTL: 300, Value: value})
+		}
+	}
 	for _, field := range []string{"txt", "info"} {
 		for _, value := range stringValues(raw[field]) {
 			records = append(records, plugins.RR{Name: name, Type: "TXT", TTL: 300, Value: value})
@@ -903,6 +908,82 @@ func namecoinRecordsFromMap(name string, raw map[string]any) []plugins.RR {
 		}
 	}
 	return records
+}
+
+func namecoinPresentationRecords(value any, rrType string) []string {
+	switch v := value.(type) {
+	case string:
+		if formatted := namecoinPresentationRecord([]any{v}, rrType); formatted != "" {
+			return []string{formatted}
+		}
+	case []any:
+		if out, ok := namecoinStringListRecords(v, rrType); ok {
+			return out
+		}
+		if formatted := namecoinPresentationRecord(v, rrType); formatted != "" {
+			return []string{formatted}
+		}
+		out := make([]string, 0, len(v))
+		for _, item := range v {
+			switch nested := item.(type) {
+			case string:
+				if formatted := namecoinPresentationRecord([]any{nested}, rrType); formatted != "" {
+					out = append(out, formatted)
+				}
+			case []any:
+				if formatted := namecoinPresentationRecord(nested, rrType); formatted != "" {
+					out = append(out, formatted)
+				}
+			}
+		}
+		return out
+	}
+	return nil
+}
+
+func namecoinStringListRecords(items []any, rrType string) ([]string, bool) {
+	if len(items) < 2 {
+		return nil, false
+	}
+	out := make([]string, 0, len(items))
+	for _, item := range items {
+		text, ok := item.(string)
+		if !ok {
+			return nil, false
+		}
+		if formatted := namecoinPresentationRecord([]any{text}, rrType); formatted != "" {
+			out = append(out, formatted)
+		}
+	}
+	return out, true
+}
+
+func namecoinPresentationRecord(fields []any, rrType string) string {
+	if len(fields) == 0 {
+		return ""
+	}
+	tokens := make([]string, 0, len(fields))
+	for _, field := range fields {
+		switch v := field.(type) {
+		case string:
+			v = strings.TrimSpace(v)
+			if v == "" {
+				return ""
+			}
+			tokens = append(tokens, v)
+		case float64:
+			if v < 0 || v != float64(int(v)) {
+				return ""
+			}
+			tokens = append(tokens, fmt.Sprintf("%d", int(v)))
+		default:
+			return ""
+		}
+	}
+	if rrType == "MX" || rrType == "SRV" {
+		tokens[len(tokens)-1] = plugins.NormalizeQName(tokens[len(tokens)-1])
+	}
+	return strings.Join(tokens, " ")
 }
 
 func namecoinTupleRecords(value any, rrType string) []string {

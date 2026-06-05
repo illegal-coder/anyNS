@@ -162,6 +162,8 @@ tools 'dig +time=2 +tries=1 @pdns-recursor example.bit A | tee /tmp/pdns-example
 tools 'grep -q "198.51.100.77" /tmp/pdns-example-bit.txt'
 tools 'dig +time=2 +tries=1 @pdns-recursor example.bit DS | tee /tmp/pdns-example-bit-ds.txt'
 tools 'grep -q "12345 13 2 ABCD1234" /tmp/pdns-example-bit-ds.txt'
+tools 'dig +time=2 +tries=1 @pdns-recursor example.bit CAA | tee /tmp/pdns-example-bit-caa.txt'
+tools 'grep -q "0 issue \"letsencrypt.org\"" /tmp/pdns-example-bit-caa.txt'
 
 tools 'curl -fsS -X POST http://anyns-plugin-runtime:8081/api/v1/resolve -H "Content-Type: application/json" -d "{\"qname\":\"www.example.bit\",\"qtype\":\"A\",\"context\":{\"client_view\":\"default\",\"tenant\":\"default\"}}" | tee /tmp/runtime-www-example-bit.json'
 tools 'grep -q "198.51.100.78" /tmp/runtime-www-example-bit.json'
