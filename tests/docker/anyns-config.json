@@ -45,6 +45,13 @@
       "backend_type": "pns-polkadot-api",
       "backend_url": "http://backend-fixtures:8090",
       "request_timeout": "3s"
+    },
+    {
+      "name": "pns-pulsechain",
+      "enabled": true,
+      "backend_type": "pulsechain-pns-json-rpc",
+      "backend_url": "http://backend-fixtures:8090/pulsechain?registry=0x1111111111111111111111111111111111111111",
+      "request_timeout": "3s"
     }
   ],
   "routes": [
@@ -99,6 +106,15 @@
       "client_views": ["default"],
       "tenants": ["default"],
       "plugin": "pns-polkadot",
+      "priority": 90,
+      "fallback": "nxdomain"
+    },
+    {
+      "name": "pns-pulsechain-fixture",
+      "suffixes": [".pls"],
+      "client_views": ["default"],
+      "tenants": ["default"],
+      "plugin": "pns-pulsechain",
       "priority": 90,
       "fallback": "nxdomain"
     }

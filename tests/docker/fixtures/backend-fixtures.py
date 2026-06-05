@@ -92,6 +92,9 @@ class Handler(BaseHTTPRequestHandler):
         if self.path == "/ethereum":
             self.handle_ens_json_rpc()
             return
+        if self.path == "/pulsechain":
+            self.handle_pulsechain_json_rpc()
+            return
         if self.path == "/honeypot/fail":
             self._json(503, {"accepted": 0, "rejected": 1})
             return
@@ -259,6 +262,43 @@ class Handler(BaseHTTPRequestHandler):
                     "dns.TXT": "docker pns polkadot fixture"
                 }
             }
+        })
+
+    def handle_pulsechain_json_rpc(self):
+        req = self._read_json()
+        params = req.get("params", [])
+        call = params[0] if params else {}
+        data = str(call.get("data", "")).lower().removeprefix("0x")
+        to = str(call.get("to", "")).lower()
+        if data.startswith(ENS_RESOLVER_SELECTOR):
+            if to != "0x1111111111111111111111111111111111111111":
+                self._json(200, {
+                    "jsonrpc": "2.0",
+                    "id": req.get("id"),
+                    "error": {"code": -32602, "message": "unexpected registry target"},
+                })
+                return
+            result = abi_address_return("0x5555555555555555555555555555555555555555")
+        elif data.startswith(ENS_ADDR_SELECTOR):
+            result = abi_address_return("0x6666666666666666666666666666666666666666")
+        elif data.startswith(ENS_TEXT_SELECTOR):
+            if "75726c" in data:
+                result = abi_string_return("https://alice.pls.example.test")
+            else:
+                result = abi_string_return("")
+        elif data.startswith(ENS_CONTENTHASH_SELECTOR):
+            result = abi_bytes_return([0xe5, 0x01, 0x01, 0x70])
+        else:
+            self._json(200, {
+                "jsonrpc": "2.0",
+                "id": req.get("id"),
+                "error": {"code": -32602, "message": "unexpected pulsechain eth_call data"},
+            })
+            return
+        self._json(200, {
+            "jsonrpc": "2.0",
+            "id": req.get("id"),
+            "result": result,
         })
 
 

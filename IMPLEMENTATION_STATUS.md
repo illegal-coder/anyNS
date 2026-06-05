@@ -422,8 +422,35 @@ This repository has moved from requirements-only documentation to a runnable fir
 - Extended the deterministic Docker DNS integration fixture path with an enabled Stacks BNS adapter fixture. The Docker config now routes `.btc` / `.stx` through `stacks-bns` using the existing `stacks-bns-api` backend contract, the fixture serves deterministic `alice.btc` JSON-zonefile data, and the acceptance script asserts admin plugin visibility, PowerDNS-routed `TXT` resolution, runtime `WALLET` mapping, and authenticated audit visibility without live Hiro/Stacks API keys.
 - Extended the deterministic Docker DNS integration fixture path with an enabled PNS-Polkadot adapter fixture. The Docker config now routes `.dot` through `pns-polkadot` using the existing `pns-polkadot-api` backend contract, the fixture serves deterministic `alice.dot` wallet, TXT, URI, and address data, and the acceptance script asserts admin plugin visibility, PowerDNS-routed `TXT` resolution, runtime `WALLET` mapping, and authenticated audit visibility without live PNS API keys.
 - Extended the deterministic Docker DNS integration fixture path with an enabled ENS adapter fixture. The Docker config now routes `.eth` through `ens` using the existing `ens-json-rpc` backend contract, the fixture serves deterministic Ethereum JSON-RPC `eth_call` responses for resolver lookup, wallet address, text records, and contenthash, and the acceptance script asserts admin plugin visibility, PowerDNS-routed `TXT` resolution, runtime `WALLET` mapping, and authenticated audit visibility without live Ethereum RPC credentials.
+- Extended the deterministic Docker DNS integration fixture path with an enabled PulseChain PNS adapter fixture. The Docker config now routes `.pls` through `pns-pulsechain` using the existing `pulsechain-pns-json-rpc` backend contract, the fixture serves deterministic ENS-compatible PulseChain JSON-RPC `eth_call` responses for registry resolver lookup, wallet address, text records, and contenthash, and the acceptance script asserts admin plugin visibility, PowerDNS-routed `TXT` resolution, runtime `WALLET` mapping, and authenticated audit visibility without live PulseChain RPC credentials.
 
 ## Latest Validation
+
+Validated on 2026-06-05 10:12 CST after adding deterministic Docker PulseChain PNS JSON-RPC fixture assertions:
+
+```bash
+bash -n tests/acceptance/docker-dns-integration.sh
+python3 -m py_compile tests/docker/fixtures/backend-fixtures.py
+GOCACHE=/tmp/anyns-go-build go run -buildvcs=false ./cmd/anyns-config-check tests/docker/anyns-config.json
+docker compose -f tests/docker/compose.dns-integration.yml config >/tmp/anyns-docker-compose-rendered.yml && wc -l /tmp/anyns-docker-compose-rendered.yml
+ANYNS_RUN_DOCKER_DNS_INTEGRATION=0 GOCACHE=/tmp/anyns-go-build bash tests/acceptance/docker-dns-integration.sh
+GOCACHE=/tmp/anyns-go-build go test -buildvcs=false ./...
+GOCACHE=/tmp/anyns-go-build go vet -buildvcs=false ./...
+GOCACHE=/tmp/anyns-go-build go build -buildvcs=false ./cmd/anyns-admin-api ./cmd/anyns-plugin-runtime ./cmd/anyns-log-forwarder
+GOCACHE=/tmp/anyns-go-build bash tests/acceptance/check-local.sh
+git status --short
+git rev-parse --short HEAD
+date '+%Y-%m-%d %H:%M %Z'
+```
+
+Results:
+
+- PASS: Docker acceptance shell syntax, Python fixture compilation, Docker integration config validation with 7 plugins / 7 routes, Docker Compose rendering, broad Go tests, broad Go vet, and service builds.
+- SKIP: `tests/acceptance/docker-dns-integration.sh` runtime execution because the Docker daemon is unavailable in this session.
+- PASS with documented SKIP: `tests/acceptance/check-local.sh` completed while runtime socket smoke skipped because `listen tcp 127.0.0.1:18081` is denied in this sandbox.
+- No Go files changed, so no `gofmt` was needed.
+- Git commit was attempted once after validation and failed because `.git/index.lock` could not be created on a read-only filesystem. Latest committed hash remains `45cef65`; the working tree contains this run's validated Docker PulseChain fixture assertions plus required ledger updates and automation-maintained context/lesson updates.
+- No new recurring error pattern was observed; `DEVELOPMENT_LESSONS.md` did not need a manual rule update.
 
 Validated on 2026-06-05 09:36 CST after adding deterministic Docker ENS JSON-RPC fixture assertions:
 

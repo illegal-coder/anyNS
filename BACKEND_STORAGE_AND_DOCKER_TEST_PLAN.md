@@ -29,7 +29,7 @@ Conclusion: the server has enough space for source, test images, and lightweight
 | Unstoppable | Implemented | Resolution Service API or fake HTTP fixture | No local chain node | P1 |
 | Stacks BNS | Implemented | Hiro-compatible API or fake HTTP fixture | No local Stacks node | P1 |
 | PNS-Polkadot | Implemented | PNS REST API or fake HTTP fixture | No local chain node | P1 |
-| PulseChain PNS | Implemented | External PulseChain JSON-RPC or fake JSON-RPC fixture | Avoid local EVM node | P1 |
+| PulseChain PNS | Implemented | External PulseChain JSON-RPC or fake JSON-RPC fixture; deterministic Docker fixture now covers the current adapter contract | Avoid local EVM node | P1 |
 | Solana SNS | Implemented | QuickNode/SNS JSON-RPC or fake JSON-RPC fixture | Avoid local Solana node | P2 |
 | SPACE ID | Implemented | SPACE ID Web3 Name API or fake HTTP fixture | No local chain node | P2 |
 | TON DNS | Implemented | TON Center v3 DNS API or fake HTTP fixture | No local TON node | P2 |
@@ -58,7 +58,7 @@ Containers:
 - `pdns-authoritative`: local authoritative test zones and modern RR examples.
 - `bind-latest`: ISC BIND 9.20 current-stable Docker image, used as a separate DNS client/recursive test component.
 - `hnsd` or `hnsd-fixture`: HNS lightweight resolver path for `dns://` backend testing.
-- `backend-fixtures`: deterministic Python HTTP fixture server for current HNS runtime-json responses, including a private-address rebinding sample, fake Namecoin Core JSON-RPC `.bit` responses, ENS JSON-RPC `.eth` responses, Stacks/Hiro BNS API-style `.btc` zonefile responses, Unstoppable Domains Resolution API-style `.crypto` responses, PNS-Polkadot REST API-style `.dot` responses, and a failing honeypot endpoint. It can be extended for PulseChain PNS and Wave 2/3 adapters.
+- `backend-fixtures`: deterministic Python HTTP fixture server for current HNS runtime-json responses, including a private-address rebinding sample, fake Namecoin Core JSON-RPC `.bit` responses, ENS JSON-RPC `.eth` responses, PulseChain PNS JSON-RPC `.pls` responses, Stacks/Hiro BNS API-style `.btc` zonefile responses, Unstoppable Domains Resolution API-style `.crypto` responses, PNS-Polkadot REST API-style `.dot` responses, and a failing honeypot endpoint. It can be extended for Wave 2/3 adapters.
 - `dns-tools`: `dig`, `drill`, `kdig`, and curl-based smoke tests.
 
 Minimum DNS assertions:
@@ -71,6 +71,7 @@ Minimum DNS assertions:
 - `dig @pdns-recursor alice.btc TXT` and runtime HTTP `alice.btc WALLET` return deterministic Stacks BNS fixture records through the `stacks-bns-api` adapter contract.
 - `dig @pdns-recursor alice.crypto TXT` and runtime HTTP `alice.crypto WALLET` return deterministic Unstoppable fixture records through the `unstoppable-resolution-api` adapter contract.
 - `dig @pdns-recursor alice.dot TXT` and runtime HTTP `alice.dot WALLET` return deterministic PNS-Polkadot fixture records through the `pns-polkadot-api` adapter contract.
+- `dig @pdns-recursor alice.pls TXT` and runtime HTTP `alice.pls WALLET` return deterministic PulseChain PNS JSON-RPC fixture records through the `pulsechain-pns-json-rpc` adapter contract.
 - `dig @pdns-recursor wallet.hns TYPE262` or runtime HTTP equivalent returns WALLET/TYPE262-compatible data.
 - `dig @bind-latest example.hns A` forwards through the configured path and receives the same answer.
 - ICANN domain such as `example.com` still resolves through normal recursive behavior when no anyNS route matches.
@@ -103,7 +104,7 @@ HNS live/minimal backend assertions:
    - runs DNS assertions from `dns-tools`,
    - collects logs on failure,
    - skips cleanly if Docker networking is unavailable.
-   - Current scripted assertions cover HNS success, strict HNS `NXDOMAIN`, PowerDNS-routed Namecoin `.bit`, runtime-routed Namecoin subdomain data, PowerDNS/runtime-routed ENS `.eth` fixture records, PowerDNS/runtime-routed Stacks BNS `.btc` fixture records, PowerDNS/runtime-routed Unstoppable `.crypto` fixture records, PowerDNS/runtime-routed PNS-Polkadot `.dot` fixture records, HNS `WALLET` and `TYPE262`, BIND-forwarded HNS, ICANN pass-through posture, authenticated admin-to-runtime proxy visibility, authenticated proxied admin plugin listing, redacted management-key metadata, admin/runtime policy reload authz plus management audit visibility, proxied admin cache stats/flush authz plus management audit visibility, admin/runtime/log-forwarder audit time-window filtering, admin/runtime/log-forwarder audit-summary aggregates, runtime security denylist/sinkhole/rebinding/reflection-rate-limit policy behavior, authenticated Namecoin/ENS/Stacks/Unstoppable/PNS-Polkadot audit reads, runtime honeypot failed-queue metrics, and log-forwarder DNSLog ingestion/authenticated audit/authenticated honeypot-status/metrics/failed-queue behavior through the deterministic failing honeypot fixture.
+   - Current scripted assertions cover HNS success, strict HNS `NXDOMAIN`, PowerDNS-routed Namecoin `.bit`, runtime-routed Namecoin subdomain data, PowerDNS/runtime-routed ENS `.eth` fixture records, PowerDNS/runtime-routed Stacks BNS `.btc` fixture records, PowerDNS/runtime-routed Unstoppable `.crypto` fixture records, PowerDNS/runtime-routed PNS-Polkadot `.dot` fixture records, PowerDNS/runtime-routed PulseChain PNS `.pls` fixture records, HNS `WALLET` and `TYPE262`, BIND-forwarded HNS, ICANN pass-through posture, authenticated admin-to-runtime proxy visibility, authenticated proxied admin plugin listing, redacted management-key metadata, admin/runtime policy reload authz plus management audit visibility, proxied admin cache stats/flush authz plus management audit visibility, admin/runtime/log-forwarder audit time-window filtering, admin/runtime/log-forwarder audit-summary aggregates, runtime security denylist/sinkhole/rebinding/reflection-rate-limit policy behavior, authenticated Namecoin/ENS/Stacks/Unstoppable/PNS-Polkadot/PulseChain PNS audit reads, runtime honeypot failed-queue metrics, and log-forwarder DNSLog ingestion/authenticated audit/authenticated honeypot-status/metrics/failed-queue behavior through the deterministic failing honeypot fixture.
 6. Done: add HNS `hnsd` topology separately from deterministic fixture tests, because live P2P/SPV behavior can be slower and less deterministic. Runtime execution remains opt-in through `ANYNS_RUN_DOCKER_HNSD_INTEGRATION=1`.
 7. Continue Namecoin path in two phases:
    - done: deterministic Namecoin JSON-RPC fixture for current adapter,
