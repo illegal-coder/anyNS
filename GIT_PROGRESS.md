@@ -1418,18 +1418,13 @@ If `git status` is unavailable on the server, this file is still the required gi
 - Do not re-add audit event time-window filters; `GET /api/v1/audit/events?since=...&until=...` now uses inclusive RFC3339 bounds through the shared admin/runtime/log-forwarder parser and store path, with no-socket store/parser/admin/runtime tests.
 
 <!-- AUTO:run-context:start -->
-Last automation scan: 2026-06-05T12:07:29+08:00
+Last automation scan: 2026-06-05T12:38:20+08:00
 
-- Latest run log: `/root/anyNS/codex-run-20260605-120141.log`
+- Latest run log: `/root/anyNS/codex-run-20260605-123732.log`
 - Git status: `available`
-- Git detail: `M BACKEND_STORAGE_AND_DOCKER_TEST_PLAN.md
- M CODEX_RUN_CONTEXT.md
+- Git detail: `M CODEX_RUN_CONTEXT.md
  M DEVELOPMENT_LESSONS.md
- M GIT_PROGRESS.md
- M IMPLEMENTATION_STATUS.md
- M tests/acceptance/docker-dns-integration.sh
- M tests/docker/anyns-config.json
- M tests/docker/fi...`
+ M GIT_PROGRESS.md`
 
 Frequent errors to avoid next run:
 - `socket_listen_denied`: Prefer no-socket handler tests and acceptance scripts that SKIP cleanly in socket-restricted environments.
