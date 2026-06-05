@@ -165,6 +165,45 @@ func TestAuditEventsEndpointHonorsLimit(t *testing.T) {
 	}
 }
 
+func TestAuditEventsEndpointHonorsExplicitOrder(t *testing.T) {
+	cfg := config.Default()
+	application, err := app.NewFromConfig(cfg)
+	if err != nil {
+		t.Fatalf("new app: %v", err)
+	}
+	application.DNSLog.Append(dnslog.Event{TraceID: "first", QName: "one.hns.", Action: "allow", SourcePlugin: "hns"})
+	application.DNSLog.Append(dnslog.Event{TraceID: "second", QName: "two.hns.", Action: "allow", SourcePlugin: "hns"})
+	application.DNSLog.Append(dnslog.Event{TraceID: "third", QName: "three.hns.", Action: "allow", SourcePlugin: "hns"})
+	mux := newRuntimeMux(application, cfg)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/audit/events?limit=2&order=desc", nil)
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("audit events status = %d body=%s", rec.Code, rec.Body.String())
+	}
+	var events []dnslog.Event
+	if err := json.Unmarshal(rec.Body.Bytes(), &events); err != nil {
+		t.Fatalf("decode audit events: %v", err)
+	}
+	if len(events) != 2 || events[0].TraceID != "third" || events[1].TraceID != "second" {
+		t.Fatalf("descending audit events = %#v", events)
+	}
+
+	req = httptest.NewRequest(http.MethodGet, "/api/v1/audit/events?limit=2&order=asc", nil)
+	rec = httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("audit events status = %d body=%s", rec.Code, rec.Body.String())
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &events); err != nil {
+		t.Fatalf("decode audit events: %v", err)
+	}
+	if len(events) != 2 || events[0].TraceID != "first" || events[1].TraceID != "second" {
+		t.Fatalf("ascending audit events = %#v", events)
+	}
+}
+
 func TestAuditEventsEndpointFiltersEvents(t *testing.T) {
 	cfg := config.Default()
 	application, err := app.NewFromConfig(cfg)

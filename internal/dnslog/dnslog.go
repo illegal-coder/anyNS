@@ -49,6 +49,7 @@ type EventFilter struct {
 	RCode        string
 	Since        time.Time
 	Until        time.Time
+	Order        string
 }
 
 type Summary struct {
@@ -129,6 +130,18 @@ func (s *Store) ListFiltered(filter EventFilter, limit int) []Event {
 	}
 	if limit <= 0 || limit > len(events) {
 		limit = len(events)
+	}
+	if filter.Order == "asc" {
+		out := make([]Event, limit)
+		copy(out, events[:limit])
+		return out
+	}
+	if filter.Order == "desc" {
+		out := make([]Event, limit)
+		for i := 0; i < limit; i++ {
+			out[i] = events[len(events)-1-i]
+		}
+		return out
 	}
 	start := len(events) - limit
 	out := make([]Event, limit)

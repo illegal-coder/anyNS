@@ -85,6 +85,16 @@ func AuditEventFilterFromQuery(r *http.Request) dnslog.EventFilter {
 		RCode:        strings.TrimSpace(query.Get("rcode")),
 		Since:        queryTime(query.Get("since")),
 		Until:        queryTime(query.Get("until")),
+		Order:        queryAuditOrder(query.Get("order")),
+	}
+}
+
+func queryAuditOrder(value string) string {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "asc", "desc":
+		return strings.ToLower(strings.TrimSpace(value))
+	default:
+		return ""
 	}
 }
 

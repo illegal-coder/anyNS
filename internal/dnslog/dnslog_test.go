@@ -86,6 +86,28 @@ func TestStoreListFilteredAppliesTimeWindow(t *testing.T) {
 	}
 }
 
+func TestStoreListFilteredHonorsExplicitOrder(t *testing.T) {
+	store := NewStore(10)
+	store.Append(Event{TraceID: "one"})
+	store.Append(Event{TraceID: "two"})
+	store.Append(Event{TraceID: "three"})
+
+	events := store.ListFiltered(EventFilter{Order: "asc"}, 2)
+	if len(events) != 2 || events[0].TraceID != "one" || events[1].TraceID != "two" {
+		t.Fatalf("ascending events = %#v", events)
+	}
+
+	events = store.ListFiltered(EventFilter{Order: "desc"}, 2)
+	if len(events) != 2 || events[0].TraceID != "three" || events[1].TraceID != "two" {
+		t.Fatalf("descending events = %#v", events)
+	}
+
+	events = store.ListFiltered(EventFilter{}, 2)
+	if len(events) != 2 || events[0].TraceID != "two" || events[1].TraceID != "three" {
+		t.Fatalf("default latest chronological events = %#v", events)
+	}
+}
+
 func TestStoreSummaryAggregatesSecurityAndTopValues(t *testing.T) {
 	store := NewStore(10)
 	store.Append(Event{TraceID: "one", ClientIP: "192.0.2.10", QName: "one.hns.", RCode: "NOERROR", SourcePlugin: "hns", RiskLevel: "none", Action: "allow", MatchedRule: "hns-default", LatencyMS: 9})
