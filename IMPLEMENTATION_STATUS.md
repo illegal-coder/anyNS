@@ -436,8 +436,32 @@ This repository has moved from requirements-only documentation to a runnable fir
 - Extended the deterministic Docker DNS integration fixture path with an enabled ADA Handle adapter fixture. The Docker config now routes `.ada` through `ada-handle` using the existing `ada-handle-api` backend contract, the fixture serves deterministic `/handles/alice` profile/address/image data, and the acceptance script asserts admin plugin visibility, PowerDNS-routed `alice.ada TXT`, runtime `alice.ada WALLET`, and authenticated ADA Handle audit visibility without live `api.handle.me` credentials.
 - Extended the deterministic Docker DNS integration fixture path with enabled d.id/.bit runtime-json fixture coverage while preserving the Namecoin-over-`.bit` default. The Docker config now enables `did-bit` only for the exact `alice.did.bit` route at higher priority than the broad Namecoin `.bit` route, the fixture returns deterministic TXT/URI/WALLET records through the generic runtime-json contract, and the acceptance script asserts admin plugin visibility, PowerDNS-routed `alice.did.bit TXT`, runtime `alice.did.bit WALLET`, and authenticated d.id audit visibility.
 - Extended the deterministic Docker DNS integration script with a runtime-level public-domain no-route assertion. The script now proves `example.com A` returns HTTP `404` from `source_plugin=router`, writes an auditable `NXDOMAIN` no-route event, and is not routed to HNS or Namecoin even when the external recursive `example.com` probe can only prove `NOERROR` or environment-dependent `SERVFAIL`.
+- Extended the deterministic Docker DNS integration script with end-to-end audit ordering assertions for admin, runtime, and log-forwarder audit reads. The script now checks `order=asc` and `order=desc` with bounded `limit=2` queries over management mutation events, Namecoin runtime events, and log-forwarder ingested events.
 
 ## Latest Validation
+
+Validated on 2026-06-05 20:23 CST after adding Docker audit-ordering assertions:
+
+```bash
+bash -n tests/acceptance/docker-dns-integration.sh
+GOCACHE=/tmp/anyns-go-build go run -buildvcs=false ./cmd/anyns-config-check tests/docker/anyns-config.json
+ANYNS_RUN_DOCKER_DNS_INTEGRATION=0 GOCACHE=/tmp/anyns-go-build bash tests/acceptance/docker-dns-integration.sh
+docker compose -f tests/docker/compose.dns-integration.yml config >/tmp/anyns-docker-compose-rendered.yml && wc -l /tmp/anyns-docker-compose-rendered.yml
+GOCACHE=/tmp/anyns-go-build go test -buildvcs=false ./...
+GOCACHE=/tmp/anyns-go-build go vet -buildvcs=false ./...
+GOCACHE=/tmp/anyns-go-build go build -buildvcs=false ./cmd/anyns-admin-api ./cmd/anyns-plugin-runtime ./cmd/anyns-log-forwarder
+GOCACHE=/tmp/anyns-go-build bash tests/acceptance/check-local.sh
+git diff --check -- tests/acceptance/docker-dns-integration.sh
+```
+
+Results:
+
+- PASS: Docker acceptance shell syntax, Docker integration config validation with 19 plugins / 19 routes, Docker Compose rendering, broad Go tests, broad Go vet, service builds, and whitespace diff check.
+- SKIP: `tests/acceptance/docker-dns-integration.sh` runtime execution because the Docker daemon is unavailable in this session.
+- PASS with documented SKIP: `tests/acceptance/check-local.sh` completed while runtime socket smoke skipped because `listen tcp 127.0.0.1:18081` is denied in this sandbox.
+- No Go files changed, so no `gofmt` was needed.
+- Git commit was attempted once after validation and documentation updates, but failed because `.git/index.lock` could not be created on a read-only filesystem. Latest committed hash remains `f55e5db`; the working tree contains this run's validated Docker audit-ordering changes plus required ledger updates and automation-maintained context/lesson updates.
+- No new recurring error pattern was observed; `DEVELOPMENT_LESSONS.md` did not need a manual rule update.
 
 Validated on 2026-06-05 19:45 CST after adding explicit audit event ordering:
 
