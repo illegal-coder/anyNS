@@ -324,6 +324,13 @@ tools 'grep -q "198.51.100" /tmp/bind-example-hns.txt'
 
 tools 'dig +time=2 +tries=1 @bind-latest example.com A | tee /tmp/bind-example-com.txt'
 tools 'grep -Eq "status: NOERROR|status: SERVFAIL" /tmp/bind-example-com.txt'
+tools 'status=$(curl -sS -X POST -o /tmp/runtime-public-no-route.json -w "%{http_code}" http://anyns-plugin-runtime:8081/api/v1/resolve -H "Content-Type: application/json" -d "{\"qname\":\"example.com\",\"qtype\":\"A\",\"context\":{\"trace_id\":\"docker-public-no-route\",\"client_ip\":\"192.0.2.61\",\"client_view\":\"default\",\"tenant\":\"default\"}}"); test "$status" = "404"'
+tools 'grep -q "\"source_plugin\":\"router\"" /tmp/runtime-public-no-route.json'
+tools 'grep -q "\"rcode\":\"NXDOMAIN\"" /tmp/runtime-public-no-route.json'
+tools '! grep -q "\"plugin\":\"hns\"" /tmp/runtime-public-no-route.json'
+tools '! grep -q "\"plugin\":\"namecoin-bit\"" /tmp/runtime-public-no-route.json'
+tools 'curl -fsS -H "'"$AUTH_HEADER"'" "http://anyns-plugin-runtime:8081/api/v1/audit/events?trace_id=docker-public-no-route&source_plugin=router&rcode=NXDOMAIN&qname=example.com" | tee /tmp/runtime-public-no-route-audit.json'
+tools 'grep -q "example.com" /tmp/runtime-public-no-route-audit.json'
 
 tools 'curl -fsS -X POST http://anyns-plugin-runtime:8081/api/v1/resolve -H "Content-Type: application/json" -d "{\"qname\":\"qwertyuiopasdfghjklzxcvbnm1234567890.integration\",\"qtype\":\"TXT\",\"context\":{\"trace_id\":\"docker-honeypot\",\"client_ip\":\"192.0.2.55\",\"client_view\":\"default\",\"tenant\":\"default\"}}" | tee /tmp/runtime-honeypot.json'
 tools 'grep -q "\"action\":\"forward_to_honeypot\"" /tmp/runtime-honeypot.json'

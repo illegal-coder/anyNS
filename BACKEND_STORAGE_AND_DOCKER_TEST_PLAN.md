@@ -85,7 +85,7 @@ Minimum DNS assertions:
 - `dig @pdns-recursor alice.did.bit TXT` and runtime HTTP `alice.did.bit WALLET` return deterministic d.id/.bit fixture records through the generic `runtime-json` adapter contract, while the broad `.bit` suffix remains routed to Namecoin by default.
 - `dig @pdns-recursor wallet.hns TYPE262` or runtime HTTP equivalent returns WALLET/TYPE262-compatible data.
 - `dig @bind-latest example.hns A` forwards through the configured path and receives the same answer.
-- ICANN domain such as `example.com` still resolves through normal recursive behavior when no anyNS route matches.
+- ICANN domain such as `example.com` still resolves through normal recursive behavior when no anyNS route matches, and the runtime no-route path returns auditable `source_plugin=router` / `NXDOMAIN` without routing the public domain to decentralized plugins when external recursion is unavailable.
 - Security denylist returns blocked `SERVFAIL`.
 - Security sinkhole returns configured sinkhole `A` / `AAAA`.
 - Reflection-amplification-prone `ANY` / `DNSKEY` queries return the runtime rate-limit `ResolveResult` contract and write a security audit event.

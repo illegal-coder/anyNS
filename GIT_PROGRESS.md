@@ -33,6 +33,7 @@ If `git status` is unavailable on the server, this file is still the required gi
 - Prior runs replaced the `ton-dns` Wave 2 runtime-json placeholder with an opt-in concrete TON Center v3 DNS records adapter. `backend_type: "toncenter-v3-dns"` calls `/api/v3/dns/records?domain=...` on a configured TON Center-compatible base URL, maps `.ton` wallet records to `WALLET`, site ADNL and storage Bag IDs to `URI`, next resolver / NFT metadata to `TXT`, preserves empty records and 404s as routed `NXDOMAIN`, and isolates API/backend failures as `SERVFAIL` without ICANN fallback leakage for matched `.ton` names.
 - Prior runs replaced the `suins` Wave 2 runtime-json placeholder with an opt-in concrete SuiNS JSON-RPC adapter. `backend_type: "suins-json-rpc"` posts `suix_resolveNameServiceAddress` requests to a configured Sui fullnode endpoint, maps resolved `.sui` addresses into DNS `WALLET` records with the `sui` chain label, preserves null/empty results as routed `NXDOMAIN`, and isolates HTTP/decode/JSON-RPC failures as `SERVFAIL` without ICANN fallback leakage for matched `.sui` names.
 - Current Codex run added deterministic Docker fixture coverage for the SuiNS `.sui` adapter path. `tests/docker/anyns-config.json` now enables `suins` with `backend_type: "suins-json-rpc"` against `backend-fixtures`, the Python fixture serves no-secret Sui JSON-RPC `suix_resolveNameServiceAddress` responses for `alice.sui` and `missing.sui`, and `tests/acceptance/docker-dns-integration.sh` asserts admin plugin visibility, PowerDNS-routed `alice.sui TYPE262`, runtime `alice.sui WALLET`, and authenticated SuiNS audit visibility.
+- Current Codex run extended the deterministic Docker DNS integration script with a public-domain no-route assertion. Runtime `example.com A` now must return HTTP 404 with `source_plugin=router`, `rcode=NXDOMAIN`, no HNS/Namecoin route leakage, and an authenticated audit event, making the ICANN non-hijack posture deterministic even when external recursion is environment-dependent.
 - Prior runs added disabled-by-default Wave 3 runtime-json plugin skeletons and sample routes for Freename/FNS `.fns`, RIF Name Service/RNS `.rsk`, FIO Handle `.fio`, OpenAlias `.openalias`, ADA Handle `.ada`, and d.id/.bit `.bit`. The Wave 3 routes are priority 70, below Wave 1 and Wave 2 routes; the d.id/.bit route stays below the Namecoin `.bit` route so `.bit` is not merged implicitly and Namecoin remains the default `.bit` handler unless operators configure a higher-priority override.
 - Current Codex run added deterministic Docker fixture coverage for the d.id/.bit runtime-json path without changing the default Namecoin `.bit` posture. `tests/docker/anyns-config.json` now enables `did-bit` against `backend-fixtures` only for the exact `alice.did.bit` domain at priority 95, leaving the broad Namecoin `.bit` route at priority 90; the Python fixture serves no-secret TXT/URI/WALLET records, and `tests/acceptance/docker-dns-integration.sh` asserts admin plugin visibility, PowerDNS-routed `alice.did.bit TXT`, runtime `alice.did.bit WALLET`, and authenticated d.id audit visibility.
 - Prior runs replaced the `fio-handle` Wave 3 runtime-json placeholder in the sample config with an opt-in concrete FIO Chain API adapter. `backend_type: "fio-chain-api"` posts `/v1/chain/get_pub_address` requests with `fio_address`, `chain_code`, and `token_code`, maps DNS names such as `alice.safu.fio` to FIO Handles such as `alice@safu`, returns FIO public addresses as `WALLET` / `TYPE262` compatible records, preserves 404/empty-address responses as routed `NXDOMAIN`, and isolates backend/API failures as `SERVFAIL` without ICANN fallback leakage for matched `.fio` names.
@@ -1534,7 +1535,38 @@ If `git status` is unavailable on the server, this file is still the required gi
 - No targeted package failure occurred in the `2026-06-05 16:12 CST` run; shell syntax, fixture syntax, config validation, Compose rendering, broad Go test, vet, build, and no-socket acceptance checks passed or skipped for documented environmental reasons.
 - No new recurring error pattern was observed in the `2026-06-05 16:12 CST` run.
 
-- Current Codex run at `2026-06-05 16:53 CST` reported these commands:
+- Current Codex run at `2026-06-05 18:31 CST` reported these commands:
+  - `find docs -maxdepth 2 -type f | sort` - PASS.
+  - `sed -n '1,240p' CODEX_RUN_CONTEXT.md` - PASS.
+  - `sed -n '1,260p' DEVELOPMENT_LESSONS.md` - PASS.
+  - `sed -n ... docs/*.md REMOTE_CODEX_HANDOFF.md IMPLEMENTATION_STATUS.md GIT_PROGRESS.md BACKEND_STORAGE_AND_DOCKER_TEST_PLAN.md` - PASS.
+  - `git status --short && git log -1 --oneline` - PASS; latest committed hash before implementation work was `fcc4a19`, with automation-maintained `CODEX_RUN_CONTEXT.md`, `DEVELOPMENT_LESSONS.md`, and `GIT_PROGRESS.md` already dirty.
+  - `rg -n "reflection|ANY|DNSKEY|rate-limit|rate_limit|alice.did|did-bit|suins|freename|plugins|routes|TODO|FIXME" tests/acceptance/docker-dns-integration.sh tests/docker/anyns-config.json tests/docker/fixtures/backend-fixtures.py internal/security internal/config -S` - PASS.
+  - `sed -n ... tests/acceptance/docker-dns-integration.sh tests/docker/anyns-config.json tests/docker/fixtures/backend-fixtures.py` - PASS.
+  - `rg -n "no route|no-route|404|example.com|public|ICANN|Route" cmd internal tests -S` - PASS.
+  - `bash -n tests/acceptance/docker-dns-integration.sh` - PASS.
+  - `GOCACHE=/tmp/anyns-go-build go run -buildvcs=false ./cmd/anyns-config-check tests/docker/anyns-config.json` - PASS; output reported `management_auth:true`, `management_keys:3`, `management_roles:3`, `plugins:18`, `routes:18`, and `admin_proxy_runtime:true`.
+  - `ANYNS_RUN_DOCKER_DNS_INTEGRATION=0 GOCACHE=/tmp/anyns-go-build bash tests/acceptance/docker-dns-integration.sh` - SKIP because Docker daemon is not available: `SKIP: docker daemon is not available`.
+  - `docker compose -f tests/docker/compose.dns-integration.yml config >/tmp/anyns-docker-compose-rendered.yml && wc -l /tmp/anyns-docker-compose-rendered.yml` - PASS; rendered 151 lines.
+  - `GOCACHE=/tmp/anyns-go-build go test -buildvcs=false ./...` - PASS.
+  - `GOCACHE=/tmp/anyns-go-build go vet -buildvcs=false ./...` - PASS.
+  - `GOCACHE=/tmp/anyns-go-build go build -buildvcs=false ./cmd/anyns-admin-api ./cmd/anyns-plugin-runtime ./cmd/anyns-log-forwarder` - PASS.
+  - `GOCACHE=/tmp/anyns-go-build bash tests/acceptance/check-local.sh` - PASS with runtime socket smoke SKIP: `anyns-plugin-runtime exited before listening on 127.0.0.1:18081`; runtime log detail was `listen tcp 127.0.0.1:18081: socket: operation not permitted`.
+- Changed files in the `2026-06-05 18:31 CST` run:
+  - `tests/acceptance/docker-dns-integration.sh`
+  - `IMPLEMENTATION_STATUS.md`
+  - `GIT_PROGRESS.md`
+  - `BACKEND_STORAGE_AND_DOCKER_TEST_PLAN.md`
+- `docker daemon unavailable` appeared once through `tests/acceptance/docker-dns-integration.sh` in this run and was handled by the existing Docker SKIP path:
+  - `SKIP: docker daemon is not available`
+- `socket_listen_denied` appeared once through `tests/acceptance/runtime-smoke.sh` in this run and was handled by the existing acceptance SKIP path:
+  - `listen tcp 127.0.0.1:18081: socket: operation not permitted`
+- No targeted package failure occurred in the `2026-06-05 18:31 CST` run; shell syntax, config validation, Compose rendering, broad Go test, vet, build, and no-socket acceptance checks passed or skipped for documented environmental reasons.
+- No Go files changed in the `2026-06-05 18:31 CST` run, so no `gofmt` was needed.
+- `git add tests/acceptance/docker-dns-integration.sh IMPLEMENTATION_STATUS.md GIT_PROGRESS.md BACKEND_STORAGE_AND_DOCKER_TEST_PLAN.md && git commit -m "test: assert docker public no-route posture"` - FAIL because Git could not create `.git/index.lock`: `Read-only file system`. Latest committed hash remains `fcc4a19`.
+- No new recurring error pattern was observed in the `2026-06-05 18:31 CST` run.
+
+- Previous Codex run at `2026-06-05 16:53 CST` reported these commands:
   - `find docs -maxdepth 2 -type f | sort` - PASS.
   - `sed -n ... CODEX_RUN_CONTEXT.md DEVELOPMENT_LESSONS.md docs/*.md REMOTE_CODEX_HANDOFF.md IMPLEMENTATION_STATUS.md GIT_PROGRESS.md BACKEND_STORAGE_AND_DOCKER_TEST_PLAN.md` - PASS.
   - `git status --short && git rev-parse --short HEAD` - PASS; latest committed hash before implementation work was `0dd3517`, with automation-maintained `CODEX_RUN_CONTEXT.md`, `DEVELOPMENT_LESSONS.md`, and `GIT_PROGRESS.md` already dirty.
@@ -1604,8 +1636,8 @@ If `git status` is unavailable on the server, this file is still the required gi
 - First, read `CODEX_RUN_CONTEXT.md` and `DEVELOPMENT_LESSONS.md`; do not repeat checks already marked as environmental SKIP.
 - If Docker daemon access is available, run `ANYNS_RUN_DOCKER_DNS_INTEGRATION=1 GOCACHE=/tmp/anyns-go-build bash tests/acceptance/docker-dns-integration.sh` and fix only the smallest failing service/assertion.
 - If Docker daemon access is available and live HNS/SPV behavior is intentionally being exercised, run `ANYNS_RUN_DOCKER_HNSD_INTEGRATION=1 GOCACHE=/tmp/anyns-go-build bash tests/acceptance/docker-hnsd-integration.sh`; otherwise keep using its default config/render-only mode.
-- If Docker daemon access is still unavailable, extend the Docker integration fixture path only with a new no-secret assertion that is not already scripted; admin proxy visibility, admin plugin listing, management-auth rejection/authorized-read checks, redacted management-key metadata, admin/runtime policy reload authorization and audit checks, proxied cache stats/flush authorization and audit checks, admin/runtime/log-forwarder audit-summary checks, admin/runtime/log-forwarder audit time-window checks, security denylist/sinkhole/rebinding/reflection-rate-limit, HNS `WALLET`, HNS `TYPE262`, ENS `.eth` TXT/WALLET fixture routing, Stacks BNS `.btc` TXT/WALLET fixture routing, Unstoppable `.crypto` TXT/WALLET fixture routing, PNS-Polkadot `.dot` TXT/WALLET fixture routing, PulseChain PNS `.pls` TXT/WALLET fixture routing, RIF/RNS `.rsk` TXT/WALLET fixture routing, FIO Handle `.fio` TYPE262/WALLET fixture routing, OpenAlias `.openalias` TXT/WALLET fixture routing, ADA Handle `.ada` TXT/WALLET fixture routing, d.id/.bit exact-domain runtime-json fixture routing, SPACE ID `.bnb` TYPE262/WALLET fixture routing, TON DNS `.ton` TXT/WALLET fixture routing, Tezos Domains `.tez` TXT/WALLET fixture routing, Aptos Names `.apt` TYPE262/WALLET fixture routing, SuiNS `.sui` TYPE262/WALLET fixture routing, Freename/FNS `.fns` TXT/WALLET fixture routing, runtime honeypot failed-queue metrics, log-forwarder ingestion/audit/honeypot-status/metrics checks, and audit-event `since`/`until` parser/store behavior are now present.
-- If repository metadata writes are available, commit the current dirty working tree with a small message such as `test: add docker did-bit fixture assertions`; do not attempt git repair unless a metadata write failure recurs.
+- If Docker daemon access is still unavailable, extend the Docker integration fixture path only with a new no-secret assertion that is not already scripted; admin proxy visibility, admin plugin listing, management-auth rejection/authorized-read checks, redacted management-key metadata, admin/runtime policy reload authorization and audit checks, proxied cache stats/flush authorization and audit checks, admin/runtime/log-forwarder audit-summary checks, admin/runtime/log-forwarder audit time-window checks, public-domain no-route/non-hijack checks, security denylist/sinkhole/rebinding/reflection-rate-limit, HNS `WALLET`, HNS `TYPE262`, ENS `.eth` TXT/WALLET fixture routing, Stacks BNS `.btc` TXT/WALLET fixture routing, Unstoppable `.crypto` TXT/WALLET fixture routing, PNS-Polkadot `.dot` TXT/WALLET fixture routing, PulseChain PNS `.pls` TXT/WALLET fixture routing, RIF/RNS `.rsk` TXT/WALLET fixture routing, FIO Handle `.fio` TYPE262/WALLET fixture routing, OpenAlias `.openalias` TXT/WALLET fixture routing, ADA Handle `.ada` TXT/WALLET fixture routing, d.id/.bit exact-domain runtime-json fixture routing, SPACE ID `.bnb` TYPE262/WALLET fixture routing, TON DNS `.ton` TXT/WALLET fixture routing, Tezos Domains `.tez` TXT/WALLET fixture routing, Aptos Names `.apt` TYPE262/WALLET fixture routing, SuiNS `.sui` TYPE262/WALLET fixture routing, Freename/FNS `.fns` TXT/WALLET fixture routing, runtime honeypot failed-queue metrics, log-forwarder ingestion/audit/honeypot-status/metrics checks, and audit-event `since`/`until` parser/store behavior are now present.
+- If repository metadata writes are available, commit the current dirty working tree with a small message such as `test: assert docker public no-route posture`; do not attempt git repair unless a metadata write failure recurs.
 - Exercise the PowerDNS Recursor Lua hook inside a real PowerDNS container and confirm Lua module availability (`socket.http`, `ltn12`, `cjson.safe`).
 - Run HNS `dns://` backend against a real hsd/hnsd DNS resolver, then verify end-to-end HNS resolution through PowerDNS Recursor.
 - Exercise honeypot background replay and Prometheus metrics against a real honeypot endpoint.
@@ -1658,6 +1690,7 @@ If `git status` is unavailable on the server, this file is still the required gi
 - Do not re-add Docker integration cache stats/flush authorization or cache-flush management-audit assertions for admin-to-runtime proxy mode; `tests/docker/anyns-config.json` now has a fixture-scoped cache operator role/key and `tests/acceptance/docker-dns-integration.sh` scripts the 401, 403, successful stats/flush, post-flush stats, and audit checks.
 - Do not re-add Docker integration audit-summary assertions for admin, runtime, or log-forwarder aggregate DNSLog state; `tests/acceptance/docker-dns-integration.sh` now scripts unauthenticated rejection plus authorized summary checks after management and fixture events.
 - Do not re-add Docker integration audit time-window assertions for admin, runtime, or log-forwarder audit event reads; `tests/acceptance/docker-dns-integration.sh` now scripts broad inclusive RFC3339 windows and past-only exclusion windows for known fixture events.
+- Do not re-add Docker integration public-domain no-route assertions for `example.com`; `tests/acceptance/docker-dns-integration.sh` now scripts runtime HTTP 404, `source_plugin=router`, `NXDOMAIN`, no HNS/Namecoin route leakage, and authenticated audit visibility.
 - Do not retry the failed git commit repeatedly in a read-only `.git` state; wait for automation or repository metadata write access to be restored.
 - Do not spend cycles repairing git metadata unless a task explicitly requires it; keep `GIT_PROGRESS.md` updated instead.
 - Do not rerun full `go test ./...` after every small edit if a targeted package test is failing. Fix the target package first, then run broad validation once.
@@ -1713,13 +1746,16 @@ If `git status` is unavailable on the server, this file is still the required gi
 - Do not re-add audit event time-window filters; `GET /api/v1/audit/events?since=...&until=...` now uses inclusive RFC3339 bounds through the shared admin/runtime/log-forwarder parser and store path, with no-socket store/parser/admin/runtime tests.
 
 <!-- AUTO:run-context:start -->
-Last automation scan: 2026-06-05T17:59:10+08:00
+Last automation scan: 2026-06-05T18:34:55+08:00
 
-- Latest run log: `/root/anyNS/codex-run-20260605-175817.log`
+- Latest run log: `/root/anyNS/codex-run-20260605-182913.log`
 - Git status: `available`
-- Git detail: `M CODEX_RUN_CONTEXT.md
+- Git detail: `M BACKEND_STORAGE_AND_DOCKER_TEST_PLAN.md
+ M CODEX_RUN_CONTEXT.md
  M DEVELOPMENT_LESSONS.md
- M GIT_PROGRESS.md`
+ M GIT_PROGRESS.md
+ M IMPLEMENTATION_STATUS.md
+ M tests/acceptance/docker-dns-integration.sh`
 
 Frequent errors to avoid next run:
 - `socket_listen_denied`: Prefer no-socket handler tests and acceptance scripts that SKIP cleanly in socket-restricted environments.
