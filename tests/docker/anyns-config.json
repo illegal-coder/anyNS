@@ -115,6 +115,13 @@
       "backend_type": "openalias-dns-txt",
       "backend_url": "http://backend-fixtures:8090/openalias/txt",
       "request_timeout": "3s"
+    },
+    {
+      "name": "ada-handle",
+      "enabled": true,
+      "backend_type": "ada-handle-api",
+      "backend_url": "http://backend-fixtures:8090",
+      "request_timeout": "3s"
     }
   ],
   "routes": [
@@ -259,6 +266,15 @@
       "client_views": ["default"],
       "tenants": ["default"],
       "plugin": "openalias",
+      "priority": 70,
+      "fallback": "nxdomain"
+    },
+    {
+      "name": "ada-handle-fixture",
+      "suffixes": [".ada"],
+      "client_views": ["default"],
+      "tenants": ["default"],
+      "plugin": "ada-handle",
       "priority": 70,
       "fallback": "nxdomain"
     }

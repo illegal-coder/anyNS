@@ -101,6 +101,12 @@ class Handler(BaseHTTPRequestHandler):
         if parsed.path == "/openalias/txt":
             self.handle_openalias(parse_qs(parsed.query))
             return
+        if self.path == "/handles/alice":
+            self.handle_ada_handle()
+            return
+        if self.path == "/handles/missing":
+            self._json(404, {"message": "handle not found"})
+            return
         self._json(404, {"error": "not found"})
 
     def do_POST(self):
@@ -504,6 +510,16 @@ class Handler(BaseHTTPRequestHandler):
             self._json(200, {"txt": ["v=spf1 -all"]})
             return
         self._json(404, {"message": "name not found"})
+
+    def handle_ada_handle(self):
+        self._json(200, {
+            "handle": "alice",
+            "address": "addr1qxy2kgdygjrsqtzq2n0yrf2493p83kkfjhx0wlh",
+            "display_name": "Alice ADA",
+            "description": "docker ada handle fixture",
+            "website": "https://alice.ada.example.test",
+            "image": "ipfs://bafybeiadafixture"
+        })
 
     def handle_pulsechain_json_rpc(self):
         req = self._read_json()
