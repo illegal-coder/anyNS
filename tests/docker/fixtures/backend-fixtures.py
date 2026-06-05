@@ -103,6 +103,9 @@ class Handler(BaseHTTPRequestHandler):
         if self.path == "/pulsechain":
             self.handle_pulsechain_json_rpc()
             return
+        if self.path == "/graphql":
+            self.handle_tezos_domains()
+            return
         if self.path == "/honeypot/fail":
             self._json(503, {"accepted": 0, "rejected": 1})
             return
@@ -311,6 +314,48 @@ class Handler(BaseHTTPRequestHandler):
             self._json(200, {"records": []})
             return
         self._json(404, {"message": "domain not found"})
+
+    def handle_tezos_domains(self):
+        req = self._read_json()
+        variables = req.get("variables", {})
+        domain = variables.get("name", "")
+        if domain == "alice.tez":
+            self._json(200, {
+                "data": {
+                    "domain": {
+                        "name": "alice.tez",
+                        "address": "tz1DockerWallet11111111111111111111111111",
+                        "owner": "tz1DockerOwner111111111111111111111111111",
+                        "data": [
+                            {
+                                "key": "website",
+                                "rawValue": "alice.tez.example.test",
+                                "value": "alice.tez.example.test"
+                            },
+                            {
+                                "key": "email",
+                                "rawValue": "alice.tez@example.test",
+                                "value": "alice.tez@example.test"
+                            },
+                            {
+                                "key": "dns.a",
+                                "rawValue": "198.51.100.101",
+                                "value": "198.51.100.101"
+                            },
+                            {
+                                "key": "ipfs",
+                                "rawValue": "bafybeigtezosfixture",
+                                "value": "bafybeigtezosfixture"
+                            }
+                        ]
+                    }
+                }
+            })
+            return
+        if domain == "missing.tez":
+            self._json(200, {"data": {"domain": None}})
+            return
+        self._json(200, {"errors": [{"message": "unexpected Tezos fixture domain"}]})
 
     def handle_pulsechain_json_rpc(self):
         req = self._read_json()

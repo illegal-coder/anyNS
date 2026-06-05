@@ -73,7 +73,8 @@ If `git status` is unavailable on the server, this file is still the required gi
 - Current Codex run extended the deterministic Docker DNS integration fixture path with an enabled PulseChain PNS adapter fixture. `tests/docker/anyns-config.json` now enables `pns-pulsechain` with `backend_type: "pulsechain-pns-json-rpc"` against the fixture server, adds a `.pls` route, and `tests/acceptance/docker-dns-integration.sh` asserts admin plugin visibility, PowerDNS-routed `alice.pls TXT`, runtime `alice.pls WALLET`, and authenticated audit visibility.
 - Current Codex run extended the deterministic Docker DNS integration fixture path with an enabled SPACE ID adapter fixture. `tests/docker/anyns-config.json` now enables `space-id` with `backend_type: "space-id-api"` against the fixture server, adds `.bnb` / `.arb` routes, and `tests/acceptance/docker-dns-integration.sh` asserts admin plugin visibility, PowerDNS-routed `alice.bnb TYPE262` NOERROR posture, runtime `alice.bnb WALLET`, and authenticated audit visibility.
 - Current Codex run extended the deterministic Docker DNS integration fixture path with an enabled TON DNS adapter fixture. `tests/docker/anyns-config.json` now enables `ton-dns` with `backend_type: "toncenter-v3-dns"` against the fixture server, adds a `.ton` route, and `tests/acceptance/docker-dns-integration.sh` asserts admin plugin visibility, PowerDNS-routed `alice.ton TXT`, runtime `alice.ton WALLET`, and authenticated audit visibility.
-- Latest available git commit before this run's commit attempt is `b5c21dc`.
+- Current Codex run extended the deterministic Docker DNS integration fixture path with an enabled Tezos Domains adapter fixture. `tests/docker/anyns-config.json` now enables `tezos-domains` with `backend_type: "tezos-domains-api"` against the fixture server, adds a `.tez` route, and `tests/acceptance/docker-dns-integration.sh` asserts admin plugin visibility, PowerDNS-routed `alice.tez TXT`, runtime `alice.tez WALLET`, and authenticated audit visibility.
+- Latest available git commit before this run's commit attempt is `b93e074`.
 
 ## Important Changed Files
 
@@ -86,13 +87,32 @@ If `git status` is unavailable on the server, this file is still the required gi
 
 ## Verified Commands
 
-- Current Codex run at `2026-06-05 11:27 CST` reported these commands:
-  - `ls -la docs` - PASS.
-  - `sed -n '1,240p' CODEX_RUN_CONTEXT.md` - PASS.
+- Current Codex run at `2026-06-05 12:04 CST` reported these commands:
+  - `find docs -maxdepth 2 -type f | sort` - PASS.
+  - `sed -n '1,240p' REMOTE_CODEX_HANDOFF.md` - PASS.
+  - `sed -n '1,260p' CODEX_RUN_CONTEXT.md` - PASS.
   - `sed -n '1,260p' DEVELOPMENT_LESSONS.md` - PASS.
-  - `sed -n ... docs/*.md REMOTE_CODEX_HANDOFF.md IMPLEMENTATION_STATUS.md GIT_PROGRESS.md BACKEND_STORAGE_AND_DOCKER_TEST_PLAN.md` - PASS.
-  - `git status --short && git rev-parse --short HEAD && git log -1 --oneline` - PASS; latest commit before implementation work was `b5c21dc`, with automation-maintained `CODEX_RUN_CONTEXT.md`, `DEVELOPMENT_LESSONS.md`, and `GIT_PROGRESS.md` already dirty.
-  - `sed -n ... tests/docker/anyns-config.json tests/docker/fixtures/backend-fixtures.py tests/acceptance/docker-dns-integration.sh internal/plugins/wave1/plugin.go internal/plugins/wave1/plugin_test.go tests/docker/compose.dns-integration.yml` - PASS.
+  - `sed -n ... IMPLEMENTATION_STATUS.md GIT_PROGRESS.md BACKEND_STORAGE_AND_DOCKER_TEST_PLAN.md docs/README.md docs/06-开发路线与验收.md` - PASS.
+  - `tail -n 240 GIT_PROGRESS.md` - PASS.
+  - `sed -n ... tests/docker/anyns-config.json tests/docker/fixtures/backend-fixtures.py tests/acceptance/docker-dns-integration.sh` - PASS.
+  - `rg -n "tezos-domains|aptos-names|solana-sns|suins|backend_type" internal/plugins -S` - PASS; Tezos Domains was selected as the next uncovered deterministic Docker fixture adapter.
+  - `sed -n '1420,1835p' internal/plugins/wave1/plugin.go` and related test excerpts - PASS.
+  - `sed -n '1,260p' internal/plugins/wave2/plugin.go` - FAIL once because Wave 2 concrete adapters live in `internal/plugins/wave1`; the correct file was read immediately and no retry loop used the wrong path.
+  - `git status --short && git rev-parse --short HEAD` - PASS; latest commit before implementation work was `b93e074`, with automation-maintained context/lesson/progress files already dirty.
+  - `bash -n tests/acceptance/docker-dns-integration.sh` - PASS.
+  - `python3 -m py_compile tests/docker/fixtures/backend-fixtures.py` - PASS.
+  - `GOCACHE=/tmp/anyns-go-build go run -buildvcs=false ./cmd/anyns-config-check tests/docker/anyns-config.json` - PASS; output reported `management_auth:true`, `management_keys:3`, `management_roles:3`, `plugins:10`, `routes:10`, and `admin_proxy_runtime:true`.
+  - `docker compose -f tests/docker/compose.dns-integration.yml config >/tmp/anyns-docker-compose-rendered.yml && wc -l /tmp/anyns-docker-compose-rendered.yml` - PASS; rendered 151 lines.
+  - `ANYNS_RUN_DOCKER_DNS_INTEGRATION=0 GOCACHE=/tmp/anyns-go-build bash tests/acceptance/docker-dns-integration.sh` - SKIP because Docker daemon is not available: `SKIP: docker daemon is not available`.
+  - `GOCACHE=/tmp/anyns-go-build go test -buildvcs=false ./...` - PASS.
+  - `GOCACHE=/tmp/anyns-go-build go vet -buildvcs=false ./...` - PASS.
+  - `GOCACHE=/tmp/anyns-go-build go build -buildvcs=false ./cmd/anyns-admin-api ./cmd/anyns-plugin-runtime ./cmd/anyns-log-forwarder` - PASS.
+  - `GOCACHE=/tmp/anyns-go-build bash tests/acceptance/check-local.sh` - PASS with runtime socket smoke SKIP: `anyns-plugin-runtime exited before listening on 127.0.0.1:18081`; runtime log detail was `listen tcp 127.0.0.1:18081: socket: operation not permitted`.
+  - `date '+%Y-%m-%d %H:%M %Z'` - PASS; output `2026-06-05 12:04 CST`.
+  - `git diff --check -- tests/acceptance/docker-dns-integration.sh tests/docker/anyns-config.json tests/docker/fixtures/backend-fixtures.py IMPLEMENTATION_STATUS.md GIT_PROGRESS.md BACKEND_STORAGE_AND_DOCKER_TEST_PLAN.md` - PASS.
+  - `git diff --stat` - PASS.
+  - `git status --short && git rev-parse --short HEAD` - PASS; latest committed hash before commit attempt was `b93e074`, with this run's Docker Tezos fixture changes, required ledger updates, and automation-maintained context/lesson files dirty.
+  - `git add tests/acceptance/docker-dns-integration.sh tests/docker/anyns-config.json tests/docker/fixtures/backend-fixtures.py BACKEND_STORAGE_AND_DOCKER_TEST_PLAN.md IMPLEMENTATION_STATUS.md GIT_PROGRESS.md && git commit -m "test: add docker tezos domains fixture assertions"` - FAIL because Git could not create `.git/index.lock`: `Read-only file system`. Latest committed hash remains `b93e074`.
   - `rg -n "toncenter|ton-dns|TON" internal configs tests -S` - PASS.
   - `bash -n tests/acceptance/docker-dns-integration.sh` - PASS.
   - `python3 -m py_compile tests/docker/fixtures/backend-fixtures.py` - PASS.
@@ -1297,7 +1317,7 @@ If `git status` is unavailable on the server, this file is still the required gi
 - First, read `CODEX_RUN_CONTEXT.md` and `DEVELOPMENT_LESSONS.md`; do not repeat checks already marked as environmental SKIP.
 - If Docker daemon access is available, run `ANYNS_RUN_DOCKER_DNS_INTEGRATION=1 GOCACHE=/tmp/anyns-go-build bash tests/acceptance/docker-dns-integration.sh` and fix only the smallest failing service/assertion.
 - If Docker daemon access is available and live HNS/SPV behavior is intentionally being exercised, run `ANYNS_RUN_DOCKER_HNSD_INTEGRATION=1 GOCACHE=/tmp/anyns-go-build bash tests/acceptance/docker-hnsd-integration.sh`; otherwise keep using its default config/render-only mode.
-- If Docker daemon access is still unavailable, extend the Docker integration fixture path only with a new no-secret assertion that is not already scripted; admin proxy visibility, admin plugin listing, management-auth rejection/authorized-read checks, redacted management-key metadata, admin/runtime policy reload authorization and audit checks, proxied cache stats/flush authorization and audit checks, admin/runtime/log-forwarder audit-summary checks, admin/runtime/log-forwarder audit time-window checks, security denylist/sinkhole/rebinding/reflection-rate-limit, HNS `WALLET`, HNS `TYPE262`, ENS `.eth` TXT/WALLET fixture routing, Stacks BNS `.btc` TXT/WALLET fixture routing, Unstoppable `.crypto` TXT/WALLET fixture routing, PNS-Polkadot `.dot` TXT/WALLET fixture routing, PulseChain PNS `.pls` TXT/WALLET fixture routing, SPACE ID `.bnb` TYPE262/WALLET fixture routing, TON DNS `.ton` TXT/WALLET fixture routing, runtime honeypot failed-queue metrics, log-forwarder ingestion/audit/honeypot-status/metrics checks, and audit-event `since`/`until` parser/store behavior are now present.
+- If Docker daemon access is still unavailable, extend the Docker integration fixture path only with a new no-secret assertion that is not already scripted; admin proxy visibility, admin plugin listing, management-auth rejection/authorized-read checks, redacted management-key metadata, admin/runtime policy reload authorization and audit checks, proxied cache stats/flush authorization and audit checks, admin/runtime/log-forwarder audit-summary checks, admin/runtime/log-forwarder audit time-window checks, security denylist/sinkhole/rebinding/reflection-rate-limit, HNS `WALLET`, HNS `TYPE262`, ENS `.eth` TXT/WALLET fixture routing, Stacks BNS `.btc` TXT/WALLET fixture routing, Unstoppable `.crypto` TXT/WALLET fixture routing, PNS-Polkadot `.dot` TXT/WALLET fixture routing, PulseChain PNS `.pls` TXT/WALLET fixture routing, SPACE ID `.bnb` TYPE262/WALLET fixture routing, TON DNS `.ton` TXT/WALLET fixture routing, Tezos Domains `.tez` TXT/WALLET fixture routing, runtime honeypot failed-queue metrics, log-forwarder ingestion/audit/honeypot-status/metrics checks, and audit-event `since`/`until` parser/store behavior are now present.
 - If repository metadata writes are available, commit the current dirty working tree with a small message such as `test: add docker ton dns fixture assertions`; do not attempt git repair unless a metadata write failure recurs.
 - Exercise the PowerDNS Recursor Lua hook inside a real PowerDNS container and confirm Lua module availability (`socket.http`, `ltn12`, `cjson.safe`).
 - Run HNS `dns://` backend against a real hsd/hnsd DNS resolver, then verify end-to-end HNS resolution through PowerDNS Recursor.
@@ -1344,6 +1364,7 @@ If `git status` is unavailable on the server, this file is still the required gi
 - Do not re-add Docker integration ENS `.eth` fixture routing; `tests/docker/anyns-config.json`, `tests/docker/fixtures/backend-fixtures.py`, and `tests/acceptance/docker-dns-integration.sh` now cover admin plugin visibility, PowerDNS-routed `alice.eth TXT`, runtime `alice.eth WALLET`, and authenticated audit reads.
 - Do not re-add Docker integration SPACE ID `.bnb` fixture routing; `tests/docker/anyns-config.json`, `tests/docker/fixtures/backend-fixtures.py`, and `tests/acceptance/docker-dns-integration.sh` now cover admin plugin visibility, PowerDNS-routed `alice.bnb TYPE262` NOERROR posture, runtime `alice.bnb WALLET`, and authenticated audit reads.
 - Do not re-add Docker integration TON DNS `.ton` fixture routing; `tests/docker/anyns-config.json`, `tests/docker/fixtures/backend-fixtures.py`, and `tests/acceptance/docker-dns-integration.sh` now cover admin plugin visibility, PowerDNS-routed `alice.ton TXT`, runtime `alice.ton WALLET`, and authenticated audit reads.
+- Do not re-add Docker integration Tezos Domains `.tez` fixture routing; `tests/docker/anyns-config.json`, `tests/docker/fixtures/backend-fixtures.py`, and `tests/acceptance/docker-dns-integration.sh` now cover admin plugin visibility, PowerDNS-routed `alice.tez TXT`, runtime `alice.tez WALLET`, and authenticated audit reads.
 - Do not re-add the Docker integration `anyns-log-forwarder` service or log-forwarder DNSLog ingestion/audit/metrics/failed-queue assertions; `tests/docker/compose.dns-integration.yml` and `tests/acceptance/docker-dns-integration.sh` now cover them.
 - Do not re-add Docker integration management-auth rejection or authorized-read checks for admin boundary/plugins/management-key metadata, runtime audit events, or log-forwarder audit/honeypot status; `tests/docker/anyns-config.json` now requires fixture-scoped management auth and `tests/acceptance/docker-dns-integration.sh` scripts those assertions.
 - Do not re-add Docker integration policy reload authorization or management-audit assertions for admin API and plugin runtime; `tests/docker/anyns-config.json` now has a fixture-scoped policy writer role/key and `tests/acceptance/docker-dns-integration.sh` scripts the 401, 403, successful reload, and audit checks.
@@ -1397,9 +1418,9 @@ If `git status` is unavailable on the server, this file is still the required gi
 - Do not re-add audit event time-window filters; `GET /api/v1/audit/events?since=...&until=...` now uses inclusive RFC3339 bounds through the shared admin/runtime/log-forwarder parser and store path, with no-socket store/parser/admin/runtime tests.
 
 <!-- AUTO:run-context:start -->
-Last automation scan: 2026-06-05T11:31:39+08:00
+Last automation scan: 2026-06-05T12:07:29+08:00
 
-- Latest run log: `/root/anyNS/codex-run-20260605-112407.log`
+- Latest run log: `/root/anyNS/codex-run-20260605-120141.log`
 - Git status: `available`
 - Git detail: `M BACKEND_STORAGE_AND_DOCKER_TEST_PLAN.md
  M CODEX_RUN_CONTEXT.md

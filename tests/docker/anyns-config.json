@@ -66,6 +66,13 @@
       "backend_type": "toncenter-v3-dns",
       "backend_url": "http://backend-fixtures:8090",
       "request_timeout": "3s"
+    },
+    {
+      "name": "tezos-domains",
+      "enabled": true,
+      "backend_type": "tezos-domains-api",
+      "backend_url": "http://backend-fixtures:8090",
+      "request_timeout": "3s"
     }
   ],
   "routes": [
@@ -147,6 +154,15 @@
       "client_views": ["default"],
       "tenants": ["default"],
       "plugin": "ton-dns",
+      "priority": 80,
+      "fallback": "nxdomain"
+    },
+    {
+      "name": "tezos-domains-fixture",
+      "suffixes": [".tez"],
+      "client_views": ["default"],
+      "tenants": ["default"],
+      "plugin": "tezos-domains",
       "priority": 80,
       "fallback": "nxdomain"
     }
