@@ -109,6 +109,9 @@ class Handler(BaseHTTPRequestHandler):
         if self.path == "/pulsechain":
             self.handle_pulsechain_json_rpc()
             return
+        if self.path == "/sui":
+            self.handle_suins_json_rpc()
+            return
         if self.path == "/graphql":
             self.handle_tezos_domains()
             return
@@ -366,6 +369,38 @@ class Handler(BaseHTTPRequestHandler):
     def handle_aptos_names(self):
         self._json(200, {
             "address": "0x8888888888888888888888888888888888888888"
+        })
+
+    def handle_suins_json_rpc(self):
+        req = self._read_json()
+        method = req.get("method", "")
+        params = req.get("params", [])
+        domain = params[0] if params else ""
+        if method != "suix_resolveNameServiceAddress":
+            self._json(200, {
+                "jsonrpc": "2.0",
+                "id": req.get("id"),
+                "error": {"code": -32601, "message": "unexpected SuiNS method"},
+            })
+            return
+        if domain == "alice.sui":
+            self._json(200, {
+                "jsonrpc": "2.0",
+                "id": req.get("id"),
+                "result": "0x9999999999999999999999999999999999999999",
+            })
+            return
+        if domain == "missing.sui":
+            self._json(200, {
+                "jsonrpc": "2.0",
+                "id": req.get("id"),
+                "result": None,
+            })
+            return
+        self._json(200, {
+            "jsonrpc": "2.0",
+            "id": req.get("id"),
+            "error": {"code": -32000, "message": "unexpected SuiNS fixture domain"},
         })
 
     def handle_pulsechain_json_rpc(self):
