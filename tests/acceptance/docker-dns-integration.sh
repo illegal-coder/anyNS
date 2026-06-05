@@ -76,6 +76,7 @@ tools '! grep -q "docker-cache-token" /tmp/admin-management-keys.json'
 tools 'curl -fsS -H "'"$AUTH_HEADER"'" http://anyns-admin-api:8080/api/v1/plugins | tee /tmp/admin-plugins.json'
 tools 'grep -q "\"name\":\"hns\"" /tmp/admin-plugins.json'
 tools 'grep -q "\"name\":\"namecoin-bit\"" /tmp/admin-plugins.json'
+tools 'grep -q "\"name\":\"stacks-bns\"" /tmp/admin-plugins.json'
 tools 'grep -q "\"name\":\"unstoppable-domains\"" /tmp/admin-plugins.json'
 
 tools 'status=$(curl -sS -X POST -o /tmp/admin-policy-reload-unauth.json -w "%{http_code}" http://anyns-admin-api:8080/api/v1/policies/reload); test "$status" = "401"'
@@ -131,6 +132,17 @@ tools 'grep -q "198.51.100.77" /tmp/pdns-example-bit.txt'
 
 tools 'curl -fsS -X POST http://anyns-plugin-runtime:8081/api/v1/resolve -H "Content-Type: application/json" -d "{\"qname\":\"www.example.bit\",\"qtype\":\"A\",\"context\":{\"client_view\":\"default\",\"tenant\":\"default\"}}" | tee /tmp/runtime-www-example-bit.json'
 tools 'grep -q "198.51.100.78" /tmp/runtime-www-example-bit.json'
+
+tools 'dig +time=2 +tries=1 @pdns-recursor alice.btc TXT | tee /tmp/pdns-alice-btc.txt'
+tools 'grep -q "SP2DOCKERFIXTURE" /tmp/pdns-alice-btc.txt'
+
+tools 'curl -fsS -X POST http://anyns-plugin-runtime:8081/api/v1/resolve -H "Content-Type: application/json" -d "{\"qname\":\"alice.btc\",\"qtype\":\"WALLET\",\"context\":{\"trace_id\":\"docker-stacks-wallet\",\"client_view\":\"default\",\"tenant\":\"default\"}}" | tee /tmp/runtime-alice-btc-wallet.json'
+tools 'grep -q "\"source_plugin\":\"stacks-bns\"" /tmp/runtime-alice-btc-wallet.json'
+tools 'grep -q "\"type\":\"WALLET\"" /tmp/runtime-alice-btc-wallet.json'
+tools 'grep -q "btc bc1qstacksfixture" /tmp/runtime-alice-btc-wallet.json'
+tools 'grep -q "eth 0x3333333333333333333333333333333333333333" /tmp/runtime-alice-btc-wallet.json'
+tools 'curl -fsS -H "'"$AUTH_HEADER"'" "http://anyns-plugin-runtime:8081/api/v1/audit/events?trace_id=docker-stacks-wallet&source_plugin=stacks-bns&rcode=NOERROR&qtype=WALLET" | tee /tmp/runtime-stacks-audit.json'
+tools 'grep -q "alice.btc" /tmp/runtime-stacks-audit.json'
 
 tools 'dig +time=2 +tries=1 @pdns-recursor alice.crypto TXT | tee /tmp/pdns-alice-crypto.txt'
 tools 'grep -q "docker unstoppable fixture" /tmp/pdns-alice-crypto.txt'

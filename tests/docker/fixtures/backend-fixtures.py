@@ -37,6 +37,12 @@ class Handler(BaseHTTPRequestHandler):
         if self.path == "/resolve/domains/missing.crypto":
             self._json(404, {"message": "domain not found"})
             return
+        if self.path == "/v1/names/alice.btc/zonefile":
+            self.handle_stacks_bns()
+            return
+        if self.path == "/v1/names/missing.btc/zonefile":
+            self._json(404, {"message": "name not found"})
+            return
         self._json(404, {"error": "not found"})
 
     def do_POST(self):
@@ -140,6 +146,27 @@ class Handler(BaseHTTPRequestHandler):
                 "crypto.BTC.address": "bc1qdockerfixture"
             }
         })
+
+    def handle_stacks_bns(self):
+        zonefile = {
+            "owner": "SP2DOCKERFIXTURE",
+            "website": "alice.example.test",
+            "btc": "bc1qstacksfixture",
+            "addresses": [
+                {
+                    "network": "eth",
+                    "address": "0x3333333333333333333333333333333333333333",
+                    "type": "wallet"
+                }
+            ],
+            "meta": [
+                {
+                    "name": "profile",
+                    "value": "docker stacks fixture"
+                }
+            ]
+        }
+        self._json(200, {"zonefile": json.dumps(zonefile)})
 
 
 if __name__ == "__main__":

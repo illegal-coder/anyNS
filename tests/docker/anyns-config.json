@@ -19,6 +19,13 @@
       "request_timeout": "3s"
     },
     {
+      "name": "stacks-bns",
+      "enabled": true,
+      "backend_type": "stacks-bns-api",
+      "backend_url": "http://backend-fixtures:8090/v1",
+      "request_timeout": "3s"
+    },
+    {
       "name": "unstoppable-domains",
       "enabled": true,
       "backend_type": "unstoppable-resolution-api",
@@ -42,6 +49,15 @@
       "client_views": ["default"],
       "tenants": ["default"],
       "plugin": "namecoin-bit",
+      "priority": 90,
+      "fallback": "nxdomain"
+    },
+    {
+      "name": "stacks-bns-fixture",
+      "suffixes": [".btc", ".stx"],
+      "client_views": ["default"],
+      "tenants": ["default"],
+      "plugin": "stacks-bns",
       "priority": 90,
       "fallback": "nxdomain"
     },
