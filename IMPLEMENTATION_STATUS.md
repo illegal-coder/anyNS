@@ -432,8 +432,32 @@ This repository has moved from requirements-only documentation to a runnable fir
 - Extended the deterministic Docker DNS integration fixture path with an enabled Aptos Names adapter fixture. The Docker config now routes `.apt` through `aptos-names` using the existing `aptos-names-api` backend contract, the fixture serves deterministic `/api/mainnet/v3/address/alice` data, and the acceptance script asserts admin plugin visibility, PowerDNS-routed `TYPE262` posture, runtime `WALLET` mapping, and authenticated audit visibility without live Aptos Names API credentials.
 - Extended the deterministic Docker DNS integration fixture path with an enabled OpenAlias adapter fixture. The Docker config now routes `.openalias` through `openalias` using the existing `openalias-dns-txt` backend contract, the fixture serves deterministic `oa1:xmr` TXT data for `alice.openalias`, and the acceptance script asserts admin plugin visibility, PowerDNS-routed `TXT` resolution, runtime `WALLET` mapping, and authenticated audit visibility without live DNS-over-HTTP credentials.
 - Extended the deterministic Docker DNS integration fixture path with an enabled ADA Handle adapter fixture. The Docker config now routes `.ada` through `ada-handle` using the existing `ada-handle-api` backend contract, the fixture serves deterministic `/handles/alice` profile/address/image data, and the acceptance script asserts admin plugin visibility, PowerDNS-routed `alice.ada TXT`, runtime `alice.ada WALLET`, and authenticated ADA Handle audit visibility without live `api.handle.me` credentials.
+- Extended the deterministic Docker DNS integration fixture path with enabled d.id/.bit runtime-json fixture coverage while preserving the Namecoin-over-`.bit` default. The Docker config now enables `did-bit` only for the exact `alice.did.bit` route at higher priority than the broad Namecoin `.bit` route, the fixture returns deterministic TXT/URI/WALLET records through the generic runtime-json contract, and the acceptance script asserts admin plugin visibility, PowerDNS-routed `alice.did.bit TXT`, runtime `alice.did.bit WALLET`, and authenticated d.id audit visibility.
 
 ## Latest Validation
+
+Validated on 2026-06-05 16:53 CST after adding deterministic Docker d.id/.bit exact-route fixture assertions:
+
+```bash
+bash -n tests/acceptance/docker-dns-integration.sh
+python3 -m py_compile tests/docker/fixtures/backend-fixtures.py
+GOCACHE=/tmp/anyns-go-build go run -buildvcs=false ./cmd/anyns-config-check tests/docker/anyns-config.json
+docker compose -f tests/docker/compose.dns-integration.yml config >/tmp/anyns-docker-compose-rendered.yml && wc -l /tmp/anyns-docker-compose-rendered.yml
+ANYNS_RUN_DOCKER_DNS_INTEGRATION=0 GOCACHE=/tmp/anyns-go-build bash tests/acceptance/docker-dns-integration.sh
+GOCACHE=/tmp/anyns-go-build go test -buildvcs=false ./...
+GOCACHE=/tmp/anyns-go-build go vet -buildvcs=false ./...
+GOCACHE=/tmp/anyns-go-build go build -buildvcs=false ./cmd/anyns-admin-api ./cmd/anyns-plugin-runtime ./cmd/anyns-log-forwarder
+GOCACHE=/tmp/anyns-go-build bash tests/acceptance/check-local.sh
+```
+
+Results:
+
+- PASS: Docker acceptance shell syntax, Python fixture compilation, Docker integration config validation with 18 plugins / 18 routes, Docker Compose rendering, broad Go tests, broad Go vet, and service builds.
+- SKIP: `tests/acceptance/docker-dns-integration.sh` runtime execution because the Docker daemon is unavailable in this session.
+- PASS with documented SKIP: `tests/acceptance/check-local.sh` completed while runtime socket smoke skipped because `listen tcp 127.0.0.1:18081` is denied in this sandbox.
+- No Go files changed, so no `gofmt` was needed.
+- Git commit was attempted once after validation and failed because `.git/index.lock` could not be created on a read-only filesystem. Latest committed hash remains `0dd3517`; the working tree contains this run's validated Docker d.id/.bit fixture changes plus required ledger updates and automation-maintained context/lesson updates.
+- No new recurring error pattern was observed; `DEVELOPMENT_LESSONS.md` did not need a manual rule update.
 
 Validated on 2026-06-05 16:12 CST after adding deterministic Docker ADA Handle fixture assertions:
 
@@ -1858,6 +1882,7 @@ listen tcp 127.0.0.1:18081: socket: operation not permitted
 - Test the new RIF/RNS JSON-RPC adapter against a live RSK RPC endpoint, actual RNS registry address, and real `.rsk` names, then expand record mapping if live resolver responses require resolver methods beyond direct `addr`, `text`, and `contenthash` calls.
 - Test the new OpenAlias DNS TXT adapter against live DNS TXT records or the selected production DNS-over-HTTP adapter, then expand parsing if real records expose additional standard or ecosystem-specific key-value fields beyond `recipient_address`, `recipient_name`, `tx_description`, `tx_amount`, `tx_payment_id`, `address_signature`, and `checksum`.
 - Test the new ADA Handle public API adapter against live `api.handle.me` responses and real Handles, then expand record mapping if live responses expose additional Cardano address, personalization, or subHandle fields beyond the currently covered address/profile/image fields.
+- Select and test a concrete live d.id/.bit backend contract if d.id support needs to move beyond the current generic runtime-json fixture; keep any broader `.bit` route below Namecoin unless an operator explicitly opts into a higher-priority override.
 - Run the expanded Docker DNS integration fixture stack end to end once Docker daemon access is available.
 - Run the new HNS `hnsd` / `dns://` Docker topology end to end with `ANYNS_RUN_DOCKER_HNSD_INTEGRATION=1` once Docker daemon access is available.
 - Run the authenticated Docker DNS integration assertions, including policy reload coverage, end to end once Docker daemon access is available.

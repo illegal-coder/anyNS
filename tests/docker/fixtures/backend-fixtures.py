@@ -113,6 +113,9 @@ class Handler(BaseHTTPRequestHandler):
         if self.path == "/hns/resolve":
             self.handle_hns()
             return
+        if self.path == "/did-bit/resolve":
+            self.handle_did_bit()
+            return
         if self.path == "/namecoin":
             self.handle_namecoin()
             return
@@ -211,6 +214,39 @@ class Handler(BaseHTTPRequestHandler):
             "result": {"name": "d/example", "value": json.dumps(value)},
             "error": None,
             "id": req.get("id"),
+        })
+
+    def handle_did_bit(self):
+        req = self._read_json()
+        qname = str(req.get("qname", "")).lower().rstrip(".") + "."
+        qtype = str(req.get("qtype", "A")).upper()
+        if qname == "missing.did.bit.":
+            self._json(200, {
+                "source_plugin": "did-bit",
+                "rcode": "NXDOMAIN",
+                "ttl": 60,
+                "rrset": [],
+                "raw_record": {"backend": "docker-fixture-did-bit"},
+                "audit_metadata": {"reason": "fixture_name_not_found"},
+            })
+            return
+        records = []
+        if qname == "alice.did.bit.":
+            records = [
+                rr("alice.did.bit.", "TXT", "did=did:bit:alice"),
+                rr("alice.did.bit.", "TXT", "profile=docker d.id fixture"),
+                rr("alice.did.bit.", "URI", "https://alice.did.example.test"),
+                rr("alice.did.bit.", "WALLET", "eth 0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"),
+            ]
+        if qtype not in ("ANY", "*"):
+            records = [record for record in records if record["type"] == qtype]
+        self._json(200, {
+            "source_plugin": "did-bit",
+            "rcode": "NOERROR" if records else "NXDOMAIN",
+            "ttl": 300 if records else 60,
+            "rrset": records,
+            "raw_record": {"backend": "docker-fixture-did-bit"},
+            "audit_metadata": {"fixture": "did-bit-runtime-json"},
         })
 
     def handle_ens_json_rpc(self):

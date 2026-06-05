@@ -91,6 +91,7 @@ tools 'grep -q "\"name\":\"rif-rns\"" /tmp/admin-plugins.json'
 tools 'grep -q "\"name\":\"fio-handle\"" /tmp/admin-plugins.json'
 tools 'grep -q "\"name\":\"openalias\"" /tmp/admin-plugins.json'
 tools 'grep -q "\"name\":\"ada-handle\"" /tmp/admin-plugins.json'
+tools 'grep -q "\"name\":\"did-bit\"" /tmp/admin-plugins.json'
 
 tools 'status=$(curl -sS -X POST -o /tmp/admin-policy-reload-unauth.json -w "%{http_code}" http://anyns-admin-api:8080/api/v1/policies/reload); test "$status" = "401"'
 tools 'status=$(curl -sS -X POST -H "'"$AUTH_HEADER"'" -o /tmp/admin-policy-reload-reader.json -w "%{http_code}" http://anyns-admin-api:8080/api/v1/policies/reload); test "$status" = "403"'
@@ -106,6 +107,7 @@ tools 'status=$(curl -sS -X POST -H "'"$AUTH_HEADER"'" -o /tmp/runtime-policy-re
 tools 'curl -fsS -X POST -H "'"$POLICY_AUTH_HEADER"'" http://anyns-plugin-runtime:8081/api/v1/policies/reload | tee /tmp/runtime-policy-reload.json'
 tools 'grep -q "\"status\":\"loaded\"" /tmp/runtime-policy-reload.json'
 tools 'grep -q "\"name\":\"namecoin-bit-fixture\"" /tmp/runtime-policy-reload.json'
+tools 'grep -q "\"name\":\"did-bit-explicit-fixture\"" /tmp/runtime-policy-reload.json'
 tools 'curl -fsS -H "'"$AUTH_HEADER"'" "http://anyns-plugin-runtime:8081/api/v1/audit/events?source_plugin=management&matched_rule=policy.reload" | tee /tmp/runtime-policy-reload-audit.json'
 tools 'grep -q "\"source_plugin\":\"management\"" /tmp/runtime-policy-reload-audit.json'
 tools 'grep -q "\"matched_rule\":\"policy.reload\"" /tmp/runtime-policy-reload-audit.json'
@@ -145,6 +147,16 @@ tools 'grep -q "198.51.100.77" /tmp/pdns-example-bit.txt'
 
 tools 'curl -fsS -X POST http://anyns-plugin-runtime:8081/api/v1/resolve -H "Content-Type: application/json" -d "{\"qname\":\"www.example.bit\",\"qtype\":\"A\",\"context\":{\"client_view\":\"default\",\"tenant\":\"default\"}}" | tee /tmp/runtime-www-example-bit.json'
 tools 'grep -q "198.51.100.78" /tmp/runtime-www-example-bit.json'
+
+tools 'dig +time=2 +tries=1 @pdns-recursor alice.did.bit TXT | tee /tmp/pdns-alice-did-bit.txt'
+tools 'grep -q "did=did:bit:alice" /tmp/pdns-alice-did-bit.txt'
+
+tools 'curl -fsS -X POST http://anyns-plugin-runtime:8081/api/v1/resolve -H "Content-Type: application/json" -d "{\"qname\":\"alice.did.bit\",\"qtype\":\"WALLET\",\"context\":{\"trace_id\":\"docker-did-bit-wallet\",\"client_view\":\"default\",\"tenant\":\"default\"}}" | tee /tmp/runtime-alice-did-bit-wallet.json'
+tools 'grep -q "\"source_plugin\":\"did-bit\"" /tmp/runtime-alice-did-bit-wallet.json'
+tools 'grep -q "\"type\":\"WALLET\"" /tmp/runtime-alice-did-bit-wallet.json'
+tools 'grep -q "eth 0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb" /tmp/runtime-alice-did-bit-wallet.json'
+tools 'curl -fsS -H "'"$AUTH_HEADER"'" "http://anyns-plugin-runtime:8081/api/v1/audit/events?trace_id=docker-did-bit-wallet&source_plugin=did-bit&rcode=NOERROR&qtype=WALLET" | tee /tmp/runtime-did-bit-audit.json'
+tools 'grep -q "alice.did.bit" /tmp/runtime-did-bit-audit.json'
 
 tools 'dig +time=2 +tries=1 @pdns-recursor alice.eth TXT | tee /tmp/pdns-alice-eth.txt'
 tools 'grep -q "alice.eth@example.test" /tmp/pdns-alice-eth.txt'

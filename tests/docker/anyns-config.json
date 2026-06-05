@@ -122,6 +122,13 @@
       "backend_type": "ada-handle-api",
       "backend_url": "http://backend-fixtures:8090",
       "request_timeout": "3s"
+    },
+    {
+      "name": "did-bit",
+      "enabled": true,
+      "backend_type": "runtime-json",
+      "backend_url": "http://backend-fixtures:8090/did-bit/resolve",
+      "request_timeout": "3s"
     }
   ],
   "routes": [
@@ -141,6 +148,15 @@
       "tenants": ["default"],
       "plugin": "namecoin-bit",
       "priority": 90,
+      "fallback": "nxdomain"
+    },
+    {
+      "name": "did-bit-explicit-fixture",
+      "domains": ["alice.did.bit"],
+      "client_views": ["default"],
+      "tenants": ["default"],
+      "plugin": "did-bit",
+      "priority": 95,
       "fallback": "nxdomain"
     },
     {
