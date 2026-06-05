@@ -108,6 +108,13 @@
       "backend_type": "fio-chain-api",
       "backend_url": "http://backend-fixtures:8090?chain_code=ETH&token_code=USDT",
       "request_timeout": "3s"
+    },
+    {
+      "name": "openalias",
+      "enabled": true,
+      "backend_type": "openalias-dns-txt",
+      "backend_url": "http://backend-fixtures:8090/openalias/txt",
+      "request_timeout": "3s"
     }
   ],
   "routes": [
@@ -243,6 +250,15 @@
       "client_views": ["default"],
       "tenants": ["default"],
       "plugin": "fio-handle",
+      "priority": 70,
+      "fallback": "nxdomain"
+    },
+    {
+      "name": "openalias-fixture",
+      "suffixes": [".openalias"],
+      "client_views": ["default"],
+      "tenants": ["default"],
+      "plugin": "openalias",
       "priority": 70,
       "fallback": "nxdomain"
     }

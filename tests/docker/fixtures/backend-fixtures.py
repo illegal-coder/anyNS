@@ -98,6 +98,9 @@ class Handler(BaseHTTPRequestHandler):
         if parsed.path == "/domain/resolve":
             self.handle_freename(parse_qs(parsed.query))
             return
+        if parsed.path == "/openalias/txt":
+            self.handle_openalias(parse_qs(parsed.query))
+            return
         self._json(404, {"error": "not found"})
 
     def do_POST(self):
@@ -474,6 +477,33 @@ class Handler(BaseHTTPRequestHandler):
             self._json(404, {"message": "Public address not found"})
             return
         self._json(400, {"error": "unexpected FIO fixture request"})
+
+    def handle_openalias(self, query):
+        name = query.get("name", [""])[0]
+        rrtype = query.get("type", [""])[0].upper()
+        if rrtype != "TXT":
+            self._json(400, {"error": "unexpected OpenAlias fixture query type"})
+            return
+        if name == "alice.openalias":
+            self._json(200, {
+                "records": [
+                    {
+                        "type": "TXT",
+                        "parts": [
+                            "oa1:xmr recipient_address=46BeWrHpwXmHDpDEUmZBWZfoQpdc6HaERCNmx1pEYL2rAcuwufPN9rXHHtyUA4QVy66qeFQkn6sfK8aHYjA3jk3o1Bv16em; recipient_name=Alice OpenAlias; tx_description=Docker fixture; tx_payment_id=1234abcd;"
+                        ]
+                    },
+                    {
+                        "type": "TXT",
+                        "value": "v=spf1 -all"
+                    }
+                ]
+            })
+            return
+        if name == "missing.openalias":
+            self._json(200, {"txt": ["v=spf1 -all"]})
+            return
+        self._json(404, {"message": "name not found"})
 
     def handle_pulsechain_json_rpc(self):
         req = self._read_json()
