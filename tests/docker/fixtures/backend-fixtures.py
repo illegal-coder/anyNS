@@ -134,6 +134,9 @@ class Handler(BaseHTTPRequestHandler):
         if self.path == "/sui":
             self.handle_suins_json_rpc()
             return
+        if self.path == "/solana":
+            self.handle_solana_sns_json_rpc()
+            return
         if self.path == "/graphql":
             self.handle_tezos_domains()
             return
@@ -356,6 +359,38 @@ class Handler(BaseHTTPRequestHandler):
             })
             return
         self._json(404, {"message": "domain not found"})
+
+    def handle_solana_sns_json_rpc(self):
+        req = self._read_json()
+        method = req.get("method", "")
+        params = req.get("params", [])
+        domain = params[0] if params else ""
+        if method != "sns_resolveDomain":
+            self._json(200, {
+                "jsonrpc": "2.0",
+                "id": req.get("id"),
+                "error": {"code": -32601, "message": "unexpected Solana SNS method"},
+            })
+            return
+        if domain == "alice.sol":
+            self._json(200, {
+                "jsonrpc": "2.0",
+                "id": req.get("id"),
+                "result": "HKKp49qGWXd639QsuH7JiLijfVW5UtCVY4s1n2HANwEA",
+            })
+            return
+        if domain == "missing.sol":
+            self._json(200, {
+                "jsonrpc": "2.0",
+                "id": req.get("id"),
+                "result": {"value": ""},
+            })
+            return
+        self._json(200, {
+            "jsonrpc": "2.0",
+            "id": req.get("id"),
+            "error": {"code": -32000, "message": "unexpected Solana SNS fixture domain"},
+        })
 
     def handle_ton_dns(self, query):
         domain = query.get("domain", [""])[0]

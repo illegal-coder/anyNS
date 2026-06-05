@@ -61,6 +61,13 @@
       "request_timeout": "3s"
     },
     {
+      "name": "solana-sns",
+      "enabled": true,
+      "backend_type": "solana-sns-quicknode",
+      "backend_url": "http://backend-fixtures:8090/solana",
+      "request_timeout": "3s"
+    },
+    {
       "name": "ton-dns",
       "enabled": true,
       "backend_type": "toncenter-v3-dns",
@@ -210,6 +217,15 @@
       "client_views": ["default"],
       "tenants": ["default"],
       "plugin": "space-id",
+      "priority": 80,
+      "fallback": "nxdomain"
+    },
+    {
+      "name": "solana-sns-fixture",
+      "suffixes": [".sol"],
+      "client_views": ["default"],
+      "tenants": ["default"],
+      "plugin": "solana-sns",
       "priority": 80,
       "fallback": "nxdomain"
     },

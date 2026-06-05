@@ -427,6 +427,7 @@ This repository has moved from requirements-only documentation to a runnable fir
 - Extended the deterministic Docker DNS integration fixture path with an enabled ENS adapter fixture. The Docker config now routes `.eth` through `ens` using the existing `ens-json-rpc` backend contract, the fixture serves deterministic Ethereum JSON-RPC `eth_call` responses for resolver lookup, wallet address, text records, and contenthash, and the acceptance script asserts admin plugin visibility, PowerDNS-routed `TXT` resolution, runtime `WALLET` mapping, and authenticated audit visibility without live Ethereum RPC credentials.
 - Extended the deterministic Docker DNS integration fixture path with an enabled PulseChain PNS adapter fixture. The Docker config now routes `.pls` through `pns-pulsechain` using the existing `pulsechain-pns-json-rpc` backend contract, the fixture serves deterministic ENS-compatible PulseChain JSON-RPC `eth_call` responses for registry resolver lookup, wallet address, text records, and contenthash, and the acceptance script asserts admin plugin visibility, PowerDNS-routed `TXT` resolution, runtime `WALLET` mapping, and authenticated audit visibility without live PulseChain RPC credentials.
 - Extended the deterministic Docker DNS integration fixture path with an enabled SPACE ID adapter fixture. The Docker config now routes `.bnb` / `.arb` through `space-id` using the existing `space-id-api` backend contract, the fixture serves deterministic `/getAddress?domain=alice.bnb` responses, and the acceptance script asserts admin plugin visibility, PowerDNS routed `TYPE262` posture, runtime `WALLET` mapping, and authenticated audit visibility without live SPACE ID API credentials.
+- Extended the deterministic Docker DNS integration fixture path with an enabled Solana SNS adapter fixture. The Docker config now routes `.sol` through `solana-sns` using the existing `solana-sns-quicknode` JSON-RPC backend contract, the fixture serves deterministic `sns_resolveDomain` responses for `alice.sol`, and the acceptance script asserts admin plugin visibility, PowerDNS-routed `TYPE262` posture, runtime `WALLET` mapping, and authenticated audit visibility without live QuickNode credentials.
 - Extended the deterministic Docker DNS integration fixture path with an enabled TON DNS adapter fixture. The Docker config now routes `.ton` through `ton-dns` using the existing `toncenter-v3-dns` backend contract, the fixture serves deterministic `/api/v3/dns/records?domain=alice.ton` responses, and the acceptance script asserts admin plugin visibility, PowerDNS-routed `TXT` resolution, runtime `WALLET` mapping, and authenticated audit visibility without live TON Center API credentials.
 - Extended the deterministic Docker DNS integration fixture path with an enabled Tezos Domains adapter fixture. The Docker config now routes `.tez` through `tezos-domains` using the existing `tezos-domains-api` GraphQL backend contract, the fixture serves deterministic `/graphql` domain data for `alice.tez`, and the acceptance script asserts admin plugin visibility, PowerDNS-routed `TXT` resolution, runtime `WALLET` mapping, and authenticated audit visibility without live Tezos Domains API credentials.
 - Extended the deterministic Docker DNS integration fixture path with an enabled Aptos Names adapter fixture. The Docker config now routes `.apt` through `aptos-names` using the existing `aptos-names-api` backend contract, the fixture serves deterministic `/api/mainnet/v3/address/alice` data, and the acceptance script asserts admin plugin visibility, PowerDNS-routed `TYPE262` posture, runtime `WALLET` mapping, and authenticated audit visibility without live Aptos Names API credentials.
@@ -1909,6 +1910,35 @@ listen tcp 127.0.0.1:18081: socket: operation not permitted
 - Run the expanded Docker DNS integration fixture stack end to end once Docker daemon access is available.
 - Run the new HNS `hnsd` / `dns://` Docker topology end to end with `ANYNS_RUN_DOCKER_HNSD_INTEGRATION=1` once Docker daemon access is available.
 - Run the authenticated Docker DNS integration assertions, including policy reload coverage, end to end once Docker daemon access is available.
+
+Latest pass on 2026-06-05 19:08 CST after adding Docker Solana SNS fixture assertions:
+
+```text
+bash -n tests/acceptance/docker-dns-integration.sh   PASS
+python3 -m py_compile tests/docker/fixtures/backend-fixtures.py   PASS
+GOCACHE=/tmp/anyns-go-build go run -buildvcs=false ./cmd/anyns-config-check tests/docker/anyns-config.json   PASS; output reported management_auth:true, management_keys:3, management_roles:3, plugins:19, routes:19, and admin_proxy_runtime:true
+GOCACHE=/tmp/anyns-go-build go test -buildvcs=false ./internal/plugins/wave1 ./internal/config   PASS
+docker compose -f tests/docker/compose.dns-integration.yml config >/tmp/anyns-docker-compose-rendered.yml && wc -l /tmp/anyns-docker-compose-rendered.yml   PASS; rendered 151 lines
+ANYNS_RUN_DOCKER_DNS_INTEGRATION=0 GOCACHE=/tmp/anyns-go-build bash tests/acceptance/docker-dns-integration.sh   SKIP; Docker daemon is not available
+GOCACHE=/tmp/anyns-go-build go test -buildvcs=false ./...   PASS
+GOCACHE=/tmp/anyns-go-build go vet -buildvcs=false ./...   PASS
+GOCACHE=/tmp/anyns-go-build go build -buildvcs=false ./cmd/anyns-admin-api ./cmd/anyns-plugin-runtime ./cmd/anyns-log-forwarder   PASS
+GOCACHE=/tmp/anyns-go-build bash tests/acceptance/check-local.sh   PASS with runtime socket smoke SKIP: listen tcp 127.0.0.1:18081: socket: operation not permitted
+```
+
+New Docker integration coverage added in this pass:
+
+```text
+tests/docker/anyns-config.json now enables `solana-sns` with `backend_type: "solana-sns-quicknode"` against the deterministic backend fixture.
+tests/docker/fixtures/backend-fixtures.py now serves no-secret Solana SNS JSON-RPC `sns_resolveDomain` responses for `alice.sol` and `missing.sol`.
+tests/acceptance/docker-dns-integration.sh now asserts admin plugin visibility, PowerDNS-routed `alice.sol TYPE262` NOERROR posture, runtime `alice.sol WALLET`, and authenticated Solana SNS audit visibility.
+```
+
+Git note:
+
+```text
+git add tests/acceptance/docker-dns-integration.sh tests/docker/anyns-config.json tests/docker/fixtures/backend-fixtures.py BACKEND_STORAGE_AND_DOCKER_TEST_PLAN.md IMPLEMENTATION_STATUS.md GIT_PROGRESS.md && git commit -m "test: add docker solana sns fixture assertions"   FAIL; Git could not create .git/index.lock because the repository metadata is read-only. Latest committed hash remains 5935ac1.
+```
 
 Latest pass on 2026-06-05 after adding Docker SuiNS fixture assertions:
 
