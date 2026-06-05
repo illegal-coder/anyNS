@@ -1980,9 +1980,28 @@ Not completed in this environment:
 listen tcp 127.0.0.1:18081: socket: operation not permitted
 ```
 
+Latest pass on 2026-06-05 23:36 CST after adding a PowerDNS Lua dependency assertion to the Docker DNS fixture:
+
+```text
+bash -n tests/acceptance/docker-dns-integration.sh   PASS
+ANYNS_RUN_DOCKER_DNS_INTEGRATION=0 GOCACHE=/tmp/anyns-go-build bash tests/acceptance/docker-dns-integration.sh   SKIP; Docker daemon is not available
+GOCACHE=/tmp/anyns-go-build go run -buildvcs=false ./cmd/anyns-config-check tests/docker/anyns-config.json   PASS; output reported management_auth:true, management_keys:3, management_roles:3, plugins:19, routes:19, and admin_proxy_runtime:true
+docker compose -f tests/docker/compose.dns-integration.yml config >/tmp/anyns-docker-compose-rendered.yml && wc -l /tmp/anyns-docker-compose-rendered.yml   PASS; rendered 151 lines
+GOCACHE=/tmp/anyns-go-build go test -buildvcs=false ./...   PASS
+GOCACHE=/tmp/anyns-go-build go vet -buildvcs=false ./...   PASS
+GOCACHE=/tmp/anyns-go-build go build -buildvcs=false ./cmd/anyns-admin-api ./cmd/anyns-plugin-runtime ./cmd/anyns-log-forwarder   PASS
+GOCACHE=/tmp/anyns-go-build bash tests/acceptance/check-local.sh   PASS with runtime socket smoke SKIP: listen tcp 127.0.0.1:18081: socket: operation not permitted
+```
+
+New Docker integration coverage added in this pass:
+
+```text
+tests/acceptance/docker-dns-integration.sh now inspects PowerDNS Recursor logs after the first routed `example.hns A` query. The script fails with a focused message if the target Recursor image logs the Lua dependency fallback for missing `socket.http`, `ltn12`, or `cjson.safe`, and it asserts the hook logged the routed HNS query.
+```
+
 ## Remaining Work
 
-- Exercise the PowerDNS Recursor Lua hook inside a real PowerDNS container and confirm installed Lua modules (`socket.http`, `ltn12`, `cjson.safe`) in the target image; the hook falls back to ICANN recursion if they are missing.
+- Exercise the PowerDNS Recursor Lua hook dependency assertion inside a real PowerDNS container and confirm installed Lua modules (`socket.http`, `ltn12`, `cjson.safe`) in the target image; the Docker DNS script now checks the Recursor logs, but live execution still needs Docker daemon access.
 - Run the HNS `dns://` backend against a real hsd/hnsd DNS resolver and then run end-to-end HNS resolution through PowerDNS Recursor. The separate Docker topology/config/script now exists, but live execution still needs Docker daemon access and opt-in P2P/SPV runtime.
 - Confirm HNS `dns://` UDP truncation and DNS-over-TCP retry behavior against a real hsd/hnsd DNS resolver or resolver front end that can return TC=1 responses.
 - Exercise honeypot background replay and exported Prometheus metrics against a real honeypot endpoint.

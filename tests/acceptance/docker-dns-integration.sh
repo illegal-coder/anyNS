@@ -115,6 +115,15 @@ tools 'grep -q "\"matched_rule\":\"policy.reload\"" /tmp/runtime-policy-reload-a
 
 tools 'dig +time=2 +tries=1 @pdns-recursor example.hns A | tee /tmp/pdns-example-hns.txt'
 tools 'grep -q "198.51.100" /tmp/pdns-example-hns.txt'
+docker compose -p "$PROJECT" -f "$COMPOSE_FILE" logs --no-color pdns-recursor > /tmp/anyns-pdns-recursor.log
+if grep -q "runtime Lua dependencies are unavailable" /tmp/anyns-pdns-recursor.log; then
+  echo "FAIL: PowerDNS Recursor Lua hook is missing socket.http, ltn12, or cjson.safe in the target image"
+  exit 1
+fi
+if ! grep -q "anyNS recursor hook saw query: example.hns" /tmp/anyns-pdns-recursor.log; then
+  echo "FAIL: PowerDNS Recursor Lua hook did not log the routed HNS query"
+  exit 1
+fi
 
 tools 'status=$(curl -sS -o /tmp/admin-cache-stats-unauth.json -w "%{http_code}" http://anyns-admin-api:8080/api/v1/cache/stats); test "$status" = "401"'
 tools 'status=$(curl -sS -H "'"$AUTH_HEADER"'" -o /tmp/admin-cache-stats-reader.json -w "%{http_code}" http://anyns-admin-api:8080/api/v1/cache/stats); test "$status" = "403"'
