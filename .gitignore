@@ -30,6 +30,22 @@ __pycache__/
 .codex/
 .agents/
 
+# Server-local operations and Codex automation
+AUTOMATION_IMPROVEMENT_AUDIT.md
+CODEX_RUN_CONTEXT.md
+DEVELOPMENT_AUDIT_LOG.md
+LOG_SUMMARY_COMPRESSED.md
+REMOTE_CODEX_CONTINUE_PROMPT.txt
+REMOTE_CODEX_PROMPT.txt
+SERVER_AUTOMATION_STATUS.md
+scripts/anyns-codex-*.service
+scripts/anyns-codex-*.timer
+scripts/codex-continue.sh
+scripts/http-to-socks.py
+scripts/parse-codex-refresh.py
+scripts/push-to-codex-server.ps1
+scripts/summarize-codex-errors.py
+
 # Go build/test artifacts
 *.test
 coverage.out
