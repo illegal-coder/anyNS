@@ -88,7 +88,9 @@ services:
           - pdns-authoritative
 
   pdns-recursor:
-    image: powerdns/pdns-recursor-54:5.4.2
+    build:
+      context: ../../configs/pdns-recursor
+    image: anyns/pdns-recursor:5.4.2
     command: ["--config-dir=/etc/powerdns"]
     environment:
       ANYNS_RUNTIME_ENDPOINT: http://anyns-plugin-runtime:8081/api/v1/resolve

@@ -1,6 +1,8 @@
 services:
   pdns-recursor:
-    image: powerdns/pdns-recursor-54:5.4.2
+    build:
+      context: ./configs/pdns-recursor
+    image: anyns/pdns-recursor:5.4.2
     container_name: anyns-pdns-recursor
     env_file: .env
     command: ["--config-dir=/etc/powerdns"]
