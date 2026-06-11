@@ -26,6 +26,42 @@ local rr_types = {
   HTTPS = pdns.HTTPS
 }
 
+local qtype_names = {
+  [1] = "A",
+  [2] = "NS",
+  [5] = "CNAME",
+  [6] = "SOA",
+  [12] = "PTR",
+  [15] = "MX",
+  [16] = "TXT",
+  [28] = "AAAA",
+  [33] = "SRV",
+  [43] = "DS",
+  [46] = "RRSIG",
+  [47] = "NSEC",
+  [48] = "DNSKEY",
+  [52] = "TLSA",
+  [64] = "SVCB",
+  [65] = "HTTPS",
+  [255] = "ANY",
+  [256] = "URI",
+  [257] = "CAA",
+  [262] = "TYPE262"
+}
+
+local function qtype_name(qtype)
+  if type(qtype) == "number" then
+    return qtype_names[qtype] or ("TYPE" .. tostring(qtype))
+  end
+  local ok, name = pcall(function()
+    return qtype:toString()
+  end)
+  if ok and name ~= nil and name ~= "" then
+    return string.upper(tostring(name))
+  end
+  return string.upper(tostring(qtype))
+end
+
 local function json_escape(value)
   value = tostring(value or "")
   value = value:gsub("\\", "\\\\")
@@ -62,7 +98,7 @@ local function runtime_resolve(dq)
   local body = string.format(
     '{"qname":"%s","qtype":"%s","context":{"trace_id":"pdns-lua","client_ip":"%s","client_view":"%s","tenant":"%s","transport":"udp","protocol":"dns","policy_tags":%s}}',
     json_escape(dq.qname:toString()),
-    json_escape(dq.qtype:toString()),
+    json_escape(qtype_name(dq.qtype)),
     json_escape(tostring(dq.remoteaddr)),
     json_escape(runtime_client_view),
     json_escape(runtime_tenant),
@@ -131,7 +167,7 @@ local function apply_runtime_result(dq, result)
 end
 
 function preresolve(dq)
-  pdnslog("anyNS recursor hook saw query: " .. dq.qname:toString() .. " " .. dq.qtype:toString(), pdns.loglevels.Info)
+  pdnslog("anyNS recursor hook saw query: " .. dq.qname:toString() .. " " .. qtype_name(dq.qtype), pdns.loglevels.Info)
   local result = runtime_resolve(dq)
   if not result then
     return false

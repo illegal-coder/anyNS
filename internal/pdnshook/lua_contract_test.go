@@ -25,6 +25,11 @@ func TestRecursorLuaHookRuntimeContract(t *testing.T) {
 		`SVCB = pdns.SVCB`,
 		`HTTPS = pdns.HTTPS`,
 		`local function policy_tags_json()`,
+		`local function qtype_name(qtype)`,
+		`if type(qtype) == "number" then`,
+		`return qtype_names[qtype] or ("TYPE" .. tostring(qtype))`,
+		`return qtype:toString()`,
+		`json_escape(qtype_name(dq.qtype))`,
 		`"qname":"%s","qtype":"%s","context"`,
 		`"trace_id":"pdns-lua"`,
 		`"client_ip":"%s"`,
@@ -49,6 +54,24 @@ func TestRecursorLuaHookRuntimeContract(t *testing.T) {
 		if !strings.Contains(hook, needle) {
 			t.Fatalf("recursor.lua missing runtime contract fragment %q", needle)
 		}
+	}
+}
+
+func TestRecursorLuaHookSupportsNumericQTypes(t *testing.T) {
+	hook := readHook(t)
+	for _, needle := range []string{
+		`[1] = "A"`,
+		`[16] = "TXT"`,
+		`[64] = "SVCB"`,
+		`[65] = "HTTPS"`,
+		`[262] = "TYPE262"`,
+	} {
+		if !strings.Contains(hook, needle) {
+			t.Fatalf("recursor.lua missing numeric qtype mapping %q", needle)
+		}
+	}
+	if strings.Contains(hook, `dq.qtype:toString()`) {
+		t.Fatalf("recursor.lua must normalize numeric qtypes before rendering them")
 	}
 }
 
