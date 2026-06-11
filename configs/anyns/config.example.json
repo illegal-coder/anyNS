@@ -393,6 +393,14 @@
     "admin_proxy_runtime": true,
     "runtime_control_url": "http://anyns-plugin-runtime:8081"
   },
+  "powerdns": {
+    "authoritative_url": "http://pdns-authoritative:8081",
+    "authoritative_api_key": "",
+    "recursor_url": "http://pdns-recursor:8082",
+    "recursor_api_key": "",
+    "server_id": "localhost",
+    "request_timeout": "5s"
+  },
   "management": {
     "api_key": "",
     "api_key_file": "",
@@ -400,11 +408,11 @@
     "roles": [
       {
         "id": "ops-reader",
-        "scopes": ["plugins:read", "cache:read", "audit:read", "honeypot:read", "management:read"]
+        "scopes": ["plugins:read", "cache:read", "audit:read", "honeypot:read", "management:read", "powerdns:read", "config:read"]
       },
       {
         "id": "ops-writer",
-        "scopes": ["plugins:write", "cache:write", "policy:write", "honeypot:write", "management:read"]
+        "scopes": ["plugins:write", "cache:write", "policy:write", "honeypot:write", "management:read", "powerdns:write", "config:write"]
       }
     ],
     "keys": [

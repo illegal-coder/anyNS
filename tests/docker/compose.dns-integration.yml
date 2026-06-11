@@ -81,7 +81,9 @@ services:
         "--webserver-password=docker-integration",
       ]
     volumes:
-      - ../../configs/pdns-authoritative:/etc/powerdns:ro
+      - ./pdns-authoritative-bind.conf:/etc/powerdns/pdns.conf:ro
+      - ../../configs/pdns-authoritative/named.conf:/etc/powerdns/named.conf:ro
+      - ../../configs/pdns-authoritative/zones:/etc/powerdns/zones:ro
     networks:
       dnsnet:
         aliases:

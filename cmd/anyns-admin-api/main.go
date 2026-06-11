@@ -9,6 +9,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/anyns/anyns/internal/adminapi"
+	"github.com/anyns/anyns/internal/adminui"
 	"github.com/anyns/anyns/internal/app"
 	"github.com/anyns/anyns/internal/config"
 	"github.com/anyns/anyns/internal/controlplane"
@@ -59,6 +61,7 @@ func newAdminMux(application *app.App, cfg config.Config) *http.ServeMux {
 		})
 	})
 	controlplane.RegisterHandlers(mux, application, &cfg, controlplane.ScopeAdmin)
+	adminapi.Register(mux, application, &cfg)
 	mux.HandleFunc("/api/v1/policies/reload", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			httpapi.Error(w, http.StatusMethodNotAllowed, "method not allowed")
@@ -179,6 +182,7 @@ func newAdminMux(application *app.App, cfg config.Config) *http.ServeMux {
 		})
 		httpapi.WriteJSON(w, http.StatusOK, result)
 	})
+	mux.Handle("/", adminui.Handler())
 	return mux
 }
 
