@@ -41,7 +41,11 @@ cleanup() {
 }
 trap cleanup EXIT
 
-docker compose -p "$PROJECT" -f "$COMPOSE_FILE" pull --policy always --ignore-buildable
+docker compose -p "$PROJECT" -f "$COMPOSE_FILE" pull --policy always \
+  backend-fixtures \
+  pdns-authoritative \
+  pdns-recursor \
+  bind-latest
 docker compose -p "$PROJECT" -f "$COMPOSE_FILE" build --pull --no-cache
 docker compose -p "$PROJECT" -f "$COMPOSE_FILE" up -d --no-build
 
