@@ -423,7 +423,7 @@ tools 'grep -q "\"by_rcode\"" /tmp/runtime-audit-summary.json'
 tools 'grep -q "\"NOERROR\":" /tmp/runtime-audit-summary.json'
 tools 'grep -q "\"forward_to_honeypot\":" /tmp/runtime-audit-summary.json'
 
-tools 'curl -fsS -X POST http://anyns-plugin-runtime:8081/api/v1/resolve -H "Content-Type: application/json" -d "{\"qname\":\"blocked.integration.test\",\"qtype\":\"A\",\"context\":{\"trace_id\":\"docker-denylist\",\"client_ip\":\"192.0.2.56\",\"client_view\":\"default\",\"tenant\":\"default\"}}" | tee /tmp/runtime-denylist.json'
+tools 'status=$(curl -sS -X POST -o /tmp/runtime-denylist.json -w "%{http_code}" http://anyns-plugin-runtime:8081/api/v1/resolve -H "Content-Type: application/json" -d "{\"qname\":\"blocked.integration.test\",\"qtype\":\"A\",\"context\":{\"trace_id\":\"docker-denylist\",\"client_ip\":\"192.0.2.56\",\"client_view\":\"default\",\"tenant\":\"default\"}}"); test "$status" = "403"'
 tools 'grep -q "\"rcode\":\"SERVFAIL\"" /tmp/runtime-denylist.json'
 tools 'grep -q "\"rule\":\"denylist-domain\"" /tmp/runtime-denylist.json'
 
