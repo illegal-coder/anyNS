@@ -169,7 +169,7 @@ tools 'grep -q "status: NXDOMAIN" /tmp/pdns-missing-hns.txt'
 tools 'dig +time=2 +tries=1 @pdns-recursor example.bit A | tee /tmp/pdns-example-bit.txt'
 tools 'grep -q "198.51.100.77" /tmp/pdns-example-bit.txt'
 tools 'dig +time=2 +tries=1 @pdns-recursor example.bit DS | tee /tmp/pdns-example-bit-ds.txt'
-tools 'grep -q "12345 13 2 0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF" /tmp/pdns-example-bit-ds.txt'
+tools 'tr -d "[:space:]" < /tmp/pdns-example-bit-ds.txt | grep -q "123451320123456789ABCDEF0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF"'
 tools 'dig +time=2 +tries=1 @pdns-recursor example.bit CAA | tee /tmp/pdns-example-bit-caa.txt'
 tools 'grep -q "0 issue \"letsencrypt.org\"" /tmp/pdns-example-bit-caa.txt'
 
