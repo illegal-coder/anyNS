@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"os"
@@ -266,7 +267,11 @@ func TestRevokeSurfacesReloadFailureAfterConfigWrite(t *testing.T) {
 }
 
 func TestRotateAddsSuccessorWithCopiedAuthorizationMetadata(t *testing.T) {
-	path := writeTestConfig(t, `{
+	now := time.Now().UTC().Truncate(time.Second)
+	currentExpiry := now.Add(30 * 24 * time.Hour).Format(time.RFC3339)
+	successorNotBefore := now.Add(24 * time.Hour).Format(time.RFC3339)
+	successorExpiry := now.Add(120 * 24 * time.Hour).Format(time.RFC3339)
+	path := writeTestConfig(t, fmt.Sprintf(`{
 		"management": {
 			"auth_required": true,
 			"roles": [
@@ -278,11 +283,11 @@ func TestRotateAddsSuccessorWithCopiedAuthorizationMetadata(t *testing.T) {
 					"api_key": "old-secret",
 					"roles": ["ops-reader"],
 					"allowed_client_cidrs": ["127.0.0.1/32"],
-					"expires_at": "2026-06-10T00:00:00Z"
+					"expires_at": %q
 				}
 			]
 		}
-	}`)
+	}`, currentExpiry))
 
 	var out bytes.Buffer
 	err := run([]string{
@@ -291,8 +296,8 @@ func TestRotateAddsSuccessorWithCopiedAuthorizationMetadata(t *testing.T) {
 		"--id", "ops-read",
 		"--new-id", "ops-read-next",
 		"--api-key", "new-secret",
-		"--not-before", "2026-06-05T00:00:00Z",
-		"--expires-at", "2026-09-05T00:00:00Z",
+		"--not-before", successorNotBefore,
+		"--expires-at", successorExpiry,
 	}, &out)
 	if err != nil {
 		t.Fatalf("rotate: %v", err)
@@ -316,8 +321,8 @@ func TestRotateAddsSuccessorWithCopiedAuthorizationMetadata(t *testing.T) {
 		successor.APIKey != "new-secret" ||
 		successor.Roles[0] != "ops-reader" ||
 		successor.AllowedClientCIDRs[0] != "127.0.0.1/32" ||
-		successor.NotBefore != "2026-06-05T00:00:00Z" ||
-		successor.ExpiresAt != "2026-09-05T00:00:00Z" {
+		successor.NotBefore != successorNotBefore ||
+		successor.ExpiresAt != successorExpiry {
 		t.Fatalf("successor key = %#v", successor)
 	}
 	if cfg.Management.Keys[0].RevokedAt != "" {
