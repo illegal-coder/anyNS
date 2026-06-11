@@ -614,6 +614,7 @@ func TestNamecoinJSONRPCBackendNameNotFoundReturnsNXDomain(t *testing.T) {
 }
 
 func TestNamecoinJSONRPCBackendMapsDSAndWildcardTLSA(t *testing.T) {
+	const dsDigest = "0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF"
 	plugin := New("namecoin-bit", []string{".bit"})
 	plugin.SetEnabled(true)
 	plugin.ConfigureBackend(BackendConfig{
@@ -624,7 +625,7 @@ func TestNamecoinJSONRPCBackendMapsDSAndWildcardTLSA(t *testing.T) {
 				"ip": "203.0.113.9",
 				"ns": "ns1.example.bit",
 				"ds": []any{
-					[]any{12345, 13, 2, "ABCD1234"},
+					[]any{12345, 13, 2, dsDigest},
 				},
 				"map": map[string]any{
 					"*": map[string]any{
@@ -650,7 +651,7 @@ func TestNamecoinJSONRPCBackendMapsDSAndWildcardTLSA(t *testing.T) {
 	if err != nil {
 		t.Fatalf("resolve DS: %v", err)
 	}
-	if len(dsResult.RRSet) != 1 || dsResult.RRSet[0].Type != "DS" || dsResult.RRSet[0].Value != "12345 13 2 ABCD1234" {
+	if len(dsResult.RRSet) != 1 || dsResult.RRSet[0].Type != "DS" || dsResult.RRSet[0].Value != "12345 13 2 "+dsDigest {
 		t.Fatalf("DS result = %#v", dsResult.RRSet)
 	}
 
@@ -660,6 +661,26 @@ func TestNamecoinJSONRPCBackendMapsDSAndWildcardTLSA(t *testing.T) {
 	}
 	if len(tlsaResult.RRSet) != 1 || tlsaResult.RRSet[0].Type != "TLSA" || tlsaResult.RRSet[0].Value != "2 1 0 0102AB" {
 		t.Fatalf("TLSA result = %#v", tlsaResult.RRSet)
+	}
+}
+
+func TestNamecoinTupleRecordRejectsMalformedSecurityRecords(t *testing.T) {
+	tests := []struct {
+		name   string
+		tuple  []any
+		rrType string
+	}{
+		{name: "short DS digest", tuple: []any{float64(12345), float64(13), float64(2), "ABCD1234"}, rrType: "DS"},
+		{name: "non-hex DS digest", tuple: []any{float64(12345), float64(13), float64(2), strings.Repeat("Z", 64)}, rrType: "DS"},
+		{name: "invalid TLSA usage", tuple: []any{float64(4), float64(1), float64(0), "AQI="}, rrType: "TLSA"},
+		{name: "short TLSA SHA-256", tuple: []any{float64(3), float64(1), float64(1), "AQI="}, rrType: "TLSA"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if value, ok := namecoinTupleRecord(tt.tuple, tt.rrType); ok {
+				t.Fatalf("namecoinTupleRecord() = %q, true; want rejected", value)
+			}
+		})
 	}
 }
 

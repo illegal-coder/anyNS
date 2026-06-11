@@ -205,7 +205,7 @@ class Handler(BaseHTTPRequestHandler):
         value = {
             "ip": ["198.51.100.77", "2001:db8::77"],
             "ns": ["ns1.example.bit"],
-            "ds": [[12345, 13, 2, "ABCD1234"]],
+            "ds": [[12345, 13, 2, "0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF"]],
             "caa": [[0, "issue", "letsencrypt.org"]],
             "txt": "docker namecoin fixture",
             "map": {

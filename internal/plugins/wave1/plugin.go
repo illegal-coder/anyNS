@@ -14,6 +14,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -992,10 +993,10 @@ func namecoinPresentationRecord(fields []any, rrType string) string {
 func namecoinTupleRecords(value any, rrType string) []string {
 	switch v := value.(type) {
 	case string:
-		if strings.TrimSpace(v) == "" {
-			return nil
+		if tuple, ok := normalizeNamecoinTuplePresentation(v, rrType); ok {
+			return []string{tuple}
 		}
-		return []string{strings.TrimSpace(v)}
+		return nil
 	case []any:
 		if tuple, ok := namecoinTupleRecord(v, rrType); ok {
 			return []string{tuple}
@@ -1004,8 +1005,8 @@ func namecoinTupleRecords(value any, rrType string) []string {
 		for _, item := range v {
 			switch nested := item.(type) {
 			case string:
-				if strings.TrimSpace(nested) != "" {
-					out = append(out, strings.TrimSpace(nested))
+				if tuple, ok := normalizeNamecoinTuplePresentation(nested, rrType); ok {
+					out = append(out, tuple)
 				}
 			case []any:
 				if tuple, ok := namecoinTupleRecord(nested, rrType); ok {
@@ -1047,6 +1048,54 @@ func namecoinTupleRecord(tuple []any, rrType string) (string, bool) {
 			data = strings.ToUpper(strings.ReplaceAll(data, " ", ""))
 		}
 	}
+	return validateNamecoinTupleRecord(rrType, first, second, third, data)
+}
+
+func normalizeNamecoinTuplePresentation(value, rrType string) (string, bool) {
+	fields := strings.Fields(value)
+	if len(fields) < 4 {
+		return "", false
+	}
+	return validateNamecoinTupleRecord(rrType, fields[0], fields[1], fields[2], strings.Join(fields[3:], ""))
+}
+
+func validateNamecoinTupleRecord(rrType, first, second, third, data string) (string, bool) {
+	numbers := make([]uint64, 3)
+	for i, token := range []string{first, second, third} {
+		value, err := strconv.ParseUint(token, 10, 16)
+		if err != nil {
+			return "", false
+		}
+		numbers[i] = value
+	}
+
+	data = strings.ToUpper(strings.ReplaceAll(strings.TrimSpace(data), " ", ""))
+	decoded, err := hex.DecodeString(data)
+	if err != nil || len(decoded) == 0 {
+		return "", false
+	}
+
+	switch rrType {
+	case "DS":
+		if numbers[0] > 65535 || numbers[1] > 255 || numbers[2] > 255 {
+			return "", false
+		}
+		expectedDigestBytes := map[uint64]int{1: 20, 2: 32, 3: 32, 4: 48}
+		if expected := expectedDigestBytes[numbers[2]]; expected != 0 && len(decoded) != expected {
+			return "", false
+		}
+	case "TLSA":
+		if numbers[0] > 3 || numbers[1] > 1 || numbers[2] > 2 {
+			return "", false
+		}
+		expectedAssociationBytes := map[uint64]int{1: 32, 2: 64}
+		if expected := expectedAssociationBytes[numbers[2]]; expected != 0 && len(decoded) != expected {
+			return "", false
+		}
+	default:
+		return "", false
+	}
+
 	return strings.Join([]string{first, second, third, data}, " "), true
 }
 
