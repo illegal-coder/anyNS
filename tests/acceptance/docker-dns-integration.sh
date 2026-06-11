@@ -355,7 +355,7 @@ tools 'grep -q "eth 0x1111111111111111111111111111111111111111" /tmp/runtime-wal
 
 tools 'curl -fsS -X POST http://anyns-plugin-runtime:8081/api/v1/resolve -H "Content-Type: application/json" -d "{\"qname\":\"wallet.hns\",\"qtype\":\"TYPE262\",\"context\":{\"client_view\":\"default\",\"tenant\":\"default\"}}" | tee /tmp/runtime-type262-hns.json'
 tools 'grep -q "\"type\":\"TYPE262\"" /tmp/runtime-type262-hns.json'
-tools 'grep -q "\\\\# 23" /tmp/runtime-type262-hns.json'
+tools 'grep -q "\\\\# 47" /tmp/runtime-type262-hns.json'
 
 tools 'dig +time=2 +tries=1 @bind-latest example.hns A | tee /tmp/bind-example-hns.txt'
 tools 'grep -q "198.51.100" /tmp/bind-example-hns.txt'
@@ -387,7 +387,7 @@ tools 'grep -q "alpn=\"dot\"" /tmp/bind-svcb-rr.txt'
 
 tools 'dig +time=2 +tries=1 @bind-latest wallet.anyns.test TYPE262 | tee /tmp/bind-wallet-type262.txt'
 tools 'grep -q "status: NOERROR" /tmp/bind-wallet-type262.txt'
-tools 'grep -q "\\\\# 45" /tmp/bind-wallet-type262.txt'
+tools 'grep -q "\\\\# 47" /tmp/bind-wallet-type262.txt'
 
 tools 'dig +time=2 +tries=1 @bind-latest blocked.integration.test A | tee /tmp/bind-plaintext-blocked.txt'
 tools 'grep -q "status: SERVFAIL" /tmp/bind-plaintext-blocked.txt'
