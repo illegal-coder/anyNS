@@ -213,7 +213,7 @@ func (f EventFilter) Matches(event Event) bool {
 	if f.Tenant != "" && event.Tenant != f.Tenant {
 		return false
 	}
-	if f.QName != "" && event.QName != f.QName {
+	if f.QName != "" && !equalQName(event.QName, f.QName) {
 		return false
 	}
 	if f.QNameContains != "" && !strings.Contains(strings.ToLower(event.QName), strings.ToLower(f.QNameContains)) {
@@ -238,6 +238,13 @@ func (f EventFilter) Matches(event Event) bool {
 		return false
 	}
 	return true
+}
+
+func equalQName(left, right string) bool {
+	normalize := func(value string) string {
+		return strings.TrimRight(strings.ToLower(strings.TrimSpace(value)), ".")
+	}
+	return normalize(left) == normalize(right)
 }
 
 func (s *Store) Summary(topN int) Summary {

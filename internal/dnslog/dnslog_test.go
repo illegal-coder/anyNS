@@ -80,6 +80,11 @@ func TestStoreListFilteredSupportsQNameContains(t *testing.T) {
 		t.Fatalf("integration qname_contains events = %#v", events)
 	}
 
+	events = store.ListFiltered(EventFilter{QName: "ALICE.CRYPTO"}, 10)
+	if len(events) != 1 || events[0].TraceID != "two" {
+		t.Fatalf("qname without trailing dot events = %#v", events)
+	}
+
 	if events := store.ListFiltered(EventFilter{QName: "alice.crypto.", QNameContains: "wallet"}, 10); len(events) != 0 {
 		t.Fatalf("exact qname should still narrow qname_contains, got %#v", events)
 	}
