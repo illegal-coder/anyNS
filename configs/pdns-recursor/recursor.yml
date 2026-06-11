@@ -1,0 +1,32 @@
+incoming:
+  listen:
+    - "0.0.0.0:53"
+  allow_from:
+    - "0.0.0.0/0"
+    - "::/0"
+
+recursor:
+  forward_zones:
+    - zone: "anyns.test"
+      forwarders:
+        - "pdns-authoritative:5300"
+  forward_zones_recurse:
+    - zone: "."
+      forwarders:
+        - "1.1.1.1"
+        - "8.8.8.8"
+  system_resolver_ttl: 60
+  lua_dns_script: "/etc/powerdns/recursor.lua"
+
+dnssec:
+  validation: validate
+  negative_trustanchors:
+    - name: "anyns.test"
+      reason: "local Docker integration authoritative zone"
+
+recordcache:
+  max_entries: 100000
+
+logging:
+  quiet: false
+  loglevel: 6
