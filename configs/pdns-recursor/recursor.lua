@@ -125,13 +125,22 @@ local function runtime_resolve(dq)
   return decoded.result
 end
 
+local function answer_value(rr_name, value)
+  value = tostring(value or "")
+  if rr_name == "TXT" then
+    value = value:gsub("\\", "\\\\"):gsub('"', '\\"')
+    return '"' .. value .. '"'
+  end
+  return value
+end
+
 local function add_runtime_answers(dq, result)
   local added = 0
   for _, rr in ipairs(result.rrset or {}) do
     local rr_name = string.upper(tostring(rr.type or ""))
     local rr_type = rr_types[rr_name]
     if rr_type ~= nil then
-      dq:addAnswer(rr_type, rr.value, rr.ttl or result.ttl or 60)
+      dq:addAnswer(rr_type, answer_value(rr_name, rr.value), rr.ttl or result.ttl or 60)
       added = added + 1
     elseif rr_name == "WALLET" or rr_name == "TYPE262" then
       pdnslog("anyNS runtime returned WALLET/TYPE262; configure authoritative TYPE262 handling for this RR", pdns.loglevels.Info)
