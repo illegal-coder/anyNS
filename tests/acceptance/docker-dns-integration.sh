@@ -372,7 +372,9 @@ tools 'grep -q "TLS session" /tmp/bind-dot.txt'
 
 tools 'kdig +https=/dns-query +tls-ca=/certs/ca.crt +tls-hostname=bind-latest @bind-latest example.hns A | tee /tmp/bind-doh.txt'
 tools 'grep -q "198.51.100" /tmp/bind-doh.txt'
-tools 'grep -q "HTTPS session" /tmp/bind-doh.txt'
+tools 'grep -q "TLS session" /tmp/bind-doh.txt'
+tools 'grep -q "HTTP session (HTTP/2-POST)" /tmp/bind-doh.txt'
+tools 'grep -q "status: 200" /tmp/bind-doh.txt'
 
 tools 'if kdig -p 853 +tls-ca=/certs/ca.crt +tls-hostname=wrong.invalid @bind-latest example.hns A >/tmp/bind-dot-wrong-host.txt 2>&1; then echo "FAIL: DoT accepted the wrong certificate hostname"; exit 1; fi'
 
