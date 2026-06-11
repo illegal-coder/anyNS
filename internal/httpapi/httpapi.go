@@ -27,6 +27,10 @@ const (
 	ScopeHoneypotWrite   = "honeypot:write"
 	ScopeManagementRead  = "management:read"
 	ScopeManagementWrite = "management:write"
+	ScopePowerDNSRead    = "powerdns:read"
+	ScopePowerDNSWrite   = "powerdns:write"
+	ScopeConfigRead      = "config:read"
+	ScopeConfigWrite     = "config:write"
 )
 
 type Principal struct {

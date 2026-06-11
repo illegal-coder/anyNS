@@ -31,6 +31,7 @@ type Config struct {
 	Honeypot           HoneypotConfig
 	ControlPlane       ControlPlaneConfig
 	Management         ManagementConfig
+	PowerDNS           PowerDNSConfig
 	ConfigFile         string
 }
 
@@ -67,6 +68,18 @@ type HoneypotConfig struct {
 type ControlPlaneConfig struct {
 	AdminProxyRuntime bool   `json:"admin_proxy_runtime"`
 	RuntimeControlURL string `json:"runtime_control_url"`
+}
+
+type PowerDNSConfig struct {
+	AuthoritativeURL        string        `json:"authoritative_url"`
+	AuthoritativeAPIKey     string        `json:"authoritative_api_key"`
+	AuthoritativeAPIKeyFile string        `json:"authoritative_api_key_file,omitempty"`
+	RecursorURL             string        `json:"recursor_url"`
+	RecursorAPIKey          string        `json:"recursor_api_key"`
+	RecursorAPIKeyFile      string        `json:"recursor_api_key_file,omitempty"`
+	ServerID                string        `json:"server_id"`
+	RequestTimeout          time.Duration `json:"-"`
+	RequestTimeoutSeconds   int           `json:"request_timeout_seconds"`
 }
 
 type ManagementConfig struct {
@@ -114,6 +127,7 @@ type fileConfig struct {
 	Honeypot         fileHoneypotConfig     `json:"honeypot"`
 	ControlPlane     ControlPlaneConfig     `json:"control_plane"`
 	Management       ManagementConfig       `json:"management"`
+	PowerDNS         filePowerDNSConfig     `json:"powerdns"`
 	Extra            map[string]interface{} `json:"-"`
 }
 
@@ -128,6 +142,17 @@ type fileHoneypotConfig struct {
 	RetryInterval         durationOrSeconds `json:"retry_interval"`
 	MaxAttempts           int               `json:"max_attempts"`
 	RequestTimeout        durationOrSeconds `json:"request_timeout"`
+}
+
+type filePowerDNSConfig struct {
+	AuthoritativeURL        string            `json:"authoritative_url"`
+	AuthoritativeAPIKey     string            `json:"authoritative_api_key"`
+	AuthoritativeAPIKeyFile string            `json:"authoritative_api_key_file"`
+	RecursorURL             string            `json:"recursor_url"`
+	RecursorAPIKey          string            `json:"recursor_api_key"`
+	RecursorAPIKeyFile      string            `json:"recursor_api_key_file"`
+	ServerID                string            `json:"server_id"`
+	RequestTimeout          durationOrSeconds `json:"request_timeout"`
 }
 
 type durationOrSeconds struct {
@@ -187,6 +212,15 @@ func Default() Config {
 		Management: ManagementConfig{
 			APIKey:       env("ANYNS_MANAGEMENT_API_KEY", ""),
 			AuthRequired: envBool("ANYNS_MANAGEMENT_AUTH_REQUIRED", false),
+		},
+		PowerDNS: PowerDNSConfig{
+			AuthoritativeURL:      env("ANYNS_PDNS_AUTH_URL", ""),
+			AuthoritativeAPIKey:   env("PDNS_AUTH_API_KEY", ""),
+			RecursorURL:           env("ANYNS_PDNS_RECURSOR_URL", ""),
+			RecursorAPIKey:        env("PDNS_RECURSOR_API_KEY", ""),
+			ServerID:              env("ANYNS_PDNS_SERVER_ID", "localhost"),
+			RequestTimeout:        time.Duration(envInt("ANYNS_PDNS_REQUEST_TIMEOUT_SECONDS", 5)) * time.Second,
+			RequestTimeoutSeconds: envInt("ANYNS_PDNS_REQUEST_TIMEOUT_SECONDS", 5),
 		},
 	}
 }
@@ -295,6 +329,7 @@ func LoadWithBase(r io.Reader, cfg *Config, baseDir string) error {
 	if len(raw.Management.Keys) > 0 {
 		cfg.Management.Keys = raw.Management.Keys
 	}
+	applyPowerDNS(raw.PowerDNS, cfg)
 	if err := resolveSecretFiles(cfg, baseDir); err != nil {
 		return err
 	}
@@ -335,6 +370,24 @@ func (cfg Config) Validate() error {
 	}
 	if cfg.ControlPlane.RuntimeControlURL != "" && !validHTTPURL(cfg.ControlPlane.RuntimeControlURL) {
 		problems = append(problems, "control_plane.runtime_control_url must be an http or https URL with a host")
+	}
+	if cfg.PowerDNS.AuthoritativeURL != "" && !validHTTPURL(cfg.PowerDNS.AuthoritativeURL) {
+		problems = append(problems, "powerdns.authoritative_url must be an http or https URL with a host")
+	}
+	if cfg.PowerDNS.RecursorURL != "" && !validHTTPURL(cfg.PowerDNS.RecursorURL) {
+		problems = append(problems, "powerdns.recursor_url must be an http or https URL with a host")
+	}
+	if strings.TrimSpace(cfg.PowerDNS.ServerID) == "" {
+		problems = append(problems, "powerdns.server_id is required")
+	}
+	if cfg.PowerDNS.RequestTimeout <= 0 {
+		problems = append(problems, "powerdns.request_timeout must be greater than zero")
+	}
+	if strings.TrimSpace(cfg.PowerDNS.AuthoritativeAPIKey) != "" && strings.TrimSpace(cfg.PowerDNS.AuthoritativeAPIKeyFile) != "" {
+		problems = append(problems, "powerdns must not set both authoritative_api_key and authoritative_api_key_file")
+	}
+	if strings.TrimSpace(cfg.PowerDNS.RecursorAPIKey) != "" && strings.TrimSpace(cfg.PowerDNS.RecursorAPIKeyFile) != "" {
+		problems = append(problems, "powerdns must not set both recursor_api_key and recursor_api_key_file")
 	}
 
 	pluginNames := make(map[string]bool, len(cfg.Plugins))
@@ -525,7 +578,9 @@ func supportedManagementScope(scope string) bool {
 		"policy:write",
 		"audit:read",
 		"honeypot:read", "honeypot:write",
-		"management:read", "management:write":
+		"management:read", "management:write",
+		"powerdns:read", "powerdns:write",
+		"config:read", "config:write":
 		return true
 	default:
 		return false
@@ -733,6 +788,34 @@ func applyHoneypot(raw fileHoneypotConfig, cfg *Config) {
 	}
 }
 
+func applyPowerDNS(raw filePowerDNSConfig, cfg *Config) {
+	if raw.AuthoritativeURL != "" {
+		cfg.PowerDNS.AuthoritativeURL = raw.AuthoritativeURL
+	}
+	if raw.AuthoritativeAPIKey != "" {
+		cfg.PowerDNS.AuthoritativeAPIKey = raw.AuthoritativeAPIKey
+	}
+	if raw.AuthoritativeAPIKeyFile != "" {
+		cfg.PowerDNS.AuthoritativeAPIKeyFile = raw.AuthoritativeAPIKeyFile
+	}
+	if raw.RecursorURL != "" {
+		cfg.PowerDNS.RecursorURL = raw.RecursorURL
+	}
+	if raw.RecursorAPIKey != "" {
+		cfg.PowerDNS.RecursorAPIKey = raw.RecursorAPIKey
+	}
+	if raw.RecursorAPIKeyFile != "" {
+		cfg.PowerDNS.RecursorAPIKeyFile = raw.RecursorAPIKeyFile
+	}
+	if raw.ServerID != "" {
+		cfg.PowerDNS.ServerID = raw.ServerID
+	}
+	if raw.RequestTimeout.Duration > 0 {
+		cfg.PowerDNS.RequestTimeout = raw.RequestTimeout.Duration
+		cfg.PowerDNS.RequestTimeoutSeconds = int(raw.RequestTimeout.Duration.Seconds())
+	}
+}
+
 func resolveSecretFiles(cfg *Config, baseDir string) error {
 	for i := range cfg.Plugins {
 		secret, err := readSecretFile("plugins["+strconv.Itoa(i)+"].backend_api_key", cfg.Plugins[i].BackendAPIKey, cfg.Plugins[i].BackendAPIKeyFile, baseDir)
@@ -779,6 +862,22 @@ func resolveSecretFiles(cfg *Config, baseDir string) error {
 			cfg.Management.Keys[i].APIKey = secret
 			cfg.Management.Keys[i].APIKeyFile = ""
 		}
+	}
+	secret, err = readSecretFile("powerdns.authoritative_api_key", cfg.PowerDNS.AuthoritativeAPIKey, cfg.PowerDNS.AuthoritativeAPIKeyFile, baseDir)
+	if err != nil {
+		return err
+	}
+	if secret != "" {
+		cfg.PowerDNS.AuthoritativeAPIKey = secret
+		cfg.PowerDNS.AuthoritativeAPIKeyFile = ""
+	}
+	secret, err = readSecretFile("powerdns.recursor_api_key", cfg.PowerDNS.RecursorAPIKey, cfg.PowerDNS.RecursorAPIKeyFile, baseDir)
+	if err != nil {
+		return err
+	}
+	if secret != "" {
+		cfg.PowerDNS.RecursorAPIKey = secret
+		cfg.PowerDNS.RecursorAPIKeyFile = ""
 	}
 	return nil
 }
@@ -828,6 +927,13 @@ func applyEnvOverrides(cfg Config) Config {
 	cfg.ControlPlane.RuntimeControlURL = env("ANYNS_RUNTIME_CONTROL_URL", cfg.ControlPlane.RuntimeControlURL)
 	cfg.Management.APIKey = env("ANYNS_MANAGEMENT_API_KEY", cfg.Management.APIKey)
 	cfg.Management.AuthRequired = envBool("ANYNS_MANAGEMENT_AUTH_REQUIRED", cfg.Management.AuthRequired)
+	cfg.PowerDNS.AuthoritativeURL = env("ANYNS_PDNS_AUTH_URL", cfg.PowerDNS.AuthoritativeURL)
+	cfg.PowerDNS.AuthoritativeAPIKey = env("PDNS_AUTH_API_KEY", cfg.PowerDNS.AuthoritativeAPIKey)
+	cfg.PowerDNS.RecursorURL = env("ANYNS_PDNS_RECURSOR_URL", cfg.PowerDNS.RecursorURL)
+	cfg.PowerDNS.RecursorAPIKey = env("PDNS_RECURSOR_API_KEY", cfg.PowerDNS.RecursorAPIKey)
+	cfg.PowerDNS.ServerID = env("ANYNS_PDNS_SERVER_ID", cfg.PowerDNS.ServerID)
+	cfg.PowerDNS.RequestTimeout = envDuration("ANYNS_PDNS_REQUEST_TIMEOUT_SECONDS", cfg.PowerDNS.RequestTimeout)
+	cfg.PowerDNS.RequestTimeoutSeconds = int(cfg.PowerDNS.RequestTimeout.Seconds())
 	return cfg
 }
 
