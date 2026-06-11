@@ -73,7 +73,7 @@ services:
           - backend-fixtures
 
   pdns-authoritative:
-    image: powerdns/pdns-auth-49:4.9.4
+    image: powerdns/pdns-auth-50:5.0.5
     command:
       [
         "--config-dir=/etc/powerdns",
@@ -88,7 +88,7 @@ services:
           - pdns-authoritative
 
   pdns-recursor:
-    image: powerdns/pdns-recursor-51:5.1.3
+    image: powerdns/pdns-recursor-54:5.4.2
     command: ["--config-dir=/etc/powerdns"]
     environment:
       ANYNS_RUNTIME_ENDPOINT: http://anyns-plugin-runtime:8081/api/v1/resolve
@@ -109,9 +109,11 @@ services:
 
   bind-latest:
     image: ${BIND_IMAGE:-internetsystemsconsortium/bind9:9.20}
-    command: ["-g", "-c", "/etc/bind/named.conf"]
+    entrypoint: ["/bin/sh", "/etc/bind/entrypoint.sh"]
+    command: ["-g"]
     volumes:
-      - ./bind/named.conf:/etc/bind/named.conf:ro
+      - ./bind/entrypoint.sh:/etc/bind/entrypoint.sh:ro
+      - ./bind/named.conf:/etc/bind/named.conf.template:ro
       - bind-test-certs:/etc/bind/certs:ro
     depends_on:
       bind-certgen:
