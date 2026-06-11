@@ -41,26 +41,31 @@ cleanup() {
 }
 trap cleanup EXIT
 
-docker compose -p "$PROJECT" -f "$COMPOSE_FILE" up -d --build
+docker compose -p "$PROJECT" -f "$COMPOSE_FILE" pull --policy always --ignore-buildable
+docker compose -p "$PROJECT" -f "$COMPOSE_FILE" build --pull --no-cache
+docker compose -p "$PROJECT" -f "$COMPOSE_FILE" up -d --no-build
 
 tools() {
   docker compose -p "$PROJECT" -f "$COMPOSE_FILE" exec -T dns-tools sh -lc "$*"
 }
 
-tools 'apk add --no-cache bind-tools curl >/dev/null'
-
 for _ in $(seq 1 60); do
-  if tools 'curl -fsS http://anyns-plugin-runtime:8081/healthz >/dev/null && curl -fsS http://anyns-admin-api:8080/healthz >/dev/null && curl -fsS http://anyns-log-forwarder:8082/healthz >/dev/null' >/dev/null 2>&1; then
+  if tools 'curl -fsS http://anyns-plugin-runtime:8081/healthz >/dev/null && curl -fsS http://anyns-admin-api:8080/healthz >/dev/null && curl -fsS http://anyns-log-forwarder:8082/healthz >/dev/null && dig +time=1 +tries=1 @bind-latest example.hns A >/dev/null' >/dev/null 2>&1; then
     break
   fi
   sleep 1
 done
 
-if ! tools 'curl -fsS http://anyns-plugin-runtime:8081/healthz >/dev/null && curl -fsS http://anyns-admin-api:8080/healthz >/dev/null && curl -fsS http://anyns-log-forwarder:8082/healthz >/dev/null'; then
-  echo "FAIL: anyns runtime/admin/log-forwarder did not become healthy"
-  docker compose -p "$PROJECT" -f "$COMPOSE_FILE" logs --no-color anyns-plugin-runtime anyns-admin-api anyns-log-forwarder backend-fixtures pdns-recursor bind-latest || true
+if ! tools 'curl -fsS http://anyns-plugin-runtime:8081/healthz >/dev/null && curl -fsS http://anyns-admin-api:8080/healthz >/dev/null && curl -fsS http://anyns-log-forwarder:8082/healthz >/dev/null && dig +time=1 +tries=1 @bind-latest example.hns A >/dev/null'; then
+  echo "FAIL: Docker DNS integration services did not become healthy"
+  docker compose -p "$PROJECT" -f "$COMPOSE_FILE" logs --no-color bind-certgen anyns-plugin-runtime anyns-admin-api anyns-log-forwarder backend-fixtures pdns-authoritative pdns-recursor bind-latest dns-tools || true
   exit 1
 fi
+
+BIND_VERSION="$(docker compose -p "$PROJECT" -f "$COMPOSE_FILE" exec -T bind-latest named -v)"
+echo "BIND under test: $BIND_VERSION"
+grep -Eq 'BIND 9\.20\.[0-9]+ \(Stable Release\)' <<<"$BIND_VERSION"
+tools 'openssl verify -CAfile /certs/ca.crt /certs/server.crt'
 
 tools 'status=$(curl -sS -o /tmp/admin-boundary-unauth.json -w "%{http_code}" http://anyns-admin-api:8080/api/v1/control-plane/boundary); test "$status" = "401"'
 tools 'curl -fsS -H "'"$AUTH_HEADER"'" http://anyns-admin-api:8080/api/v1/control-plane/boundary | tee /tmp/admin-boundary.json'
@@ -351,6 +356,42 @@ tools 'grep -q "\\\\# 23" /tmp/runtime-type262-hns.json'
 
 tools 'dig +time=2 +tries=1 @bind-latest example.hns A | tee /tmp/bind-example-hns.txt'
 tools 'grep -q "198.51.100" /tmp/bind-example-hns.txt'
+
+tools 'dig +notcp +time=2 +tries=1 @bind-latest example.hns A | tee /tmp/bind-plaintext-udp.txt'
+tools 'grep -q "198.51.100" /tmp/bind-plaintext-udp.txt'
+
+tools 'dig +tcp +time=2 +tries=1 @bind-latest example.hns A | tee /tmp/bind-plaintext-tcp.txt'
+tools 'grep -q "198.51.100" /tmp/bind-plaintext-tcp.txt'
+
+tools 'kdig -p 853 +tls-ca=/certs/ca.crt +tls-hostname=bind-latest @bind-latest example.hns A | tee /tmp/bind-dot.txt'
+tools 'grep -q "198.51.100" /tmp/bind-dot.txt'
+tools 'grep -q "TLS session" /tmp/bind-dot.txt'
+
+tools 'kdig +https=/dns-query +tls-ca=/certs/ca.crt +tls-hostname=bind-latest @bind-latest example.hns A | tee /tmp/bind-doh.txt'
+tools 'grep -q "198.51.100" /tmp/bind-doh.txt'
+tools 'grep -q "HTTPS session" /tmp/bind-doh.txt'
+
+tools 'if kdig -p 853 +tls-ca=/certs/ca.crt +tls-hostname=wrong.invalid @bind-latest example.hns A >/tmp/bind-dot-wrong-host.txt 2>&1; then echo "FAIL: DoT accepted the wrong certificate hostname"; exit 1; fi'
+
+tools 'dig +time=2 +tries=1 @bind-latest svc.anyns.test HTTPS | tee /tmp/bind-https-rr.txt'
+tools 'grep -q "alpn=\"h2,h3\"" /tmp/bind-https-rr.txt'
+tools 'grep -q "ipv4hint=192.0.2.53" /tmp/bind-https-rr.txt'
+
+tools 'dig +time=2 +tries=1 @bind-latest svc.anyns.test SVCB | tee /tmp/bind-svcb-rr.txt'
+tools 'grep -q "alpn=\"dot\"" /tmp/bind-svcb-rr.txt'
+
+tools 'dig +time=2 +tries=1 @bind-latest wallet.anyns.test TYPE262 | tee /tmp/bind-wallet-type262.txt'
+tools 'grep -q "status: NOERROR" /tmp/bind-wallet-type262.txt'
+tools 'grep -q "\\\\# 45" /tmp/bind-wallet-type262.txt'
+
+tools 'dig +time=2 +tries=1 @bind-latest blocked.integration.test A | tee /tmp/bind-plaintext-blocked.txt'
+tools 'grep -q "status: SERVFAIL" /tmp/bind-plaintext-blocked.txt'
+
+tools 'kdig -p 853 +tls-ca=/certs/ca.crt +tls-hostname=bind-latest @bind-latest sinkhole.integration.test A | tee /tmp/bind-dot-sinkhole.txt'
+tools 'grep -q "198.51.100.254" /tmp/bind-dot-sinkhole.txt'
+
+tools 'kdig +https=/dns-query +tls-ca=/certs/ca.crt +tls-hostname=bind-latest @bind-latest blocked.integration.test A | tee /tmp/bind-doh-blocked.txt'
+tools 'grep -q "SERVFAIL" /tmp/bind-doh-blocked.txt'
 
 tools 'dig +time=2 +tries=1 @bind-latest example.com A | tee /tmp/bind-example-com.txt'
 tools 'grep -Eq "status: NOERROR|status: SERVFAIL" /tmp/bind-example-com.txt'

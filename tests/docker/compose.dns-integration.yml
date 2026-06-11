@@ -1,6 +1,15 @@
 name: anyns-dns-integration
 
 services:
+  bind-certgen:
+    build:
+      context: ./certgen
+    image: anyns/bind-certgen:integration
+    volumes:
+      - bind-test-certs:/certs
+    networks:
+      - dnsnet
+
   anyns-plugin-runtime:
     build:
       context: ../..
@@ -63,6 +72,21 @@ services:
         aliases:
           - backend-fixtures
 
+  pdns-authoritative:
+    image: powerdns/pdns-auth-49:4.9.4
+    command:
+      [
+        "--config-dir=/etc/powerdns",
+        "--api-key=docker-integration",
+        "--webserver-password=docker-integration",
+      ]
+    volumes:
+      - ../../configs/pdns-authoritative:/etc/powerdns:ro
+    networks:
+      dnsnet:
+        aliases:
+          - pdns-authoritative
+
   pdns-recursor:
     image: powerdns/pdns-recursor-51:5.1.3
     command: ["--config-dir=/etc/powerdns"]
@@ -74,7 +98,10 @@ services:
     volumes:
       - ../../configs/pdns-recursor:/etc/powerdns:ro
     depends_on:
-      - anyns-plugin-runtime
+      anyns-plugin-runtime:
+        condition: service_started
+      pdns-authoritative:
+        condition: service_started
     networks:
       dnsnet:
         aliases:
@@ -85,21 +112,33 @@ services:
     command: ["-g", "-c", "/etc/bind/named.conf"]
     volumes:
       - ./bind/named.conf:/etc/bind/named.conf:ro
+      - bind-test-certs:/etc/bind/certs:ro
     depends_on:
-      - pdns-recursor
+      bind-certgen:
+        condition: service_completed_successfully
+      pdns-recursor:
+        condition: service_started
     networks:
       dnsnet:
         aliases:
           - bind-latest
 
   dns-tools:
-    image: alpine:3.20
+    build:
+      context: ./dns-tools
+    image: anyns/dns-tools:integration
     command: ["sleep", "infinity"]
+    volumes:
+      - bind-test-certs:/certs:ro
     depends_on:
-      - bind-latest
+      bind-latest:
+        condition: service_started
     networks:
       - dnsnet
 
 networks:
   dnsnet:
     driver: bridge
+
+volumes:
+  bind-test-certs:
