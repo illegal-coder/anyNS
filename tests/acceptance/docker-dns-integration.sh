@@ -387,7 +387,7 @@ tools 'grep -q "alpn=\"dot\"" /tmp/bind-svcb-rr.txt'
 
 tools 'dig +time=2 +tries=1 @bind-latest wallet.anyns.test TYPE262 | tee /tmp/bind-wallet-type262.txt'
 tools 'grep -q "status: NOERROR" /tmp/bind-wallet-type262.txt'
-tools 'grep -q "\\\\# 47" /tmp/bind-wallet-type262.txt'
+tools 'grep -q "\"eth\" \"0x0000000000000000000000000000000000000000\"" /tmp/bind-wallet-type262.txt'
 
 tools 'dig +time=2 +tries=1 @bind-latest blocked.integration.test A | tee /tmp/bind-plaintext-blocked.txt'
 tools 'grep -q "status: SERVFAIL" /tmp/bind-plaintext-blocked.txt'
