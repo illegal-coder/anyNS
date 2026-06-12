@@ -27,18 +27,20 @@ import {
   X,
 } from "lucide-react";
 import { api, getToken, setToken } from "./api";
+import { featureAccess, normalizeCapabilities, visibleNavigation } from "./capabilities";
 
 const navigation = [
-  { id: "overview", label: "总览", icon: Gauge },
-  { id: "powerdns", label: "PowerDNS", icon: Layers3 },
-  { id: "plugins", label: "插件", icon: Blocks },
-  { id: "security", label: "DNS 安全", icon: ShieldCheck },
-  { id: "audit", label: "审计日志", icon: FileClock },
-  { id: "config", label: "配置", icon: Settings },
+  { id: "overview", capability: "overview", label: "总览", icon: Gauge },
+  { id: "powerdns", capability: "powerdns", label: "PowerDNS", icon: Layers3 },
+  { id: "plugins", capability: "plugins", label: "插件", icon: Blocks },
+  { id: "security", capability: "security", label: "DNS 安全", icon: ShieldCheck },
+  { id: "audit", capability: "audit", label: "审计日志", icon: FileClock },
+  { id: "config", capability: "config", label: "配置", icon: Settings },
 ];
 
 function App() {
   const [page, setPage] = useState("overview");
+  const [capabilities, setCapabilities] = useState(() => normalizeCapabilities(null));
   const [dashboard, setDashboard] = useState(null);
   const [configuration, setConfiguration] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -52,7 +54,14 @@ function App() {
     quiet ? setRefreshing(true) : setLoading(true);
     setError("");
     try {
-      const data = await api("/api/v1/dashboard?event_limit=50");
+      const [capabilityPayload, data] = await Promise.all([
+        api("/api/v1/capabilities").catch((capabilityError) => {
+          if (capabilityError.status === 404) return null;
+          throw capabilityError;
+        }),
+        api("/api/v1/dashboard?event_limit=50"),
+      ]);
+      setCapabilities(normalizeCapabilities(capabilityPayload));
       setDashboard(data);
       setConfiguration(data.configuration);
     } catch (loadError) {
@@ -70,6 +79,17 @@ function App() {
   useEffect(() => {
     load();
   }, [load]);
+
+  const navigationItems = useMemo(
+    () => visibleNavigation(navigation, capabilities),
+    [capabilities],
+  );
+
+  useEffect(() => {
+    if (!navigationItems.some((item) => item.id === page)) {
+      setPage(navigationItems[0]?.id || "overview");
+    }
+  }, [navigationItems, page]);
 
   const mutate = async (action, message) => {
     setError("");
@@ -93,7 +113,7 @@ function App() {
     }, "配置已保存并触发运行时重载");
   };
 
-  const activeItem = navigation.find((item) => item.id === page);
+  const activeItem = navigationItems.find((item) => item.id === page);
   const contentProps = {
     dashboard,
     configuration,
@@ -101,11 +121,13 @@ function App() {
     mutate,
     load,
     saveConfiguration,
+    capabilities,
   };
 
   return (
     <div className="app-shell">
       <Sidebar
+        items={navigationItems}
         page={page}
         setPage={setPage}
         open={sidebarOpen}
@@ -155,7 +177,7 @@ function App() {
   );
 }
 
-function Sidebar({ page, setPage, open, onClose }) {
+function Sidebar({ items, page, setPage, open, onClose }) {
   return (
     <>
       {open && <button className="sidebar-scrim" onClick={onClose} aria-label="关闭导航" />}
@@ -165,14 +187,20 @@ function Sidebar({ page, setPage, open, onClose }) {
           <div><strong>anyNS</strong><span>Control Plane</span></div>
         </div>
         <nav>
-          {navigation.map(({ id, label, icon: Icon }) => (
+          {items.map(({ id, label, icon: Icon, access }) => (
             <button
               key={id}
-              className={page === id ? "active" : ""}
+              className={[
+                page === id ? "active" : "",
+                access.mode === "readonly" ? "nav-readonly" : "",
+                access.mode === "unavailable" ? "nav-unavailable" : "",
+              ].filter(Boolean).join(" ")}
               onClick={() => { setPage(id); onClose(); }}
+              title={access.mode === "readwrite" ? label : `${label}：${access.mode === "unavailable" ? "后端未配置" : "只读"}`}
             >
               <Icon size={19} />
               <span>{label}</span>
+              {access.mode !== "readwrite" && <small className="nav-mode">{access.mode === "unavailable" ? "未配置" : "只读"}</small>}
               {id === "powerdns" && <ChevronRight size={15} className="nav-chevron" />}
             </button>
           ))}
@@ -186,7 +214,12 @@ function Sidebar({ page, setPage, open, onClose }) {
   );
 }
 
-function Overview({ dashboard, mutate, setPage }) {
+function Overview({ dashboard, mutate, setPage, capabilities }) {
+  const canFlushCache = featureAccess(capabilities, "cache").write;
+  const canReloadPolicy = featureAccess(capabilities, "policy").write;
+  const canReadAudit = featureAccess(capabilities, "audit").read;
+  const canReadPowerDNS = featureAccess(capabilities, "powerdns").read;
+  const canReadPlugins = featureAccess(capabilities, "plugins").read;
   const powerdns = dashboard?.services?.powerdns || {};
   const events = dashboard?.recent_events || [];
   const plugins = dashboard?.plugins || [];
@@ -201,11 +234,11 @@ function Overview({ dashboard, mutate, setPage }) {
           <p>统一查看 PowerDNS、anyNS 插件和安全策略的实时状态。</p>
         </div>
         <div className="action-row">
-          <button className="button secondary" onClick={() => mutate(
+          <button className="button secondary" disabled={!canFlushCache} onClick={() => mutate(
             () => api("/api/v1/cache/flush", { method: "POST" }),
             "anyNS 插件缓存已清理",
           )}><RotateCcw size={16} />清理插件缓存</button>
-          <button className="button primary" onClick={() => mutate(
+          <button className="button primary" disabled={!canReloadPolicy} onClick={() => mutate(
             () => api("/api/v1/policies/reload", { method: "POST" }),
             "策略已重新加载",
           )}><RefreshCw size={16} />重新加载策略</button>
@@ -219,17 +252,17 @@ function Overview({ dashboard, mutate, setPage }) {
           className="traffic-panel"
           title="DNS 请求活动"
           subtitle={`当前缓冲 ${dashboard?.audit_summary?.total || 0} 条事件`}
-          action={<button className="text-button" onClick={() => setPage("audit")}>查看全部</button>}
+          action={canReadAudit ? <button className="text-button" onClick={() => setPage("audit")}>查看全部</button> : null}
         >
           <TrafficChart events={events} />
         </Panel>
-        <Panel title="近期安全事件" subtitle="按时间倒序" action={<button className="text-button" onClick={() => setPage("audit")}>查看全部</button>}>
+        <Panel title="近期安全事件" subtitle="按时间倒序" action={canReadAudit ? <button className="text-button" onClick={() => setPage("audit")}>查看全部</button> : null}>
           <EventList events={events.slice(0, 7)} />
         </Panel>
-        <Panel title="PowerDNS Zones" subtitle={`${zones.length} 个权威区域`} action={<button className="text-button" onClick={() => setPage("powerdns")}>管理区域</button>}>
+        <Panel title="PowerDNS Zones" subtitle={`${zones.length} 个权威区域`} action={canReadPowerDNS ? <button className="text-button" onClick={() => setPage("powerdns")}>管理区域</button> : null}>
           <ZoneTable zones={zones.slice(0, 6)} compact />
         </Panel>
-        <Panel title="anyNS 插件" subtitle={`${plugins.filter((item) => item.enabled).length}/${plugins.length} 已启用`} action={<button className="text-button" onClick={() => setPage("plugins")}>管理插件</button>}>
+        <Panel title="anyNS 插件" subtitle={`${plugins.filter((item) => item.enabled).length}/${plugins.length} 已启用`} action={canReadPlugins ? <button className="text-button" onClick={() => setPage("plugins")}>管理插件</button> : null}>
           <PluginTable plugins={plugins.slice(0, 7)} compact />
         </Panel>
       </div>
@@ -301,7 +334,9 @@ function ServiceStrip({ dashboard }) {
   );
 }
 
-function PowerDNSPage({ dashboard, mutate }) {
+function PowerDNSPage({ dashboard, mutate, capabilities }) {
+  const access = featureAccess(capabilities, "powerdns");
+  const canWrite = access.available && access.write;
   const snapshot = dashboard?.services?.powerdns || {};
   const zones = snapshot.authoritative?.zones || [];
   const [zoneName, setZoneName] = useState("");
@@ -326,22 +361,23 @@ function PowerDNSPage({ dashboard, mutate }) {
       <div className="page-actions">
         <div><p className="section-kicker">POWERDNS</p><h2>权威与递归服务</h2><p>API 密钥仅由 anyNS 后端持有，浏览器不直接连接 PowerDNS。</p></div>
       </div>
-      <div className="split-status">
-        <PowerDNSService service={snapshot.authoritative} title="Authoritative" />
+      {access.mode !== "readwrite" && <InlineWarning text={access.available ? "当前凭据仅允许读取 PowerDNS。" : "PowerDNS 后端尚未配置，页面为只读状态。"} />}
+      <div className="split-status">        <PowerDNSService service={snapshot.authoritative} title="Authoritative" />
         <PowerDNSService service={snapshot.recursor} title="Recursor" />
       </div>
       <div className="two-column">
         <Panel title="权威区域" subtitle={`${zones.length} 个 Zone`}>
           <ZoneTable
             zones={zones}
-            onDelete={(zone) => mutate(
+            onDelete={canWrite ? (zone) => mutate(
               () => api(`/api/v1/powerdns/authoritative/zones/${encodeURIComponent(zone.id)}`, { method: "DELETE" }),
               `Zone ${zone.name} 已删除`,
-            )}
+            ) : undefined}
           />
         </Panel>
         <div className="form-stack">
           <Panel title="创建 Authoritative Zone" subtitle="通过 PowerDNS Authoritative API">
+            <fieldset className="readonly-fieldset" disabled={!canWrite}>
             <div className="form-grid single">
               <Field label="Zone 名称">
                 <input value={zoneName} onChange={(event) => setZoneName(event.target.value)} placeholder="example.org" />
@@ -351,13 +387,15 @@ function PowerDNSPage({ dashboard, mutate }) {
               </Field>
               <button className="button primary" disabled={!zoneName} onClick={createZone}><Plus size={16} />创建 Zone</button>
             </div>
+            </fieldset>
           </Panel>
           <Panel title="清理 Recursor 缓存" subtitle="支持单域名或子树缓存">
+            <fieldset className="readonly-fieldset" disabled={!canWrite}>
             <div className="form-grid single">
               <Field label="域名（留空表示全部）">
                 <input value={flushDomain} onChange={(event) => setFlushDomain(event.target.value)} placeholder="example.org" />
               </Field>
-              <button className="button secondary" onClick={() => mutate(
+              <button className="button secondary" disabled={!canWrite} onClick={() => mutate(
                 () => api("/api/v1/powerdns/recursor/cache/flush", {
                   method: "POST",
                   body: JSON.stringify({ domain: flushDomain, subtree: true }),
@@ -365,6 +403,7 @@ function PowerDNSPage({ dashboard, mutate }) {
                 "Recursor 缓存已清理",
               )}><RotateCcw size={16} />清理缓存子树</button>
             </div>
+            </fieldset>
           </Panel>
         </div>
       </div>
@@ -372,31 +411,36 @@ function PowerDNSPage({ dashboard, mutate }) {
   );
 }
 
-function PluginsPage({ dashboard, mutate }) {
+function PluginsPage({ dashboard, mutate, capabilities }) {
+  const access = featureAccess(capabilities, "plugins");
+  const canWrite = access.available && access.write;
   const plugins = dashboard?.plugins || [];
   return (
     <div className="page-stack">
       <div className="page-actions">
         <div><p className="section-kicker">PLUGINS</p><h2>去中心化域名插件</h2><p>控制 HNS、ENS、SNS、TON DNS、钱包记录等解析后端的实时启停。</p></div>
-        <button className="button secondary" onClick={() => mutate(
+        <button className="button secondary" disabled={!canWrite} onClick={() => mutate(
           () => api("/api/v1/cache/flush", { method: "POST" }),
           "插件缓存已清理",
         )}><RotateCcw size={16} />清理缓存</button>
       </div>
+      {!canWrite && <InlineWarning text="当前插件接口为只读，启停和缓存清理操作已禁用。" />}
       <Panel title="插件运行状态" subtitle={`${plugins.length} 个已注册插件`}>
         <PluginTable
           plugins={plugins}
-          onToggle={(plugin) => mutate(
+          onToggle={canWrite ? (plugin) => mutate(
             () => api(`/api/v1/plugins/${encodeURIComponent(plugin.name)}/${plugin.enabled ? "disable" : "enable"}`, { method: "POST" }),
             `${plugin.name} 已${plugin.enabled ? "停用" : "启用"}`,
-          )}
+          ) : undefined}
         />
       </Panel>
     </div>
   );
 }
 
-function SecurityPage({ configuration, setConfiguration, saveConfiguration, dashboard }) {
+function SecurityPage({ configuration, setConfiguration, saveConfiguration, dashboard, capabilities }) {
+  const access = featureAccess(capabilities, "security");
+  const canWrite = access.available && access.write && configuration?.writable;
   const security = configuration?.security;
   if (!security) return <EmptyState text="安全配置不可用" />;
   const update = (name, value) => setConfiguration({
@@ -407,9 +451,10 @@ function SecurityPage({ configuration, setConfiguration, saveConfiguration, dash
     <div className="page-stack">
       <div className="page-actions">
         <div><p className="section-kicker">DNS SECURITY</p><h2>安全策略</h2><p>管理隧道检测、DGA、重绑定、速率限制、黑白名单和蜜罐联动。</p></div>
-        <button className="button primary" disabled={!configuration?.writable} onClick={() => saveConfiguration(configuration)}><Save size={16} />保存安全策略</button>
+        <button className="button primary" disabled={!canWrite} onClick={() => saveConfiguration(configuration)}><Save size={16} />保存安全策略</button>
       </div>
-      {!configuration.writable && <InlineWarning text="当前配置文件为只读，Docker 部署需要挂载共享可写配置卷。" />}
+      {!canWrite && <InlineWarning text={configuration.writable ? "当前凭据仅允许读取安全策略。" : "当前配置文件为只读，Docker 部署需要挂载共享可写配置卷。"} />}
+      <fieldset className="readonly-fieldset" disabled={!canWrite}>
       <div className="security-layout">
         <Panel title="检测与阻断" subtitle="应用于 anyNS Runtime 的请求前后分析">
           <div className="settings-list">
@@ -431,6 +476,7 @@ function SecurityPage({ configuration, setConfiguration, saveConfiguration, dash
           <ListEditor label="Sinkhole 列表" values={security.sinkhole_domains || []} onChange={(values) => update("sinkhole_domains", values)} />
         </Panel>
       </div>
+      </fieldset>
       <Panel title="安全事件分布" subtitle="来自当前审计缓冲">
         <SummaryBars summary={dashboard?.audit_summary} />
       </Panel>
@@ -479,7 +525,9 @@ function AuditPage({ dashboard }) {
   );
 }
 
-function ConfigurationPage({ configuration, setConfiguration, saveConfiguration }) {
+function ConfigurationPage({ configuration, setConfiguration, saveConfiguration, capabilities }) {
+  const access = featureAccess(capabilities, "config");
+  const canWrite = access.available && access.write && configuration?.writable;
   if (!configuration) return <EmptyState text="配置不可用" />;
   const update = (section, name, value) => {
     if (!section) {
@@ -495,9 +543,10 @@ function ConfigurationPage({ configuration, setConfiguration, saveConfiguration 
     <div className="page-stack">
       <div className="page-actions">
         <div><p className="section-kicker">CONFIGURATION</p><h2>统一配置</h2><p>编辑 anyNS 与 PowerDNS 连接参数；密钥字段始终由服务端保留。</p></div>
-        <button className="button primary" disabled={!configuration.writable} onClick={() => saveConfiguration(configuration)}><Save size={16} />保存并重载</button>
+        <button className="button primary" disabled={!canWrite} onClick={() => saveConfiguration(configuration)}><Save size={16} />保存并重载</button>
       </div>
-      {!configuration.writable && <InlineWarning text={`配置文件 ${configuration.config_file || "(未设置)"} 不可写。`} />}
+      {!canWrite && <InlineWarning text={configuration.writable ? "当前凭据仅允许读取配置。" : `配置文件 ${configuration.config_file || "(未设置)"} 不可写。`} />}
+      <fieldset className="readonly-fieldset page-stack" disabled={!canWrite}>
       <div className="two-column equal">
         <Panel title="PowerDNS 连接" subtitle="后端通过 X-API-Key 访问，密钥不在页面显示">
           <div className="form-grid single">
@@ -555,6 +604,7 @@ function ConfigurationPage({ configuration, setConfiguration, saveConfiguration 
           ))}
         </div>
       </Panel>
+      </fieldset>
     </div>
   );
 }

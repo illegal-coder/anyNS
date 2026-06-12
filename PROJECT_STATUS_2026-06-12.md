@@ -21,14 +21,24 @@
 - [x] 开发 React/Vite 管理页面，覆盖总览、PowerDNS、插件、安全、审计和配置。
 - [x] 将前端静态资源集成进 `anyns-admin-api`，提供 SPA fallback 和静态资源缓存策略。
 - [x] 浏览器验证 Zone 创建/删除、配置保存/重载、服务状态和控制台错误。
+- [x] 应用内浏览器验证 capability 菜单、PowerDNS 页面、无框架错误覆盖层及控制台 0 error/warn；截图接口超时，DOM/交互证据有效。
+- [x] `bash tests/acceptance/selenium-admin.sh` 使用最新 Selenium Chromium 镜像完成隔离 Docker 联调。
 - [x] 主环境使用 PowerDNS gsqlite3 backend，实现真实 Zone 创建和删除。
 - [x] BIND 9.20 协议验收使用独立 bind backend 配置，避免与可写管理环境耦合。
 - [x] Admin、Runtime、日志、PowerDNS API 和测试 DNS 端口默认仅绑定回环地址。
+- [x] 在服务器私有目录部署每 5 小时一次的 Codex systemd 自动开发任务，包含互斥、单次时限和连续两次额度耗尽自动停用。
+- [x] 新增 `/api/v1/capabilities`，按 scope、后端配置和配置文件可写性返回 hidden/unavailable/readonly/readwrite。
+- [x] 网站菜单、页面入口和写按钮按后端 capability 自动隐藏或只读降级。
+- [x] 修复 Admin 代理 Runtime 后 dashboard 仍显示进程本地插件状态的问题。
+- [x] 增加前端能力映射单元测试和独立 Selenium/Chromium Docker 联调拓扑。
+- [x] Selenium 覆盖桌面菜单、PowerDNS 页面、插件启停与恢复、只读配置和移动端导航。
+- [x] 修复移动端 Toast 遮挡侧栏导航的问题。
 
 ## 测试与验收
 
 - [x] `npm run check`
 - [x] `npm run build`
+- [x] `npm test`（能力清单缺失、只读和隐藏菜单映射）
 - [x] `go test -buildvcs=false ./...`
 - [x] `go vet ./...`
 - [x] `bash tests/acceptance/check-local.sh`
@@ -53,7 +63,7 @@
 - [x] **P2 插件并联，约 83%**：19 个插件、统一路由、冲突优先级、缓存隔离和契约测试已完成；真实公网链节点/API 尚未形成生产门禁。
 - [x] **P3 安全防护，约 84%**：主要检测、阻断、审计、蜜罐失败队列和指标已完成；持续流量、压力和容量基线仍待补充。
 - [x] **P4 文档交付，约 82%**：需求、架构、接口、安全、部署、验收和当前状态文档已齐；生产升级、回滚、备份恢复和密钥轮换演练仍待记录。
-- [ ] **总体生产验收约 86%**：确定性开发和测试环境成熟，但 fixture 通过不能替代真实链后端、生产流量和灾备验收。
+- [ ] **总体生产验收约 88%**：确定性开发和测试环境成熟，但 fixture 通过不能替代真实链后端、生产流量和灾备验收。
 
 ## 与最早计划的偏差
 
@@ -73,3 +83,5 @@
 - [ ] 为选定插件增加真实外部 RPC/API smoke test，凭据只通过 secret 注入。
 - [ ] 增加 NXDOMAIN flood、随机子域、并发、长稳和容量基线测试。
 - [ ] 完成生产管理鉴权、TLS 反向代理、密钥轮换、备份恢复、升级和回滚演练。
+- [ ] 增加独立 PostgreSQL 数据库容器部署模式，并验证 PowerDNS gpgsql 初始化、备份和恢复。
+- [ ] 将 live hnsd/其他轻量去中心化组件并入可选 Compose profile，定义 PowerDNS + 网站 + live 链解析的最低模式门禁。

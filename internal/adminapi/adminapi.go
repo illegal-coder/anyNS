@@ -29,12 +29,28 @@ type ServiceStatus struct {
 	Error      string `json:"error,omitempty"`
 }
 
+type FeatureCapability struct {
+	Available bool     `json:"available"`
+	Read      bool     `json:"read"`
+	Write     bool     `json:"write"`
+	Mode      string   `json:"mode"`
+	Reason    string   `json:"reason,omitempty"`
+	Endpoints []string `json:"endpoints"`
+}
+
+type CapabilitiesResponse struct {
+	Version     int                          `json:"version"`
+	GeneratedAt time.Time                    `json:"generated_at"`
+	Features    map[string]FeatureCapability `json:"features"`
+}
+
 func Register(mux *http.ServeMux, application *app.App, cfg *config.Config) {
 	handler := &Handler{
 		application: application,
 		cfg:         cfg,
 		httpClient:  &http.Client{Timeout: 5 * time.Second},
 	}
+	mux.HandleFunc("/api/v1/capabilities", handler.capabilities)
 	mux.HandleFunc("/api/v1/dashboard", handler.dashboard)
 	mux.HandleFunc("/api/v1/configuration", handler.configuration)
 	mux.HandleFunc("/api/v1/powerdns/status", handler.powerDNSStatus)
@@ -44,6 +60,97 @@ func Register(mux *http.ServeMux, application *app.App, cfg *config.Config) {
 	mux.HandleFunc("/api/v1/powerdns/recursor/cache/flush", handler.recursorCacheFlush)
 }
 
+func (h *Handler) capabilities(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		httpapi.Error(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	current := *h.cfg
+	principal, ok := httpapi.PrincipalFromRequest(r, current)
+	if !ok {
+		httpapi.Error(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+	managementRead := principal.HasScope(httpapi.ScopeManagementRead)
+	editable := current.Editable()
+	powerDNSConfigured := strings.TrimSpace(current.PowerDNS.AuthoritativeURL) != "" || strings.TrimSpace(current.PowerDNS.RecursorURL) != ""
+	policyConfigured := strings.TrimSpace(current.ConfigFile) != ""
+
+	feature := func(readScope, writeScope string, available, writable bool, endpoints ...string) FeatureCapability {
+		read := managementRead && principal.HasScope(readScope)
+		write := read && writable && writeScope != "" && principal.HasScope(writeScope)
+		mode := "hidden"
+		reason := "access_denied"
+		switch {
+		case !read:
+		case !available:
+			mode = "unavailable"
+			reason = "backend_not_configured"
+			write = false
+		case write:
+			mode = "readwrite"
+			reason = ""
+		default:
+			mode = "readonly"
+			reason = "write_not_available"
+		}
+		return FeatureCapability{
+			Available: available,
+			Read:      read,
+			Write:     write,
+			Mode:      mode,
+			Reason:    reason,
+			Endpoints: endpoints,
+		}
+	}
+
+	features := map[string]FeatureCapability{
+		"overview": feature(httpapi.ScopeManagementRead, "", true, false, "GET /api/v1/dashboard"),
+		"powerdns": feature(
+			httpapi.ScopePowerDNSRead, httpapi.ScopePowerDNSWrite, powerDNSConfigured, true,
+			"GET /api/v1/powerdns/status",
+			"GET /api/v1/powerdns/zones",
+			"POST /api/v1/powerdns/authoritative/zones",
+			"DELETE /api/v1/powerdns/authoritative/zones/{id}",
+			"POST /api/v1/powerdns/recursor/cache/flush",
+		),
+		"plugins": feature(
+			httpapi.ScopePluginsRead, httpapi.ScopePluginsWrite, true, true,
+			"GET /api/v1/plugins",
+			"POST /api/v1/plugins/{name}/enable",
+			"POST /api/v1/plugins/{name}/disable",
+		),
+		"security": feature(
+			httpapi.ScopeConfigRead, httpapi.ScopeConfigWrite, true, editable.Writable,
+			"GET /api/v1/configuration",
+			"PUT /api/v1/configuration",
+		),
+		"audit": feature(
+			httpapi.ScopeAuditRead, "", true, false,
+			"GET /api/v1/audit/events",
+			"GET /api/v1/audit/summary",
+		),
+		"config": feature(
+			httpapi.ScopeConfigRead, httpapi.ScopeConfigWrite, true, editable.Writable,
+			"GET /api/v1/configuration",
+			"PUT /api/v1/configuration",
+		),
+		"cache": feature(
+			httpapi.ScopeCacheRead, httpapi.ScopeCacheWrite, true, true,
+			"GET /api/v1/cache/stats",
+			"POST /api/v1/cache/flush",
+		),
+		"policy": feature(
+			httpapi.ScopeManagementRead, httpapi.ScopePolicyWrite, policyConfigured, true,
+			"POST /api/v1/policies/reload",
+		),
+	}
+	httpapi.WriteJSON(w, http.StatusOK, CapabilitiesResponse{
+		Version:     1,
+		GeneratedAt: time.Now().UTC(),
+		Features:    features,
+	})
+}
 func (h *Handler) dashboard(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		httpapi.Error(w, http.StatusMethodNotAllowed, "method not allowed")
@@ -62,7 +169,7 @@ func (h *Handler) dashboard(w http.ResponseWriter, r *http.Request) {
 			"runtime":  h.runtimeStatus(ctx, current),
 			"powerdns": powerdns.New(current.PowerDNS).Snapshot(ctx),
 		},
-		"plugins":       pluginViews(ctx, h.application),
+		"plugins":       h.pluginViews(ctx, r, current),
 		"cache":         h.application.Registry.CacheStats(),
 		"audit_summary": h.application.DNSLog.Summary(8),
 		"recent_events": h.application.DNSLog.ListFilteredPage(
@@ -307,6 +414,32 @@ func (h *Handler) reloadRuntime(original *http.Request, cfg config.Config) strin
 	return "loaded"
 }
 
+func (h *Handler) pluginViews(ctx context.Context, original *http.Request, cfg config.Config) []controlplane.PluginView {
+	if !cfg.ControlPlane.AdminProxyRuntime || strings.TrimSpace(cfg.ControlPlane.RuntimeControlURL) == "" {
+		return pluginViews(ctx, h.application)
+	}
+	target := strings.TrimRight(cfg.ControlPlane.RuntimeControlURL, "/") + "/api/v1/plugins"
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, target, nil)
+	if err != nil {
+		return pluginViews(ctx, h.application)
+	}
+	if authorization := original.Header.Get("Authorization"); authorization != "" {
+		req.Header.Set("Authorization", authorization)
+	}
+	response, err := h.httpClient.Do(req)
+	if err != nil {
+		return pluginViews(ctx, h.application)
+	}
+	defer response.Body.Close()
+	if response.StatusCode < 200 || response.StatusCode >= 300 {
+		return pluginViews(ctx, h.application)
+	}
+	var views []controlplane.PluginView
+	if err := json.NewDecoder(io.LimitReader(response.Body, 2<<20)).Decode(&views); err != nil {
+		return pluginViews(ctx, h.application)
+	}
+	return views
+}
 func pluginViews(ctx context.Context, application *app.App) []controlplane.PluginView {
 	views := make([]controlplane.PluginView, 0)
 	for _, plugin := range application.Registry.Plugins() {

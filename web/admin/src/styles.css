@@ -23,6 +23,9 @@
 body { margin: 0; min-width: 320px; min-height: 100vh; }
 button, input, textarea { font: inherit; }
 button { cursor: pointer; }
+.readonly-fieldset { min-inline-size: 0; margin: 0; padding: 0; border: 0; }
+.readonly-fieldset:disabled input, .readonly-fieldset:disabled textarea { color: #66748a; background: #f3f5f8; }
+.readonly-fieldset:disabled .toggle { cursor: not-allowed; opacity: .65; }
 
 .app-shell { min-height: 100vh; display: flex; }
 .sidebar {
@@ -42,7 +45,10 @@ button { cursor: pointer; }
 }
 .sidebar nav button:hover { color: #fff; background: rgba(255,255,255,.06); }
 .sidebar nav button.active { color: #fff; background: #0b4da1; box-shadow: inset 3px 0 #4799ff; }
-.nav-chevron { margin-left: auto; opacity: .6; }
+.sidebar nav button.nav-readonly { color: #a9b7ca; }
+.sidebar nav button.nav-unavailable { color: #71839b; }
+.nav-mode { margin-left: auto; padding: 2px 5px; border-radius: 4px; color: #9fb0c5; background: rgba(255,255,255,.07); font-size: 9px; font-weight: 600; white-space: nowrap; }
+.nav-chevron { margin-left: 0; opacity: .6; }
 .sidebar-foot { margin-top: auto; padding: 13px; display: flex; align-items: center; gap: 9px; color: #7790ae; font-size: 12px; border-top: 1px solid rgba(255,255,255,.08); }
 
 .main-area { width: calc(100% - 218px); margin-left: 218px; min-height: 100vh; }
@@ -243,4 +249,5 @@ textarea { resize: vertical; line-height: 1.5; }
   .config-plugin-row { grid-template-columns: 1fr auto; }
   .config-plugin-row input { grid-column: 1 / -1; }
   .search-box { width: 100%; }
+  .toast { top: auto; right: 12px; bottom: 12px; left: 12px; min-width: 0; }
 }
