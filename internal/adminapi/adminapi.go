@@ -157,28 +157,41 @@ func (h *Handler) dashboard(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	current := *h.cfg
-	if !httpapi.RequireScope(w, r, current, httpapi.ScopeManagementRead) {
+	principal, ok := httpapi.RequireScopePrincipal(w, r, current, httpapi.ScopeManagementRead)
+	if !ok {
 		return
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), powerDNSTimeout(current))
 	defer cancel()
-	httpapi.WriteJSON(w, http.StatusOK, map[string]any{
+	services := map[string]any{
+		"admin":   ServiceStatus{Configured: true, Healthy: true, URL: current.AdminAddr},
+		"runtime": h.runtimeStatus(ctx, current),
+	}
+	response := map[string]any{
 		"generated_at": time.Now().UTC(),
-		"services": map[string]any{
-			"admin":    ServiceStatus{Configured: true, Healthy: true, URL: current.AdminAddr},
-			"runtime":  h.runtimeStatus(ctx, current),
-			"powerdns": powerdns.New(current.PowerDNS).Snapshot(ctx),
-		},
-		"plugins":       h.pluginViews(ctx, r, current),
-		"cache":         h.application.Registry.CacheStats(),
-		"audit_summary": h.application.DNSLog.Summary(8),
-		"recent_events": h.application.DNSLog.ListFilteredPage(
+		"services":     services,
+	}
+	if principal.HasScope(httpapi.ScopePowerDNSRead) {
+		services["powerdns"] = powerdns.New(current.PowerDNS).Snapshot(ctx)
+	}
+	if principal.HasScope(httpapi.ScopePluginsRead) {
+		response["plugins"] = h.pluginViews(ctx, r, current)
+	}
+	if principal.HasScope(httpapi.ScopeCacheRead) {
+		response["cache"] = h.application.Registry.CacheStats()
+	}
+	if principal.HasScope(httpapi.ScopeAuditRead) {
+		response["audit_summary"] = h.application.DNSLog.Summary(8)
+		response["recent_events"] = h.application.DNSLog.ListFilteredPage(
 			httpapi.AuditEventFilterFromQuery(r),
 			httpapi.QueryIntBounded(r, "event_limit", 20, 1, 100),
 			"",
-		).Events,
-		"configuration": current.Editable(),
-	})
+		).Events
+	}
+	if principal.HasScope(httpapi.ScopeConfigRead) {
+		response["configuration"] = current.Editable()
+	}
+	httpapi.WriteJSON(w, http.StatusOK, response)
 }
 
 func (h *Handler) configuration(w http.ResponseWriter, r *http.Request) {

@@ -33,6 +33,7 @@
 - [x] 增加前端能力映射单元测试和独立 Selenium/Chromium Docker 联调拓扑。
 - [x] Selenium 覆盖桌面菜单、PowerDNS 页面、插件启停与恢复、只读配置和移动端导航。
 - [x] 修复移动端 Toast 遮挡侧栏导航的问题。
+- [x] 修复 Dashboard 仅校验 `management:read` 却返回越权 PowerDNS、插件、缓存、审计和配置数据的问题，按细粒度读取 scope 裁剪响应。
 
 ## 测试与验收
 
@@ -42,6 +43,7 @@
 - [x] `go test -buildvcs=false ./...`
 - [x] `go vet ./...`
 - [x] `bash tests/acceptance/check-local.sh`
+- [x] Dashboard scope 回归测试验证仅有 `management:read` 的凭据无法读取其他功能数据。
 - [x] `docker compose config --quiet`
 - [x] `docker compose build --pull --no-cache`
 - [x] 主 Compose 从空 PowerDNS 数据卷初始化并全部健康。

@@ -110,6 +110,66 @@ func TestCapabilitiesRequireAuthentication(t *testing.T) {
 		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
 	}
 }
+
+func TestDashboardOmitsDataOutsidePrincipalScopes(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.json")
+	if err := os.WriteFile(path, []byte(`{"plugins":[{"name":"hns","enabled":true}]}`), 0o600); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+	cfg, err := config.LoadFile(path)
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+	cfg.Management.AuthRequired = true
+	cfg.Management.Keys = []config.ManagementKey{{
+		ID:     "overview-only",
+		APIKey: "overview-secret",
+		Scopes: []string{httpapi.ScopeManagementRead},
+	}}
+	cfg.PowerDNS.AuthoritativeURL = "http://pdns.internal"
+	application, err := app.NewFromConfig(cfg)
+	if err != nil {
+		t.Fatalf("new app: %v", err)
+	}
+	application.AppendManagementAudit("config.update", "operator", http.MethodPut, "/api/v1/configuration", "ok", nil)
+	mux := http.NewServeMux()
+	Register(mux, application, &cfg)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/dashboard", nil)
+	req.Header.Set("Authorization", "Bearer overview-secret")
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	var response struct {
+		Services map[string]json.RawMessage `json:"services"`
+		Plugins  json.RawMessage            `json:"plugins"`
+		Cache    json.RawMessage            `json:"cache"`
+		Audit    json.RawMessage            `json:"audit_summary"`
+		Events   json.RawMessage            `json:"recent_events"`
+		Config   json.RawMessage            `json:"configuration"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode dashboard: %v", err)
+	}
+	if _, ok := response.Services["powerdns"]; ok {
+		t.Fatalf("dashboard exposed PowerDNS data: %s", rec.Body.String())
+	}
+	for name, value := range map[string]json.RawMessage{
+		"plugins":       response.Plugins,
+		"cache":         response.Cache,
+		"audit_summary": response.Audit,
+		"recent_events": response.Events,
+		"configuration": response.Config,
+	} {
+		if len(value) != 0 {
+			t.Fatalf("dashboard exposed %s outside principal scope: %s", name, rec.Body.String())
+		}
+	}
+}
+
 func TestDashboardUsesRuntimePluginViewsWhenProxyEnabled(t *testing.T) {
 	runtime := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
@@ -133,7 +193,7 @@ func TestDashboardUsesRuntimePluginViewsWhenProxyEnabled(t *testing.T) {
 	cfg.Management.Keys = []config.ManagementKey{{
 		ID:     "reader",
 		APIKey: "runtime-reader",
-		Scopes: []string{httpapi.ScopeManagementRead},
+		Scopes: []string{httpapi.ScopeManagementRead, httpapi.ScopePluginsRead},
 	}}
 	application, err := app.NewFromConfig(cfg)
 	if err != nil {
