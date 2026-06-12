@@ -95,6 +95,67 @@ func TestCapabilitiesRespectScopedReadOnlyPrincipal(t *testing.T) {
 	}
 }
 
+func TestCapabilitiesFollowFineGrainedEndpointReadScopes(t *testing.T) {
+	cfg := config.Default()
+	cfg.Management.AuthRequired = true
+	cfg.PowerDNS.AuthoritativeURL = "http://pdns.internal"
+	cfg.Management.Keys = []config.ManagementKey{
+		{ID: "powerdns-reader", APIKey: "powerdns-secret", Scopes: []string{httpapi.ScopePowerDNSRead}},
+		{ID: "plugin-reader", APIKey: "plugin-secret", Scopes: []string{httpapi.ScopePluginsRead}},
+		{ID: "audit-reader", APIKey: "audit-secret", Scopes: []string{httpapi.ScopeAuditRead}},
+		{ID: "config-reader", APIKey: "config-secret", Scopes: []string{httpapi.ScopeConfigRead}},
+		{ID: "cache-reader", APIKey: "cache-secret", Scopes: []string{httpapi.ScopeCacheRead}},
+	}
+	application, err := app.NewFromConfig(cfg)
+	if err != nil {
+		t.Fatalf("new app: %v", err)
+	}
+	mux := http.NewServeMux()
+	Register(mux, application, &cfg)
+
+	tests := []struct {
+		name            string
+		token           string
+		visibleFeatures []string
+	}{
+		{name: "powerdns", token: "powerdns-secret", visibleFeatures: []string{"powerdns"}},
+		{name: "plugins", token: "plugin-secret", visibleFeatures: []string{"plugins"}},
+		{name: "audit", token: "audit-secret", visibleFeatures: []string{"audit"}},
+		{name: "configuration", token: "config-secret", visibleFeatures: []string{"security", "config"}},
+		{name: "cache", token: "cache-secret", visibleFeatures: []string{"cache"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodGet, "/api/v1/capabilities", nil)
+			req.Header.Set("Authorization", "Bearer "+tt.token)
+			rec := httptest.NewRecorder()
+			mux.ServeHTTP(rec, req)
+			if rec.Code != http.StatusOK {
+				t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+			}
+			var response CapabilitiesResponse
+			if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
+				t.Fatalf("decode capabilities: %v", err)
+			}
+			visible := make(map[string]bool, len(tt.visibleFeatures))
+			for _, feature := range tt.visibleFeatures {
+				visible[feature] = true
+			}
+			for feature, capability := range response.Features {
+				if visible[feature] {
+					if !capability.Read || capability.Mode == "hidden" {
+						t.Errorf("%s capability=%+v", feature, capability)
+					}
+					continue
+				}
+				if capability.Read || capability.Write || capability.Mode != "hidden" {
+					t.Errorf("unrelated %s capability=%+v", feature, capability)
+				}
+			}
+		})
+	}
+}
+
 func TestCapabilitiesRequireAuthentication(t *testing.T) {
 	cfg := config.Default()
 	cfg.Management.AuthRequired = true

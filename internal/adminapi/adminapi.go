@@ -71,13 +71,12 @@ func (h *Handler) capabilities(w http.ResponseWriter, r *http.Request) {
 		httpapi.Error(w, http.StatusUnauthorized, "unauthorized")
 		return
 	}
-	managementRead := principal.HasScope(httpapi.ScopeManagementRead)
 	editable := current.Editable()
 	powerDNSConfigured := strings.TrimSpace(current.PowerDNS.AuthoritativeURL) != "" || strings.TrimSpace(current.PowerDNS.RecursorURL) != ""
 	policyConfigured := strings.TrimSpace(current.ConfigFile) != ""
 
 	feature := func(readScope, writeScope string, available, writable bool, endpoints ...string) FeatureCapability {
-		read := managementRead && principal.HasScope(readScope)
+		read := principal.HasScope(readScope)
 		write := read && writable && writeScope != "" && principal.HasScope(writeScope)
 		mode := "hidden"
 		reason := "access_denied"
