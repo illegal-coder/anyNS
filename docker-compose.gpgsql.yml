@@ -1,0 +1,95 @@
+services:
+  pdns-postgres:
+    image: postgres:17.5-alpine3.22@sha256:6567bca8d7bc8c82c5922425a0baee57be8402df92bae5eacad5f01ae9544daa
+    environment:
+      POSTGRES_DB: ${PDNS_POSTGRES_DB:-pdns}
+      POSTGRES_USER: ${PDNS_POSTGRES_USER:-pdns}
+      POSTGRES_PASSWORD: ${PDNS_POSTGRES_PASSWORD:?set PDNS_POSTGRES_PASSWORD}
+    volumes:
+      - ${PDNS_POSTGRES_DATA:-anyns-pgsql-data}:/var/lib/postgresql/data
+      - ./configs/pdns-authoritative/schema.pgsql.sql:/docker-entrypoint-initdb.d/10-pdns-schema.sql:ro
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "pg_isready -U \"$${POSTGRES_USER}\" -d \"$${POSTGRES_DB}\"",
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
+    restart: unless-stopped
+
+  pdns-authoritative-init:
+    image: powerdns/pdns-auth-50:5.0.5@sha256:f626764557339d0b9d03e178e48a94641c707da8da2655cfa413b4d8cab2238b
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        set -eu
+        mkdir -p /tmp/powerdns
+        cp /etc/powerdns/pdns.conf /tmp/powerdns/pdns.conf
+        {
+          echo "launch=gpgsql"
+          echo "gpgsql-host=pdns-postgres"
+          echo "gpgsql-port=5432"
+          echo "gpgsql-dbname=$${PDNS_POSTGRES_DB}"
+          echo "gpgsql-user=$${PDNS_POSTGRES_USER}"
+          echo "gpgsql-password=$${PDNS_POSTGRES_PASSWORD}"
+        } >> /tmp/powerdns/pdns.conf
+        if ! pdnsutil --config-dir=/tmp/powerdns zone list-all | grep -Fxq anyns.test; then
+          pdnsutil --config-dir=/tmp/powerdns zone load anyns.test. /seed/anyns.test.zone
+        fi
+    environment:
+      PDNS_POSTGRES_DB: ${PDNS_POSTGRES_DB:-pdns}
+      PDNS_POSTGRES_USER: ${PDNS_POSTGRES_USER:-pdns}
+      PDNS_POSTGRES_PASSWORD: ${PDNS_POSTGRES_PASSWORD:?set PDNS_POSTGRES_PASSWORD}
+    volumes:
+      - ./configs/pdns-authoritative/pdns-gpgsql.conf:/etc/powerdns/pdns.conf:ro
+      - ./configs/pdns-authoritative/zones/anyns.test.zone:/seed/anyns.test.zone:ro
+    depends_on:
+      pdns-postgres:
+        condition: service_healthy
+    restart: "no"
+
+  pdns-authoritative:
+    image: powerdns/pdns-auth-50:5.0.5@sha256:f626764557339d0b9d03e178e48a94641c707da8da2655cfa413b4d8cab2238b
+    environment:
+      TEMPLATE_FILES: gpgsql
+      PDNS_POSTGRES_DB: ${PDNS_POSTGRES_DB:-pdns}
+      PDNS_POSTGRES_USER: ${PDNS_POSTGRES_USER:-pdns}
+      PDNS_POSTGRES_PASSWORD: ${PDNS_POSTGRES_PASSWORD:?set PDNS_POSTGRES_PASSWORD}
+    command:
+      - "--config-dir=/etc/powerdns"
+      - "--api-key=${PDNS_AUTH_API_KEY:?set PDNS_AUTH_API_KEY}"
+      - "--webserver-password=${PDNS_AUTH_WEBSERVER_PASSWORD:?set PDNS_AUTH_WEBSERVER_PASSWORD}"
+    ports:
+      - "${ANYNS_BIND_ADDRESS:-127.0.0.1}:${PDNS_GPGSQL_DNS_PORT:-5301}:5300/udp"
+      - "${ANYNS_BIND_ADDRESS:-127.0.0.1}:${PDNS_GPGSQL_DNS_PORT:-5301}:5300/tcp"
+      - "${ANYNS_BIND_ADDRESS:-127.0.0.1}:${PDNS_GPGSQL_API_PORT:-8085}:8081/tcp"
+    volumes:
+      - ./configs/pdns-authoritative/pdns-gpgsql.conf:/etc/powerdns/pdns.conf:ro
+      - ./configs/pdns-authoritative/gpgsql.j2:/etc/powerdns/templates.d/gpgsql.j2:ro
+    depends_on:
+      pdns-postgres:
+        condition: service_healthy
+      pdns-authoritative-init:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD-SHELL", "pdns_control uptime >/dev/null || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
+    restart: unless-stopped
+
+  dns-tools:
+    profiles: ["acceptance"]
+    build:
+      context: ./tests/docker/dns-tools
+    image: anyns/dns-tools:gpgsql-acceptance
+    depends_on:
+      pdns-authoritative:
+        condition: service_healthy
+
+volumes:
+  anyns-pgsql-data:

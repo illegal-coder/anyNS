@@ -24,6 +24,7 @@
 - [x] 应用内浏览器验证 capability 菜单、PowerDNS 页面、无框架错误覆盖层及控制台 0 error/warn；截图接口超时，DOM/交互证据有效。
 - [x] `bash tests/acceptance/selenium-admin.sh` 使用最新 Selenium Chromium 镜像完成隔离 Docker 联调。
 - [x] 主环境使用 PowerDNS gsqlite3 backend，实现真实 Zone 创建和删除。
+- [x] 增加独立 PostgreSQL 17.5/PowerDNS gpgsql 部署模式，默认端口仅绑定回环地址并使用持久化数据卷。
 - [x] BIND 9.20 协议验收使用独立 bind backend 配置，避免与可写管理环境耦合。
 - [x] Admin、Runtime、日志、PowerDNS API 和测试 DNS 端口默认仅绑定回环地址。
 - [x] 在服务器私有目录部署每 5 小时一次的 Codex systemd 自动开发任务，包含互斥、单次时限和连续两次额度耗尽自动停用。
@@ -48,6 +49,7 @@
 - [x] Capability scope 回归测试验证细粒度读取凭据只显示其可访问功能，并继续隐藏 overview 和无关功能。
 - [ ] 服务器当前仅提供 `go1.18 gccgo`；`go test -race -buildvcs=false ./internal/adminapi` 在生成 `testmain` 时失败为 `package testmain: cannot find package`，尚需使用标准 gc Go 工具链补跑 race gate。
 - [x] `docker compose config --quiet`
+- [x] `bash tests/acceptance/docker-gpgsql-backup-restore.sh` 验证 gpgsql 空库初始化、健康检查、DNS 查询、逻辑备份、数据变更和恢复。
 - [x] `docker compose build --pull --no-cache`
 - [x] 主 Compose 从空 PowerDNS 数据卷初始化并全部健康。
 - [x] PowerDNS `anyns.test.` 区域校验 0 errors，Authoritative/Recursor 查询一致。
@@ -88,5 +90,5 @@
 - [ ] 为选定插件增加真实外部 RPC/API smoke test，凭据只通过 secret 注入。
 - [ ] 增加 NXDOMAIN flood、随机子域、并发、长稳和容量基线测试。
 - [ ] 完成生产管理鉴权、TLS 反向代理、密钥轮换、备份恢复、升级和回滚演练。
-- [ ] 增加独立 PostgreSQL 数据库容器部署模式，并验证 PowerDNS gpgsql 初始化、备份和恢复。
+- [x] 增加独立 PostgreSQL 数据库容器部署模式，并验证 PowerDNS gpgsql 初始化、备份和恢复。
 - [ ] 将 live hnsd/其他轻量去中心化组件并入可选 Compose profile，定义 PowerDNS + 网站 + live 链解析的最低模式门禁。
