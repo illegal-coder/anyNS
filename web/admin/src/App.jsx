@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { createElement, useCallback, useEffect, useMemo, useState } from "react";
 import {
   Activity,
   ArrowLeft,
@@ -37,6 +37,7 @@ import { domainToASCII, ensureTrailingDot, normalizeZoneInput, trimTrailingDot }
 const navigation = [
   { id: "overview", capability: "overview", label: "总览", icon: Gauge },
   { id: "powerdns", capability: "powerdns", label: "PowerDNS", icon: Layers3 },
+  { id: "certificates", capability: "certificates", label: "Certificates", icon: BookOpenCheck },
   { id: "plugins", capability: "plugins", label: "插件", icon: Blocks },
   { id: "security", capability: "security", label: "DNS 安全", icon: ShieldCheck },
   { id: "audit", capability: "audit", label: "审计日志", icon: FileClock },
@@ -169,6 +170,7 @@ function App() {
             <>
               {page === "overview" && <Overview {...contentProps} setPage={setPage} />}
               {page === "powerdns" && <PowerDNSPage {...contentProps} />}
+              {page === "certificates" && <CertificatesPage {...contentProps} />}
               {page === "plugins" && <PluginsPage {...contentProps} />}
               {page === "security" && <SecurityPage {...contentProps} />}
               {page === "audit" && <AuditPage {...contentProps} />}
@@ -192,7 +194,7 @@ function Sidebar({ items, page, setPage, open, onClose }) {
           <div><strong>anyNS</strong><span>Control Plane</span></div>
         </div>
         <nav>
-          {items.map(({ id, label, icon: Icon, access }) => (
+          {items.map(({ id, label, icon, access }) => (
             <button
               key={id}
               className={[
@@ -203,7 +205,7 @@ function Sidebar({ items, page, setPage, open, onClose }) {
               onClick={() => { setPage(id); onClose(); }}
               title={access.mode === "readwrite" ? label : `${label}：${access.mode === "unavailable" ? "后端未配置" : "只读"}`}
             >
-              <Icon size={19} />
+              {createElement(icon, { size: 19 })}
               <span>{label}</span>
               {access.mode !== "readwrite" && <small className="nav-mode">{access.mode === "unavailable" ? "未配置" : "只读"}</small>}
               {id === "powerdns" && <ChevronRight size={15} className="nav-chevron" />}
@@ -339,10 +341,98 @@ function ServiceStrip({ dashboard }) {
   );
 }
 
-const recordTypes = ["A", "AAAA", "CNAME", "TXT", "MX", "NS", "SRV", "CAA", "PTR", "SVCB", "HTTPS", "TLSA"];
+function CertificatesPage({ mutate, capabilities }) {
+  const access = featureAccess(capabilities, "certificates");
+  const [jobs, setJobs] = useState([]);
+  const [domains, setDomains] = useState("");
+  const [loadingJobs, setLoadingJobs] = useState(true);
+  const [jobsError, setJobsError] = useState("");
+
+  const loadJobs = useCallback(async () => {
+    setLoadingJobs(true);
+    try {
+      setJobs(await api("/api/v1/certificates/orders"));
+      setJobsError("");
+    } catch (loadError) {
+      setJobsError(loadError.message);
+    } finally {
+      setLoadingJobs(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!access.available || !access.read) {
+      setLoadingJobs(false);
+      return undefined;
+    }
+    void loadJobs();
+    const timer = window.setInterval(() => void loadJobs(), 5000);
+    return () => window.clearInterval(timer);
+  }, [access.available, access.read, loadJobs]);
+
+  const issue = async () => {
+    const requestedDomains = domains.split(/[\s,]+/).map((value) => value.trim()).filter(Boolean);
+    await mutate(
+      () => api("/api/v1/certificates/orders", {
+        method: "POST",
+        body: JSON.stringify({
+          domains: requestedDomains,
+          idempotency_key: `ui-${Date.now()}-${requestedDomains.join(",")}`,
+        }),
+      }),
+      "Certificate order accepted",
+    );
+    setDomains("");
+    await loadJobs();
+  };
+
+  return (
+    <div className="page-stack">
+      <div className="page-actions">
+        <div><p className="section-kicker">ACME / DNS-01</p><h2>Certificate issuance</h2><p>Private keys remain in server-side storage and are never returned by this console.</p></div>
+      </div>
+      {access.mode !== "readwrite" && <InlineWarning text={access.available ? "Current credentials are read-only." : "Certificate issuance is not configured."} />}
+      {jobsError && <InlineWarning text={`Certificate orders could not be loaded: ${jobsError}`} />}
+      <Panel title="New certificate order" subtitle="Use public DNS names delegated to the configured PowerDNS authoritative service">
+        <fieldset className="readonly-fieldset" disabled={!access.write}>
+          <div className="form-grid single">
+            <Field label="DNS names">
+              <textarea value={domains} onChange={(event) => setDomains(event.target.value)} placeholder="example.org, www.example.org" />
+            </Field>
+            <button className="button primary" disabled={!domains.trim()} onClick={issue}><Plus size={16} />Issue certificate</button>
+          </div>
+        </fieldset>
+      </Panel>
+      <Panel title="Certificate orders" subtitle={`${jobs.length} persisted jobs`}>
+        {loadingJobs ? <LoadingState /> : (
+          <div className="table-wrap">
+            <table>
+              <thead><tr><th>ID</th><th>Domains</th><th>Status</th><th>Attempts</th><th>Expires</th><th>Error</th></tr></thead>
+              <tbody>
+                {jobs.map((job) => (
+                  <tr key={job.id}>
+                    <td><code>{job.id}</code></td>
+                    <td>{job.domains?.join(", ")}</td>
+                    <td>{job.status}</td>
+                    <td>{job.attempt}/{job.max_attempts}</td>
+                    <td>{job.not_after ? new Date(job.not_after).toLocaleString() : "-"}</td>
+                    <td className="muted">{job.error || "-"}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            {!jobs.length && <EmptyState text="No certificate orders" />}
+          </div>
+        )}
+      </Panel>
+    </div>
+  );
+}
+
+const recordTypes = ["A", "AAAA", "CNAME", "TXT", "MX", "NS", "SRV", "CAA", "PTR", "DS", "DNSKEY", "SVCB", "HTTPS", "TLSA"];
 const defaultRecordEditor = { name: "@", type: "A", ttl: "300", content: "", originalName: "", originalType: "" };
 const defaultSOA = { hostmaster: "", ttl: "300", refresh: "3600", retry: "600", expire: "86400", minimum: "300" };
-const authoritativeIPv4 = "68.64.179.208";
+const authoritativeIPv4Example = "192.0.2.53";
 
 function PowerDNSPage({ dashboard, mutate, capabilities }) {
   const access = featureAccess(capabilities, "powerdns");
@@ -352,12 +442,13 @@ function PowerDNSPage({ dashboard, mutate, capabilities }) {
   const [zoneMode, setZoneMode] = useState("hns");
   const [zoneName, setZoneName] = useState("");
   const [nameserver, setNameserver] = useState("");
-  const [glueIPv4, setGlueIPv4] = useState(authoritativeIPv4);
+  const [glueIPv4, setGlueIPv4] = useState("");
   const [glueIPv6, setGlueIPv6] = useState("");
   const [soa, setSOA] = useState(defaultSOA);
   const [flushDomain, setFlushDomain] = useState("");
   const [selectedZoneID, setSelectedZoneID] = useState("");
   const [zoneDetail, setZoneDetail] = useState(null);
+  const [cryptoKeys, setCryptoKeys] = useState([]);
   const [zoneLoading, setZoneLoading] = useState(false);
   const [recordQuery, setRecordQuery] = useState("");
   const [recordType, setRecordType] = useState("ALL");
@@ -372,8 +463,12 @@ function PowerDNSPage({ dashboard, mutate, capabilities }) {
     if (!zoneID) return;
     setZoneLoading(true);
     try {
-      const detail = await api(`/api/v1/powerdns/authoritative/zones/${encodeURIComponent(zoneID)}`);
+      const [detail, keys] = await Promise.all([
+        api(`/api/v1/powerdns/authoritative/zones/${encodeURIComponent(zoneID)}`),
+        api(`/api/v1/powerdns/authoritative/zones/${encodeURIComponent(zoneID)}/cryptokeys`).catch(() => []),
+      ]);
       setZoneDetail(detail);
+      setCryptoKeys(keys);
     } finally {
       setZoneLoading(false);
     }
@@ -465,6 +560,7 @@ function PowerDNSPage({ dashboard, mutate, capabilities }) {
     return (
       <ZoneWorkspace
         zone={zoneDetail}
+        cryptoKeys={cryptoKeys}
         loading={zoneLoading}
         canWrite={canWrite}
         recordQuery={recordQuery}
@@ -475,6 +571,17 @@ function PowerDNSPage({ dashboard, mutate, capabilities }) {
         editor={recordEditor}
         setEditor={setRecordEditor}
         onSave={saveRecord}
+        onCreateCryptoKey={() => mutate(
+          () => api(`/api/v1/powerdns/authoritative/zones/${encodeURIComponent(selectedZoneID)}/cryptokeys`, {
+            method: "POST",
+            body: JSON.stringify({ keytype: "csk", active: true, published: true }),
+          }),
+          "DNSSEC CSK created",
+        ).then(() => loadZone(selectedZoneID))}
+        onDeleteCryptoKey={(keyID) => mutate(
+          () => api(`/api/v1/powerdns/authoritative/zones/${encodeURIComponent(selectedZoneID)}/cryptokeys/${keyID}`, { method: "DELETE" }),
+          "DNSSEC key deleted",
+        ).then(() => loadZone(selectedZoneID))}
         onDelete={(rrset) => patchRRSet({
           name: rrset.name,
           type: rrset.type,
@@ -483,6 +590,7 @@ function PowerDNSPage({ dashboard, mutate, capabilities }) {
         onBack={() => {
           setSelectedZoneID("");
           setZoneDetail(null);
+          setCryptoKeys([]);
           setRecordEditor(defaultRecordEditor);
         }}
       />
@@ -539,7 +647,7 @@ function PowerDNSPage({ dashboard, mutate, capabilities }) {
               </Field>
               {zoneMode === "hns" && (
                 <Field label="Glue IPv4">
-                  <input value={glueIPv4} onChange={(event) => setGlueIPv4(event.target.value)} placeholder={authoritativeIPv4} />
+                  <input value={glueIPv4} onChange={(event) => setGlueIPv4(event.target.value)} placeholder={authoritativeIPv4Example} />
                 </Field>
               )}
               {zoneMode === "hns" && (
@@ -571,7 +679,11 @@ function PowerDNSPage({ dashboard, mutate, capabilities }) {
                 </div>
               </details>
               {zoneMode === "hns" && <p className="form-help">将创建 <code>{punycodeZoneName ? `${punycodeZoneName}.` : "example."}</code>，并原子写入 SOA、NS 和 Glue。HNS 链上仍需发布相同的 NS/GLUE4/GLUE6。</p>}
-              <button className="button primary" disabled={!punycodeZoneName} onClick={createZone}><Plus size={16} />添加域名</button>
+              <button
+                className="button primary"
+                disabled={!punycodeZoneName || (zoneMode === "hns" && !glueIPv4.trim() && !glueIPv6.trim())}
+                onClick={createZone}
+              ><Plus size={16} />添加域名</button>
             </div>
             </fieldset>
           </Panel>
@@ -599,6 +711,7 @@ function PowerDNSPage({ dashboard, mutate, capabilities }) {
 
 function ZoneWorkspace({
   zone,
+  cryptoKeys,
   loading,
   canWrite,
   recordQuery,
@@ -609,6 +722,8 @@ function ZoneWorkspace({
   editor,
   setEditor,
   onSave,
+  onCreateCryptoKey,
+  onDeleteCryptoKey,
   onDelete,
   onBack,
 }) {
@@ -616,6 +731,10 @@ function ZoneWorkspace({
   const displayZoneName = zone?.unicode_name || zoneName;
   const hnsZone = isHNSZoneName(zoneName);
   const editing = Boolean(editor.originalName);
+  const defaultNameserver = `ns1.${zoneName}`;
+  const glueIPv4 = (zone?.rrsets || [])
+    .find((rrset) => rrset.type === "A" && rrset.name === defaultNameserver)
+    ?.records?.find((record) => !record.disabled)?.content || "";
   return (
     <div className="page-stack">
       <div className="zone-workspace-head">
@@ -637,10 +756,34 @@ function ZoneWorkspace({
             ? "在钱包中为名称发布以下资源。网页负责托管记录，链上资源负责把请求交给本服务器。"
             : "在域名注册商或上级 DNS 中设置以下 NS；使用同域 Nameserver 时还需要 Glue 记录。"}</span>
         </div>
-        <DelegationValue label="NS" value={`ns1.${zoneName}`} />
-        <DelegationValue label="GLUE4" value={`ns1.${zoneName} ${authoritativeIPv4}`} />
+        <DelegationValue label="NS" value={defaultNameserver} />
+        <DelegationValue label="GLUE4" value={glueIPv4 ? `${defaultNameserver} ${glueIPv4}` : "未找到 ns1 A Glue 记录"} />
         <div className="delegation-test"><code>{hnsZone ? `${trimTrailingDot(displayZoneName)}.hns` : trimTrailingDot(displayZoneName)}</code><span>{hnsZone ? "通过私有 DoH 验证" : "通过权威 DNS 验证"}</span></div>
       </div>
+
+      <Panel title="DNSSEC keys" subtitle="PowerDNS native key lifecycle; publish the returned DS at the parent zone">
+        <div className="page-actions">
+          <div className="muted">{cryptoKeys.length ? `${cryptoKeys.length} keys` : "No managed DNSSEC keys"}</div>
+          <button className="button secondary" disabled={!canWrite} onClick={onCreateCryptoKey}><KeyRound size={16} />Create CSK</button>
+        </div>
+        <div className="table-wrap">
+          <table>
+            <thead><tr><th>ID</th><th>Type</th><th>Active</th><th>Published</th><th>DS</th><th /></tr></thead>
+            <tbody>
+              {cryptoKeys.map((key) => (
+                <tr key={key.id}>
+                  <td>{key.id}</td>
+                  <td>{key.keytype}</td>
+                  <td>{key.active ? "yes" : "no"}</td>
+                  <td>{key.published ? "yes" : "no"}</td>
+                  <td><code>{key.ds?.[0] || "-"}</code></td>
+                  <td>{canWrite && <button className="icon-button danger" onClick={() => onDeleteCryptoKey(key.id)}><Trash2 size={16} /></button>}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </Panel>
 
       <div className="record-toolbar">
         <label className="search-box"><Search size={16} /><input value={recordQuery} onChange={(event) => setRecordQuery(event.target.value)} placeholder="搜索名称、类型或内容" /></label>
@@ -1085,7 +1228,7 @@ function displayRecordContent(type, value) {
 
 function recordContentPlaceholder(type, zoneName) {
   const examples = {
-    A: authoritativeIPv4,
+    A: authoritativeIPv4Example,
     AAAA: "2001:db8::53",
     CNAME: `target.${zoneName}`,
     TXT: "verification=... 或钱包记录",
@@ -1093,9 +1236,11 @@ function recordContentPlaceholder(type, zoneName) {
     NS: `ns1.${zoneName}`,
     SRV: `10 5 443 service.${zoneName}`,
     CAA: '0 issue "letsencrypt.org"',
+    DS: "12345 13 2 <sha256-digest>",
+    DNSKEY: "257 3 13 <base64-public-key>",
     PTR: `host.${zoneName}`,
     SVCB: `1 service.${zoneName} alpn=h2,h3`,
-    HTTPS: `1 . alpn=h2,h3 ipv4hint=${authoritativeIPv4}`,
+    HTTPS: `1 . alpn=h2,h3 ipv4hint=${authoritativeIPv4Example}`,
     TLSA: "3 1 1 <certificate-sha256>",
   };
   return examples[type] || "记录内容";
@@ -1103,6 +1248,8 @@ function recordContentPlaceholder(type, zoneName) {
 
 function recordHint(type) {
   const hints = {
+    DS: "Format: key-tag algorithm digest-type digest. Prefer digest type 2 or 4.",
+    DNSKEY: "Format: flags protocol algorithm base64-key. Use managed PowerDNS keys for signed zones.",
     A: "填写 IPv4 地址。@ 表示 Zone 根域名。",
     AAAA: "填写 IPv6 地址。",
     CNAME: "目标必须使用完整域名，建议以点结尾。",

@@ -7,4 +7,5 @@ web/admin/node_modules/
 internal/adminui/dist/
 dist/
 build/
+coverage/
 tmp/

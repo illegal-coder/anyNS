@@ -424,6 +424,32 @@ func TestPowerDNSZoneDetailAndRRSetPatch(t *testing.T) {
 	}
 }
 
+func TestAuthoritativeZonesListsZones(t *testing.T) {
+	pdns := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet || r.URL.Path != "/api/v1/servers/localhost/zones" {
+			t.Fatalf("unexpected PowerDNS request %s %s", r.Method, r.URL.Path)
+		}
+		_ = json.NewEncoder(w).Encode([]powerdns.Zone{{ID: "example.", Name: "example.", Kind: "Native"}})
+	}))
+	defer pdns.Close()
+
+	cfg := config.Default()
+	cfg.PowerDNS.AuthoritativeURL = pdns.URL
+	application, err := app.NewFromConfig(cfg)
+	if err != nil {
+		t.Fatalf("new app: %v", err)
+	}
+	mux := http.NewServeMux()
+	Register(mux, application, &cfg)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/powerdns/authoritative/zones", nil)
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"name":"example."`) {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+}
+
 func TestConfigurationUpdatePreservesSecretsAndReloads(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "config.json")

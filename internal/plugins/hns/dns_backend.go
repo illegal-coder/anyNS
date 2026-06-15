@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/rand"
+	"encoding/base64"
 	"encoding/binary"
 	"encoding/hex"
 	"errors"
@@ -32,6 +33,7 @@ var qtypeToCode = map[string]uint16{
 	"AAAA":    28,
 	"SRV":     33,
 	"DS":      43,
+	"DNSKEY":  48,
 	"TLSA":    52,
 	"CAA":     257,
 	"SVCB":    64,
@@ -51,6 +53,7 @@ var codeToType = map[uint16]string{
 	28:  "AAAA",
 	33:  "SRV",
 	43:  "DS",
+	48:  "DNSKEY",
 	52:  "TLSA",
 	64:  "SVCB",
 	65:  "HTTPS",
@@ -440,6 +443,16 @@ func formatRDATA(packet []byte, offset int, rdata []byte, typ uint16) (string, b
 			return "", false
 		}
 		return fmt.Sprintf("%d %d %d %s", binary.BigEndian.Uint16(rdata[0:2]), rdata[2], rdata[3], strings.ToUpper(hex.EncodeToString(rdata[4:]))), true
+	case 48:
+		if len(rdata) < 4 {
+			return "", false
+		}
+		return fmt.Sprintf("%d %d %d %s", binary.BigEndian.Uint16(rdata[0:2]), rdata[2], rdata[3], base64.StdEncoding.EncodeToString(rdata[4:])), true
+	case 52:
+		if len(rdata) < 3 {
+			return "", false
+		}
+		return fmt.Sprintf("%d %d %d %s", rdata[0], rdata[1], rdata[2], strings.ToUpper(hex.EncodeToString(rdata[3:]))), true
 	case 257:
 		if len(rdata) < 2 {
 			return "", false

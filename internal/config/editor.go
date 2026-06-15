@@ -40,17 +40,31 @@ type EditablePowerDNS struct {
 	RecursorKeyConfigured      bool   `json:"recursor_key_configured"`
 }
 
+type EditableCertificates struct {
+	Enabled                      bool   `json:"enabled"`
+	DirectoryURL                 string `json:"directory_url"`
+	AccountEmail                 string `json:"account_email"`
+	AcceptTOS                    bool   `json:"accept_tos"`
+	StorageDir                   string `json:"storage_dir"`
+	RequestTimeoutSeconds        int    `json:"request_timeout_seconds"`
+	DNSPropagationTimeoutSeconds int    `json:"dns_propagation_timeout_seconds"`
+	DNSPollIntervalSeconds       int    `json:"dns_poll_interval_seconds"`
+	MaxAttempts                  int    `json:"max_attempts"`
+	RenewBeforeDays              int    `json:"renew_before_days"`
+}
+
 type EditableConfig struct {
-	RequestTimeoutSeconds int                `json:"request_timeout_seconds"`
-	Routes                []plugins.Route    `json:"routes"`
-	Plugins               []EditablePlugin   `json:"plugins"`
-	Security              security.Policy    `json:"security"`
-	DNSLog                DNSLogConfig       `json:"dnslog"`
-	Honeypot              EditableHoneypot   `json:"honeypot"`
-	ControlPlane          ControlPlaneConfig `json:"control_plane"`
-	PowerDNS              EditablePowerDNS   `json:"powerdns"`
-	ConfigFile            string             `json:"config_file,omitempty"`
-	Writable              bool               `json:"writable"`
+	RequestTimeoutSeconds int                  `json:"request_timeout_seconds"`
+	Routes                []plugins.Route      `json:"routes"`
+	Plugins               []EditablePlugin     `json:"plugins"`
+	Security              security.Policy      `json:"security"`
+	DNSLog                DNSLogConfig         `json:"dnslog"`
+	Honeypot              EditableHoneypot     `json:"honeypot"`
+	ControlPlane          ControlPlaneConfig   `json:"control_plane"`
+	PowerDNS              EditablePowerDNS     `json:"powerdns"`
+	Certificates          EditableCertificates `json:"certificates"`
+	ConfigFile            string               `json:"config_file,omitempty"`
+	Writable              bool                 `json:"writable"`
 }
 
 func (cfg Config) Editable() EditableConfig {
@@ -93,6 +107,18 @@ func (cfg Config) Editable() EditableConfig {
 			RequestTimeoutSeconds:      int(cfg.PowerDNS.RequestTimeout.Seconds()),
 			AuthoritativeKeyConfigured: cfg.PowerDNS.AuthoritativeAPIKey != "" || cfg.PowerDNS.AuthoritativeAPIKeyFile != "",
 			RecursorKeyConfigured:      cfg.PowerDNS.RecursorAPIKey != "" || cfg.PowerDNS.RecursorAPIKeyFile != "",
+		},
+		Certificates: EditableCertificates{
+			Enabled:                      cfg.Certificates.Enabled,
+			DirectoryURL:                 cfg.Certificates.DirectoryURL,
+			AccountEmail:                 cfg.Certificates.AccountEmail,
+			AcceptTOS:                    cfg.Certificates.AcceptTOS,
+			StorageDir:                   cfg.Certificates.StorageDir,
+			RequestTimeoutSeconds:        int(cfg.Certificates.RequestTimeout.Seconds()),
+			DNSPropagationTimeoutSeconds: int(cfg.Certificates.DNSPropagationTimeout.Seconds()),
+			DNSPollIntervalSeconds:       int(cfg.Certificates.DNSPollInterval.Seconds()),
+			MaxAttempts:                  cfg.Certificates.MaxAttempts,
+			RenewBeforeDays:              cfg.Certificates.RenewBeforeDays,
 		},
 		ConfigFile: cfg.ConfigFile,
 		Writable:   configFileWritable(cfg.ConfigFile),
@@ -137,6 +163,19 @@ func ApplyEditable(current Config, edit EditableConfig) Config {
 	next.PowerDNS.ServerID = edit.PowerDNS.ServerID
 	next.PowerDNS.RequestTimeout = time.Duration(edit.PowerDNS.RequestTimeoutSeconds) * time.Second
 	next.PowerDNS.RequestTimeoutSeconds = edit.PowerDNS.RequestTimeoutSeconds
+	next.Certificates.Enabled = edit.Certificates.Enabled
+	next.Certificates.DirectoryURL = edit.Certificates.DirectoryURL
+	next.Certificates.AccountEmail = edit.Certificates.AccountEmail
+	next.Certificates.AcceptTOS = edit.Certificates.AcceptTOS
+	next.Certificates.StorageDir = edit.Certificates.StorageDir
+	next.Certificates.RequestTimeout = time.Duration(edit.Certificates.RequestTimeoutSeconds) * time.Second
+	next.Certificates.RequestTimeoutSeconds = edit.Certificates.RequestTimeoutSeconds
+	next.Certificates.DNSPropagationTimeout = time.Duration(edit.Certificates.DNSPropagationTimeoutSeconds) * time.Second
+	next.Certificates.DNSPropagationTimeoutSecs = edit.Certificates.DNSPropagationTimeoutSeconds
+	next.Certificates.DNSPollInterval = time.Duration(edit.Certificates.DNSPollIntervalSeconds) * time.Second
+	next.Certificates.DNSPollIntervalSeconds = edit.Certificates.DNSPollIntervalSeconds
+	next.Certificates.MaxAttempts = edit.Certificates.MaxAttempts
+	next.Certificates.RenewBeforeDays = edit.Certificates.RenewBeforeDays
 	return next
 }
 
@@ -181,6 +220,20 @@ func SaveEditableFile(path string, edit EditableConfig) error {
 		return err
 	}
 	if err := mergePowerDNS(document, edit.PowerDNS); err != nil {
+		return err
+	}
+	if err := set("certificates", map[string]any{
+		"enabled":                 edit.Certificates.Enabled,
+		"directory_url":           edit.Certificates.DirectoryURL,
+		"account_email":           edit.Certificates.AccountEmail,
+		"accept_tos":              edit.Certificates.AcceptTOS,
+		"storage_dir":             edit.Certificates.StorageDir,
+		"request_timeout":         fmt.Sprintf("%ds", edit.Certificates.RequestTimeoutSeconds),
+		"dns_propagation_timeout": fmt.Sprintf("%ds", edit.Certificates.DNSPropagationTimeoutSeconds),
+		"dns_poll_interval":       fmt.Sprintf("%ds", edit.Certificates.DNSPollIntervalSeconds),
+		"max_attempts":            edit.Certificates.MaxAttempts,
+		"renew_before_days":       edit.Certificates.RenewBeforeDays,
+	}); err != nil {
 		return err
 	}
 	encoded, err := json.MarshalIndent(document, "", "  ")

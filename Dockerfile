@@ -17,6 +17,8 @@ RUN go build -buildvcs=false -trimpath -o /out/anyns-admin-api ./cmd/anyns-admin
 
 FROM alpine:3.20
 RUN adduser -D -u 10001 anyns
+RUN mkdir -p /var/lib/anyns /usr/share/anyns-admin \
+ && chown -R anyns:anyns /var/lib/anyns /usr/share/anyns-admin
 COPY --from=go-build /out/ /usr/local/bin/
 COPY --from=web-build /src/internal/adminui/dist/ /usr/share/anyns-admin/
 COPY configs/anyns/config.example.json /usr/share/anyns/config.default.json

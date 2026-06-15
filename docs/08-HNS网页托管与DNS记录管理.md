@@ -2,7 +2,7 @@
 
 ## 进入管理页面
 
-1. 打开 `https://codex.viru.sh`。
+1. 打开部署后的管理站点，例如 `https://admin.example.org`。
 2. 使用服务器单独保存的网页验收账号完成 HTTP Basic Auth。
 3. 进入左侧 `PowerDNS`。
 
@@ -15,14 +15,14 @@
    - 不要输入 `example.hns`。
    - 网页会创建 PowerDNS Zone `example.`。
 3. 检查自动生成的 Nameserver，例如 `ns1.example.`。
-4. 检查 Glue IPv4，当前服务器为 `68.64.179.208`。
+4. 检查 Glue IPv4，并填写实际权威 DNS 公网地址；文档示例使用 `192.0.2.53`。
 5. 点击 `添加域名`。
 
 创建完成后，网页会自动添加 Nameserver 的 A 记录。随后必须在持有该名称的钱包或注册平台中发布：
 
 ```text
 NS     ns1.example.
-GLUE4  ns1.example. 68.64.179.208
+GLUE4  ns1.example. 192.0.2.53
 ```
 
 链上更新确认后，客户端使用 `example.hns` 通过 anyNS 私有 DoH 解析。不要向网页或服务器提交钱包私钥。
@@ -45,7 +45,7 @@ GLUE4  ns1.example. 68.64.179.208
 
 | 类型 | 名称 | 内容示例 |
 | --- | --- | --- |
-| A | `@` | `68.64.179.208` |
+| A | `@` | `192.0.2.53` |
 | AAAA | `@` | `2001:db8::53` |
 | CNAME | `www` | `target.example.` |
 | TXT | `_verify` | `verification=...` |
@@ -53,7 +53,7 @@ GLUE4  ns1.example. 68.64.179.208
 | NS | `@` | `ns1.example.` |
 | SRV | `_service._tcp` | `10 5 443 service.example.` |
 | CAA | `@` | `0 issue "letsencrypt.org"` |
-| HTTPS | `@` | `1 . alpn=h2,h3 ipv4hint=68.64.179.208` |
+| HTTPS | `@` | `1 . alpn=h2,h3 ipv4hint=192.0.2.53` |
 | TLSA | `_443._tcp` | `3 1 1 <certificate-sha256>` |
 
 TXT 输入不需要手工添加最外层引号，网页保存时会按 PowerDNS 格式处理。TXT 编辑器提供 OpenAlias ETH、OpenAlias BTC 和 HNS Wallet 模板。
@@ -76,4 +76,4 @@ HNS Zone 详情会显示需要发布的 `NS`、`GLUE4` 和对应的 `<name>.hns`
 /root/anyns-public-dns/doh-credentials
 ```
 
-公网 `68.64.179.208:53` 只提供权威 DNS 并拒绝递归查询。递归 ICANN 和 HNS 查询必须使用私有 DoH。
+公网权威地址的 `53/udp` 和 `53/tcp` 只提供权威 DNS 并拒绝递归查询。递归 ICANN 和 HNS 查询必须使用受控递归服务或私有 DoH。

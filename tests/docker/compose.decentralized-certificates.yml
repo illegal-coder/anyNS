@@ -1,0 +1,80 @@
+name: anyns-decentralized-certificates
+
+services:
+  pdns:
+    image: powerdns/pdns-auth-50:5.0.5
+    command:
+      [
+        "--config-dir=/etc/powerdns",
+        "--api-key=side-load-only",
+        "--webserver-password=side-load-only"
+      ]
+    ports:
+      - "127.0.0.1:25353:53/udp"
+      - "127.0.0.1:25353:53/tcp"
+      - "127.0.0.1:28083:8081/tcp"
+    volumes:
+      - ./pdns-authoritative-acme.conf:/etc/powerdns/pdns.conf:ro
+      - pdns-data:/var/lib/powerdns
+    networks:
+      acmenet:
+        ipv4_address: 10.31.0.53
+
+  pebble:
+    image: ghcr.io/letsencrypt/pebble@sha256:ddf230642b1a584f519f32e347de1b05a6e4c1f6c35c1863b33effeab5f78199
+    command:
+      [
+        "-config",
+        "test/config/pebble-config.json",
+        "-dnsserver",
+        "10.31.0.53:53"
+      ]
+    environment:
+      PEBBLE_VA_NOSLEEP: "1"
+      PEBBLE_WFE_NONCEREJECT: "0"
+    depends_on:
+      pdns:
+        condition: service_started
+    networks:
+      acmenet:
+        ipv4_address: 10.31.0.54
+
+  admin:
+    build:
+      context: ../..
+    image: anyns/decentralized-certificates:side-load
+    entrypoint: ["/usr/local/bin/anyns-admin-api"]
+    environment:
+      ANYNS_CONFIG_FILE: /etc/anyns/config.json
+      ANYNS_ADMIN_UI_DIR: /usr/share/anyns-admin
+      SSL_CERT_FILE: /etc/anyns/pebble.minica.pem
+    ports:
+      - "127.0.0.1:28080:8080/tcp"
+    volumes:
+      - ./anyns-acme-config.json:/etc/anyns/config.json:ro
+      - ./pebble.minica.pem:/etc/anyns/pebble.minica.pem:ro
+      - admin-data:/var/lib/anyns
+    dns:
+      - 10.31.0.53
+    extra_hosts:
+      - "pdns:10.31.0.53"
+      - "pebble:10.31.0.54"
+    depends_on:
+      pdns:
+        condition: service_started
+      pebble:
+        condition: service_started
+    networks:
+      acmenet:
+        ipv4_address: 10.31.0.55
+
+volumes:
+  admin-data:
+  pdns-data:
+
+networks:
+  acmenet:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 10.31.0.0/24

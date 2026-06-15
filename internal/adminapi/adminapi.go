@@ -3,23 +3,29 @@ package adminapi
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/anyns/anyns/internal/app"
+	"github.com/anyns/anyns/internal/certificates"
 	"github.com/anyns/anyns/internal/config"
 	"github.com/anyns/anyns/internal/controlplane"
+	"github.com/anyns/anyns/internal/dnsrr"
 	"github.com/anyns/anyns/internal/httpapi"
 	"github.com/anyns/anyns/internal/powerdns"
 )
 
 type Handler struct {
-	application *app.App
-	cfg         *config.Config
-	httpClient  *http.Client
+	application      *app.App
+	cfg              *config.Config
+	httpClient       *http.Client
+	certificates     *certificates.Manager
+	certificateError string
 }
 
 type ServiceStatus struct {
@@ -50,6 +56,16 @@ func Register(mux *http.ServeMux, application *app.App, cfg *config.Config) {
 		cfg:         cfg,
 		httpClient:  &http.Client{Timeout: 5 * time.Second},
 	}
+	if cfg.Certificates.Enabled {
+		provider := certificates.NewPowerDNSProvider(powerdns.New(cfg.PowerDNS))
+		issuer, err := certificates.NewACMEIssuer(cfg.Certificates, provider)
+		if err == nil {
+			handler.certificates, err = certificates.NewManager(cfg.Certificates, issuer)
+		}
+		if err != nil {
+			handler.certificateError = err.Error()
+		}
+	}
 	mux.HandleFunc("/api/v1/capabilities", handler.capabilities)
 	mux.HandleFunc("/api/v1/dashboard", handler.dashboard)
 	mux.HandleFunc("/api/v1/configuration", handler.configuration)
@@ -58,6 +74,9 @@ func Register(mux *http.ServeMux, application *app.App, cfg *config.Config) {
 	mux.HandleFunc("/api/v1/powerdns/authoritative/zones", handler.authoritativeZones)
 	mux.HandleFunc("/api/v1/powerdns/authoritative/zones/", handler.authoritativeZone)
 	mux.HandleFunc("/api/v1/powerdns/recursor/cache/flush", handler.recursorCacheFlush)
+	mux.HandleFunc("/api/v1/certificates/orders", handler.certificateOrders)
+	mux.HandleFunc("/api/v1/certificates/orders/", handler.certificateOrder)
+	mux.HandleFunc("/api/v1/certificates/tlsa", handler.certificateTLSA)
 }
 
 func (h *Handler) capabilities(w http.ResponseWriter, r *http.Request) {
@@ -74,6 +93,7 @@ func (h *Handler) capabilities(w http.ResponseWriter, r *http.Request) {
 	editable := current.Editable()
 	powerDNSConfigured := strings.TrimSpace(current.PowerDNS.AuthoritativeURL) != "" || strings.TrimSpace(current.PowerDNS.RecursorURL) != ""
 	policyConfigured := strings.TrimSpace(current.ConfigFile) != ""
+	certificatesAvailable := current.Certificates.Enabled && h.certificates != nil
 
 	feature := func(readScope, writeScope string, available, writable bool, endpoints ...string) FeatureCapability {
 		read := principal.HasScope(readScope)
@@ -112,8 +132,22 @@ func (h *Handler) capabilities(w http.ResponseWriter, r *http.Request) {
 			"POST /api/v1/powerdns/authoritative/zones",
 			"GET /api/v1/powerdns/authoritative/zones/{id}",
 			"PATCH /api/v1/powerdns/authoritative/zones/{id}/rrsets",
+			"GET /api/v1/powerdns/authoritative/zones/{id}/cryptokeys",
+			"POST /api/v1/powerdns/authoritative/zones/{id}/cryptokeys",
+			"DELETE /api/v1/powerdns/authoritative/zones/{id}/cryptokeys/{key_id}",
+			"POST /api/v1/powerdns/authoritative/zones/{id}/derive-ds",
 			"DELETE /api/v1/powerdns/authoritative/zones/{id}",
 			"POST /api/v1/powerdns/recursor/cache/flush",
+		),
+		"certificates": feature(
+			httpapi.ScopeCertificatesRead, httpapi.ScopeCertificatesWrite, certificatesAvailable, true,
+			"GET /api/v1/certificates/orders",
+			"POST /api/v1/certificates/orders",
+			"GET /api/v1/certificates/orders/{id}",
+			"GET /api/v1/certificates/orders/{id}/certificate",
+			"POST /api/v1/certificates/orders/{id}/renew",
+			"POST /api/v1/certificates/orders/{id}/revoke",
+			"POST /api/v1/certificates/tlsa",
 		),
 		"plugins": feature(
 			httpapi.ScopePluginsRead, httpapi.ScopePluginsWrite, true, true,
@@ -193,6 +227,246 @@ func (h *Handler) dashboard(w http.ResponseWriter, r *http.Request) {
 		response["configuration"] = current.Editable()
 	}
 	httpapi.WriteJSON(w, http.StatusOK, response)
+}
+
+func (h *Handler) certificateOrders(w http.ResponseWriter, r *http.Request) {
+	current := *h.cfg
+	if h.certificates == nil {
+		httpapi.Error(w, http.StatusServiceUnavailable, h.certificateUnavailable())
+		return
+	}
+	switch r.Method {
+	case http.MethodGet:
+		if !httpapi.RequireScope(w, r, current, httpapi.ScopeCertificatesRead) {
+			return
+		}
+		httpapi.WriteJSON(w, http.StatusOK, h.certificates.List())
+	case http.MethodPost:
+		principal, ok := httpapi.RequireScopePrincipal(w, r, current, httpapi.ScopeCertificatesWrite)
+		if !ok {
+			return
+		}
+		var request certificates.IssueRequest
+		if err := httpapi.DecodeJSON(r, &request); err != nil {
+			httpapi.Error(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		job, created, err := h.certificates.Start(request)
+		if err != nil {
+			httpapi.Error(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		status := http.StatusOK
+		if created {
+			status = http.StatusAccepted
+			h.application.AppendManagementAudit("certificate.issue", principal.ID, r.Method, r.URL.Path, "accepted", map[string]any{
+				"job_id":  job.ID,
+				"domains": job.Domains,
+			})
+		}
+		httpapi.WriteJSON(w, status, job)
+	default:
+		httpapi.Error(w, http.StatusMethodNotAllowed, "method not allowed")
+	}
+}
+
+func (h *Handler) certificateOrder(w http.ResponseWriter, r *http.Request) {
+	current := *h.cfg
+	if h.certificates == nil {
+		httpapi.Error(w, http.StatusServiceUnavailable, h.certificateUnavailable())
+		return
+	}
+	raw := strings.TrimPrefix(r.URL.Path, "/api/v1/certificates/orders/")
+	parts := strings.Split(strings.Trim(raw, "/"), "/")
+	if len(parts) == 0 || parts[0] == "" {
+		httpapi.Error(w, http.StatusBadRequest, "certificate job id is required")
+		return
+	}
+	jobID := parts[0]
+	action := ""
+	if len(parts) > 1 {
+		action = parts[1]
+	}
+	if action == "" {
+		if r.Method != http.MethodGet {
+			httpapi.Error(w, http.StatusMethodNotAllowed, "method not allowed")
+			return
+		}
+		if !httpapi.RequireScope(w, r, current, httpapi.ScopeCertificatesRead) {
+			return
+		}
+		job, ok := h.certificates.Get(jobID)
+		if !ok {
+			httpapi.Error(w, http.StatusNotFound, "certificate job not found")
+			return
+		}
+		httpapi.WriteJSON(w, http.StatusOK, job)
+		return
+	}
+	switch action {
+	case "certificate":
+		if r.Method != http.MethodGet {
+			httpapi.Error(w, http.StatusMethodNotAllowed, "method not allowed")
+			return
+		}
+		if !httpapi.RequireScope(w, r, current, httpapi.ScopeCertificatesRead) {
+			return
+		}
+		body, err := h.certificates.CertificatePEM(jobID)
+		if err != nil {
+			httpapi.Error(w, http.StatusNotFound, err.Error())
+			return
+		}
+		w.Header().Set("Content-Type", "application/x-pem-file")
+		w.Header().Set("Cache-Control", "no-store")
+		_, _ = w.Write(body)
+	case "renew":
+		if r.Method != http.MethodPost {
+			httpapi.Error(w, http.StatusMethodNotAllowed, "method not allowed")
+			return
+		}
+		principal, ok := httpapi.RequireScopePrincipal(w, r, current, httpapi.ScopeCertificatesWrite)
+		if !ok {
+			return
+		}
+		var request struct {
+			IdempotencyKey string `json:"idempotency_key"`
+			Force          bool   `json:"force"`
+		}
+		if err := httpapi.DecodeJSON(r, &request); err != nil {
+			httpapi.Error(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		job, created, err := h.certificates.Renew(jobID, request.IdempotencyKey, request.Force)
+		if err != nil {
+			httpapi.Error(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		if created {
+			h.application.AppendManagementAudit("certificate.renew", principal.ID, r.Method, r.URL.Path, "accepted", map[string]any{
+				"job_id":     job.ID,
+				"renewal_of": jobID,
+			})
+		}
+		httpapi.WriteJSON(w, http.StatusAccepted, job)
+	case "revoke":
+		if r.Method != http.MethodPost {
+			httpapi.Error(w, http.StatusMethodNotAllowed, "method not allowed")
+			return
+		}
+		principal, ok := httpapi.RequireScopePrincipal(w, r, current, httpapi.ScopeCertificatesWrite)
+		if !ok {
+			return
+		}
+		ctx, cancel := context.WithTimeout(r.Context(), current.Certificates.RequestTimeout)
+		defer cancel()
+		job, err := h.certificates.Revoke(ctx, jobID)
+		if err != nil {
+			httpapi.Error(w, http.StatusBadGateway, err.Error())
+			return
+		}
+		h.application.AppendManagementAudit("certificate.revoke", principal.ID, r.Method, r.URL.Path, "ok", map[string]any{
+			"job_id": job.ID,
+		})
+		httpapi.WriteJSON(w, http.StatusOK, job)
+	default:
+		httpapi.Error(w, http.StatusNotFound, "certificate action not found")
+	}
+}
+
+func (h *Handler) certificateTLSA(w http.ResponseWriter, r *http.Request) {
+	current := *h.cfg
+	if r.Method != http.MethodPost {
+		httpapi.Error(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	principal, ok := httpapi.RequireScopePrincipal(w, r, current, httpapi.ScopeCertificatesWrite)
+	if !ok {
+		return
+	}
+	if h.certificates == nil {
+		httpapi.Error(w, http.StatusServiceUnavailable, h.certificateUnavailable())
+		return
+	}
+	var request struct {
+		JobID        string `json:"job_id"`
+		Domain       string `json:"domain"`
+		Port         uint16 `json:"port"`
+		Protocol     string `json:"protocol"`
+		Usage        uint8  `json:"usage"`
+		Selector     uint8  `json:"selector"`
+		MatchingType uint8  `json:"matching_type"`
+		Publish      bool   `json:"publish"`
+		TTL          uint32 `json:"ttl"`
+	}
+	if err := httpapi.DecodeJSON(r, &request); err != nil {
+		httpapi.Error(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	certificatePEM, err := h.certificates.CertificatePEM(request.JobID)
+	if err != nil {
+		httpapi.Error(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	owner, err := dnsrr.ParseTLSAOwner(request.Port, request.Protocol, request.Domain)
+	if err != nil {
+		httpapi.Error(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	value, err := dnsrr.TLSAFromCertificatePEM(certificatePEM, request.Usage, request.Selector, request.MatchingType)
+	if err != nil {
+		httpapi.Error(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if request.Publish {
+		if request.TTL == 0 {
+			request.TTL = 300
+		}
+		if err := publishTLSA(r.Context(), powerdns.New(current.PowerDNS), owner, value, request.TTL); err != nil {
+			httpapi.Error(w, powerDNSErrorStatus(err), err.Error())
+			return
+		}
+		h.application.AppendManagementAudit("certificate.tlsa.publish", principal.ID, r.Method, r.URL.Path, "ok", map[string]any{
+			"job_id": request.JobID,
+			"owner":  owner,
+		})
+	}
+	httpapi.WriteJSON(w, http.StatusOK, map[string]any{
+		"owner":     owner,
+		"type":      "TLSA",
+		"value":     value,
+		"published": request.Publish,
+	})
+}
+
+func publishTLSA(ctx context.Context, client *powerdns.Client, owner, value string, ttl uint32) error {
+	zones, err := client.Zones(ctx, "authoritative")
+	if err != nil {
+		return err
+	}
+	var zone powerdns.Zone
+	for _, candidate := range zones {
+		if (owner == candidate.Name || strings.HasSuffix(owner, "."+candidate.Name)) && len(candidate.Name) > len(zone.Name) {
+			zone = candidate
+		}
+	}
+	if zone.ID == "" {
+		return fmt.Errorf("no authoritative PowerDNS zone contains %s", owner)
+	}
+	return client.PatchAuthoritativeZone(ctx, zone.ID, powerdns.PatchZoneRequest{RRSets: []powerdns.RRSet{{
+		Name:       owner,
+		Type:       "TLSA",
+		TTL:        ttl,
+		ChangeType: "REPLACE",
+		Records:    []powerdns.Record{{Content: value}},
+	}}})
+}
+
+func (h *Handler) certificateUnavailable() string {
+	if h.certificateError != "" {
+		return "certificate service is unavailable: " + h.certificateError
+	}
+	return "certificate service is not enabled"
 }
 
 func (h *Handler) configuration(w http.ResponseWriter, r *http.Request) {
@@ -296,6 +570,13 @@ func (h *Handler) powerDNSZones(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) authoritativeZones(w http.ResponseWriter, r *http.Request) {
+	if r.Method == http.MethodGet {
+		query := r.URL.Query()
+		query.Set("service", "authoritative")
+		r.URL.RawQuery = query.Encode()
+		h.powerDNSZones(w, r)
+		return
+	}
 	if r.Method != http.MethodPost {
 		httpapi.Error(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
@@ -324,6 +605,14 @@ func (h *Handler) authoritativeZones(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) authoritativeZone(w http.ResponseWriter, r *http.Request) {
 	current := *h.cfg
 	rawID := strings.TrimPrefix(r.URL.Path, "/api/v1/powerdns/authoritative/zones/")
+	if strings.Contains(rawID, "/cryptokeys") {
+		h.authoritativeCryptoKeys(w, r, current, rawID)
+		return
+	}
+	if strings.HasSuffix(rawID, "/derive-ds") {
+		h.deriveDS(w, r, current, strings.TrimSuffix(rawID, "/derive-ds"))
+		return
+	}
 	isRRSetRequest := strings.HasSuffix(rawID, "/rrsets")
 	if isRRSetRequest {
 		rawID = strings.TrimSuffix(rawID, "/rrsets")
@@ -387,6 +676,117 @@ func (h *Handler) authoritativeZone(w http.ResponseWriter, r *http.Request) {
 	default:
 		httpapi.Error(w, http.StatusMethodNotAllowed, "method not allowed")
 	}
+}
+
+func (h *Handler) authoritativeCryptoKeys(w http.ResponseWriter, r *http.Request, current config.Config, rawPath string) {
+	parts := strings.Split(rawPath, "/cryptokeys")
+	if len(parts) != 2 {
+		httpapi.Error(w, http.StatusBadRequest, "invalid cryptokey path")
+		return
+	}
+	zoneID, err := url.PathUnescape(strings.TrimSuffix(parts[0], "/"))
+	if err != nil || strings.TrimSpace(zoneID) == "" {
+		httpapi.Error(w, http.StatusBadRequest, "zone id is required")
+		return
+	}
+	keySuffix := strings.Trim(parts[1], "/")
+	client := powerdns.New(current.PowerDNS)
+	if keySuffix != "" {
+		if r.Method != http.MethodDelete {
+			httpapi.Error(w, http.StatusMethodNotAllowed, "method not allowed")
+			return
+		}
+		principal, ok := httpapi.RequireScopePrincipal(w, r, current, httpapi.ScopePowerDNSWrite)
+		if !ok {
+			return
+		}
+		keyID, parseErr := strconv.Atoi(keySuffix)
+		if parseErr != nil {
+			httpapi.Error(w, http.StatusBadRequest, "key id must be an integer")
+			return
+		}
+		if err := client.DeleteAuthoritativeCryptoKey(r.Context(), zoneID, keyID); err != nil {
+			httpapi.Error(w, powerDNSErrorStatus(err), err.Error())
+			return
+		}
+		h.application.AppendManagementAudit("powerdns.dnssec.key.delete", principal.ID, r.Method, r.URL.Path, "ok", map[string]any{
+			"zone_id": zoneID,
+			"key_id":  keyID,
+		})
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+	switch r.Method {
+	case http.MethodGet:
+		if !httpapi.RequireScope(w, r, current, httpapi.ScopePowerDNSRead) {
+			return
+		}
+		keys, err := client.AuthoritativeCryptoKeys(r.Context(), zoneID)
+		if err != nil {
+			httpapi.Error(w, powerDNSErrorStatus(err), err.Error())
+			return
+		}
+		httpapi.WriteJSON(w, http.StatusOK, keys)
+	case http.MethodPost:
+		principal, ok := httpapi.RequireScopePrincipal(w, r, current, httpapi.ScopePowerDNSWrite)
+		if !ok {
+			return
+		}
+		var request powerdns.CreateCryptoKeyRequest
+		if err := httpapi.DecodeJSON(r, &request); err != nil {
+			httpapi.Error(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		key, err := client.CreateAuthoritativeCryptoKey(r.Context(), zoneID, request)
+		if err != nil {
+			httpapi.Error(w, powerDNSErrorStatus(err), err.Error())
+			return
+		}
+		h.application.AppendManagementAudit("powerdns.dnssec.key.create", principal.ID, r.Method, r.URL.Path, "ok", map[string]any{
+			"zone_id": zoneID,
+			"key_id":  key.ID,
+			"keytype": key.KeyType,
+		})
+		httpapi.WriteJSON(w, http.StatusCreated, key)
+	default:
+		httpapi.Error(w, http.StatusMethodNotAllowed, "method not allowed")
+	}
+}
+
+func (h *Handler) deriveDS(w http.ResponseWriter, r *http.Request, current config.Config, rawZoneID string) {
+	if r.Method != http.MethodPost {
+		httpapi.Error(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	if !httpapi.RequireScope(w, r, current, httpapi.ScopePowerDNSRead) {
+		return
+	}
+	zoneID, err := url.PathUnescape(strings.TrimSuffix(rawZoneID, "/"))
+	if err != nil || strings.TrimSpace(zoneID) == "" {
+		httpapi.Error(w, http.StatusBadRequest, "zone id is required")
+		return
+	}
+	var request struct {
+		DNSKey     string `json:"dnskey"`
+		DigestType uint8  `json:"digest_type"`
+	}
+	if err := httpapi.DecodeJSON(r, &request); err != nil {
+		httpapi.Error(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if request.DigestType == 0 {
+		request.DigestType = 2
+	}
+	ds, err := powerdns.DeriveDS(zoneID, request.DNSKey, request.DigestType)
+	if err != nil {
+		httpapi.Error(w, powerDNSErrorStatus(err), err.Error())
+		return
+	}
+	httpapi.WriteJSON(w, http.StatusOK, map[string]any{
+		"zone":        zoneID,
+		"digest_type": request.DigestType,
+		"ds":          ds,
+	})
 }
 
 func (h *Handler) recursorCacheFlush(w http.ResponseWriter, r *http.Request) {

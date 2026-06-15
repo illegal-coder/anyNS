@@ -204,6 +204,55 @@ func TestPoliciesReloadUpdatesControlPlaneConfig(t *testing.T) {
 	}
 }
 
+func TestRegisterAdminUIServesAssetsAndSPAFallback(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "index.html"), []byte("<html>anyNS UI</html>"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "app.js"), []byte("console.log('anyNS')"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("ANYNS_ADMIN_UI_DIR", dir)
+	cfg := config.Default()
+	application, err := app.NewFromConfig(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	mux := newAdminMux(application, cfg)
+
+	for path, want := range map[string]string{
+		"/":              "anyNS UI",
+		"/powerdns/zone": "anyNS UI",
+		"/app.js":        "console.log",
+	} {
+		rec := httptest.NewRecorder()
+		mux.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, path, nil))
+		if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), want) {
+			t.Fatalf("%s status=%d body=%q", path, rec.Code, rec.Body.String())
+		}
+	}
+}
+
+func TestAdminMuxRegistersPowerDNSAndCertificateAPIs(t *testing.T) {
+	cfg := config.Default()
+	application, err := app.NewFromConfig(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	mux := newAdminMux(application, cfg)
+	for _, path := range []string{
+		"/api/v1/capabilities",
+		"/api/v1/powerdns/authoritative/zones",
+		"/api/v1/certificates/orders",
+	} {
+		rec := httptest.NewRecorder()
+		mux.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, path, nil))
+		if rec.Code == http.StatusNotFound || strings.Contains(rec.Body.String(), "<!doctype html>") {
+			t.Fatalf("%s was not registered: status=%d body=%s", path, rec.Code, rec.Body.String())
+		}
+	}
+}
+
 func TestAuditSummaryEndpointAggregatesDNSLog(t *testing.T) {
 	cfg := config.Default()
 	application, err := app.NewFromConfig(cfg)

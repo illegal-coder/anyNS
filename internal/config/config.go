@@ -32,6 +32,7 @@ type Config struct {
 	ControlPlane       ControlPlaneConfig
 	Management         ManagementConfig
 	PowerDNS           PowerDNSConfig
+	Certificates       CertificatesConfig
 	ConfigFile         string
 }
 
@@ -82,6 +83,22 @@ type PowerDNSConfig struct {
 	RequestTimeoutSeconds   int           `json:"request_timeout_seconds"`
 }
 
+type CertificatesConfig struct {
+	Enabled                   bool          `json:"enabled"`
+	DirectoryURL              string        `json:"directory_url"`
+	AccountEmail              string        `json:"account_email"`
+	AcceptTOS                 bool          `json:"accept_tos"`
+	StorageDir                string        `json:"storage_dir"`
+	RequestTimeout            time.Duration `json:"-"`
+	RequestTimeoutSeconds     int           `json:"request_timeout_seconds"`
+	DNSPropagationTimeout     time.Duration `json:"-"`
+	DNSPropagationTimeoutSecs int           `json:"dns_propagation_timeout_seconds"`
+	DNSPollInterval           time.Duration `json:"-"`
+	DNSPollIntervalSeconds    int           `json:"dns_poll_interval_seconds"`
+	MaxAttempts               int           `json:"max_attempts"`
+	RenewBeforeDays           int           `json:"renew_before_days"`
+}
+
 type ManagementConfig struct {
 	APIKey       string           `json:"api_key"`
 	APIKeyFile   string           `json:"api_key_file,omitempty"`
@@ -128,6 +145,7 @@ type fileConfig struct {
 	ControlPlane     ControlPlaneConfig     `json:"control_plane"`
 	Management       ManagementConfig       `json:"management"`
 	PowerDNS         filePowerDNSConfig     `json:"powerdns"`
+	Certificates     fileCertificatesConfig `json:"certificates"`
 	Extra            map[string]interface{} `json:"-"`
 }
 
@@ -153,6 +171,19 @@ type filePowerDNSConfig struct {
 	RecursorAPIKeyFile      string            `json:"recursor_api_key_file"`
 	ServerID                string            `json:"server_id"`
 	RequestTimeout          durationOrSeconds `json:"request_timeout"`
+}
+
+type fileCertificatesConfig struct {
+	Enabled               bool              `json:"enabled"`
+	DirectoryURL          string            `json:"directory_url"`
+	AccountEmail          string            `json:"account_email"`
+	AcceptTOS             bool              `json:"accept_tos"`
+	StorageDir            string            `json:"storage_dir"`
+	RequestTimeout        durationOrSeconds `json:"request_timeout"`
+	DNSPropagationTimeout durationOrSeconds `json:"dns_propagation_timeout"`
+	DNSPollInterval       durationOrSeconds `json:"dns_poll_interval"`
+	MaxAttempts           int               `json:"max_attempts"`
+	RenewBeforeDays       int               `json:"renew_before_days"`
 }
 
 type durationOrSeconds struct {
@@ -221,6 +252,21 @@ func Default() Config {
 			ServerID:              env("ANYNS_PDNS_SERVER_ID", "localhost"),
 			RequestTimeout:        time.Duration(envInt("ANYNS_PDNS_REQUEST_TIMEOUT_SECONDS", 5)) * time.Second,
 			RequestTimeoutSeconds: envInt("ANYNS_PDNS_REQUEST_TIMEOUT_SECONDS", 5),
+		},
+		Certificates: CertificatesConfig{
+			Enabled:                   envBool("ANYNS_CERTIFICATES_ENABLED", false),
+			DirectoryURL:              env("ANYNS_ACME_DIRECTORY_URL", "https://acme-staging-v02.api.letsencrypt.org/directory"),
+			AccountEmail:              env("ANYNS_ACME_ACCOUNT_EMAIL", ""),
+			AcceptTOS:                 envBool("ANYNS_ACME_ACCEPT_TOS", false),
+			StorageDir:                env("ANYNS_CERTIFICATE_STORAGE_DIR", "/var/lib/anyns/certificates"),
+			RequestTimeout:            time.Duration(envInt("ANYNS_ACME_REQUEST_TIMEOUT_SECONDS", 300)) * time.Second,
+			RequestTimeoutSeconds:     envInt("ANYNS_ACME_REQUEST_TIMEOUT_SECONDS", 300),
+			DNSPropagationTimeout:     time.Duration(envInt("ANYNS_ACME_DNS_PROPAGATION_TIMEOUT_SECONDS", 120)) * time.Second,
+			DNSPropagationTimeoutSecs: envInt("ANYNS_ACME_DNS_PROPAGATION_TIMEOUT_SECONDS", 120),
+			DNSPollInterval:           time.Duration(envInt("ANYNS_ACME_DNS_POLL_INTERVAL_SECONDS", 2)) * time.Second,
+			DNSPollIntervalSeconds:    envInt("ANYNS_ACME_DNS_POLL_INTERVAL_SECONDS", 2),
+			MaxAttempts:               envInt("ANYNS_ACME_MAX_ATTEMPTS", 3),
+			RenewBeforeDays:           envInt("ANYNS_CERTIFICATE_RENEW_BEFORE_DAYS", 30),
 		},
 	}
 }
@@ -330,6 +376,7 @@ func LoadWithBase(r io.Reader, cfg *Config, baseDir string) error {
 		cfg.Management.Keys = raw.Management.Keys
 	}
 	applyPowerDNS(raw.PowerDNS, cfg)
+	applyCertificates(raw.Certificates, cfg)
 	if err := resolveSecretFiles(cfg, baseDir); err != nil {
 		return err
 	}
@@ -388,6 +435,38 @@ func (cfg Config) Validate() error {
 	}
 	if strings.TrimSpace(cfg.PowerDNS.RecursorAPIKey) != "" && strings.TrimSpace(cfg.PowerDNS.RecursorAPIKeyFile) != "" {
 		problems = append(problems, "powerdns must not set both recursor_api_key and recursor_api_key_file")
+	}
+	if cfg.Certificates.Enabled {
+		if !validHTTPURL(cfg.Certificates.DirectoryURL) {
+			problems = append(problems, "certificates.directory_url must be an http or https URL with a host")
+		}
+		if strings.TrimSpace(cfg.Certificates.AccountEmail) == "" || !strings.Contains(cfg.Certificates.AccountEmail, "@") {
+			problems = append(problems, "certificates.account_email must be a valid account email")
+		}
+		if !cfg.Certificates.AcceptTOS {
+			problems = append(problems, "certificates.accept_tos must be true when certificate issuance is enabled")
+		}
+		if strings.TrimSpace(cfg.Certificates.StorageDir) == "" {
+			problems = append(problems, "certificates.storage_dir is required")
+		}
+		if strings.TrimSpace(cfg.PowerDNS.AuthoritativeURL) == "" {
+			problems = append(problems, "powerdns.authoritative_url is required for ACME DNS-01")
+		}
+	}
+	if cfg.Certificates.RequestTimeout <= 0 {
+		problems = append(problems, "certificates.request_timeout must be greater than zero")
+	}
+	if cfg.Certificates.DNSPropagationTimeout <= 0 {
+		problems = append(problems, "certificates.dns_propagation_timeout must be greater than zero")
+	}
+	if cfg.Certificates.DNSPollInterval <= 0 {
+		problems = append(problems, "certificates.dns_poll_interval must be greater than zero")
+	}
+	if cfg.Certificates.MaxAttempts <= 0 {
+		problems = append(problems, "certificates.max_attempts must be greater than zero")
+	}
+	if cfg.Certificates.RenewBeforeDays <= 0 {
+		problems = append(problems, "certificates.renew_before_days must be greater than zero")
 	}
 
 	pluginNames := make(map[string]bool, len(cfg.Plugins))
@@ -580,6 +659,7 @@ func supportedManagementScope(scope string) bool {
 		"honeypot:read", "honeypot:write",
 		"management:read", "management:write",
 		"powerdns:read", "powerdns:write",
+		"certificates:read", "certificates:write",
 		"config:read", "config:write":
 		return true
 	default:
@@ -816,6 +896,42 @@ func applyPowerDNS(raw filePowerDNSConfig, cfg *Config) {
 	}
 }
 
+func applyCertificates(raw fileCertificatesConfig, cfg *Config) {
+	if raw.Enabled {
+		cfg.Certificates.Enabled = true
+	}
+	if raw.DirectoryURL != "" {
+		cfg.Certificates.DirectoryURL = raw.DirectoryURL
+	}
+	if raw.AccountEmail != "" {
+		cfg.Certificates.AccountEmail = raw.AccountEmail
+	}
+	if raw.AcceptTOS {
+		cfg.Certificates.AcceptTOS = true
+	}
+	if raw.StorageDir != "" {
+		cfg.Certificates.StorageDir = raw.StorageDir
+	}
+	if raw.RequestTimeout.Duration > 0 {
+		cfg.Certificates.RequestTimeout = raw.RequestTimeout.Duration
+		cfg.Certificates.RequestTimeoutSeconds = int(raw.RequestTimeout.Duration.Seconds())
+	}
+	if raw.DNSPropagationTimeout.Duration > 0 {
+		cfg.Certificates.DNSPropagationTimeout = raw.DNSPropagationTimeout.Duration
+		cfg.Certificates.DNSPropagationTimeoutSecs = int(raw.DNSPropagationTimeout.Duration.Seconds())
+	}
+	if raw.DNSPollInterval.Duration > 0 {
+		cfg.Certificates.DNSPollInterval = raw.DNSPollInterval.Duration
+		cfg.Certificates.DNSPollIntervalSeconds = int(raw.DNSPollInterval.Duration.Seconds())
+	}
+	if raw.MaxAttempts > 0 {
+		cfg.Certificates.MaxAttempts = raw.MaxAttempts
+	}
+	if raw.RenewBeforeDays > 0 {
+		cfg.Certificates.RenewBeforeDays = raw.RenewBeforeDays
+	}
+}
+
 func resolveSecretFiles(cfg *Config, baseDir string) error {
 	for i := range cfg.Plugins {
 		secret, err := readSecretFile("plugins["+strconv.Itoa(i)+"].backend_api_key", cfg.Plugins[i].BackendAPIKey, cfg.Plugins[i].BackendAPIKeyFile, baseDir)
@@ -934,6 +1050,19 @@ func applyEnvOverrides(cfg Config) Config {
 	cfg.PowerDNS.ServerID = env("ANYNS_PDNS_SERVER_ID", cfg.PowerDNS.ServerID)
 	cfg.PowerDNS.RequestTimeout = envDuration("ANYNS_PDNS_REQUEST_TIMEOUT_SECONDS", cfg.PowerDNS.RequestTimeout)
 	cfg.PowerDNS.RequestTimeoutSeconds = int(cfg.PowerDNS.RequestTimeout.Seconds())
+	cfg.Certificates.Enabled = envBool("ANYNS_CERTIFICATES_ENABLED", cfg.Certificates.Enabled)
+	cfg.Certificates.DirectoryURL = env("ANYNS_ACME_DIRECTORY_URL", cfg.Certificates.DirectoryURL)
+	cfg.Certificates.AccountEmail = env("ANYNS_ACME_ACCOUNT_EMAIL", cfg.Certificates.AccountEmail)
+	cfg.Certificates.AcceptTOS = envBool("ANYNS_ACME_ACCEPT_TOS", cfg.Certificates.AcceptTOS)
+	cfg.Certificates.StorageDir = env("ANYNS_CERTIFICATE_STORAGE_DIR", cfg.Certificates.StorageDir)
+	cfg.Certificates.RequestTimeout = envDuration("ANYNS_ACME_REQUEST_TIMEOUT_SECONDS", cfg.Certificates.RequestTimeout)
+	cfg.Certificates.RequestTimeoutSeconds = int(cfg.Certificates.RequestTimeout.Seconds())
+	cfg.Certificates.DNSPropagationTimeout = envDuration("ANYNS_ACME_DNS_PROPAGATION_TIMEOUT_SECONDS", cfg.Certificates.DNSPropagationTimeout)
+	cfg.Certificates.DNSPropagationTimeoutSecs = int(cfg.Certificates.DNSPropagationTimeout.Seconds())
+	cfg.Certificates.DNSPollInterval = envDuration("ANYNS_ACME_DNS_POLL_INTERVAL_SECONDS", cfg.Certificates.DNSPollInterval)
+	cfg.Certificates.DNSPollIntervalSeconds = int(cfg.Certificates.DNSPollInterval.Seconds())
+	cfg.Certificates.MaxAttempts = envInt("ANYNS_ACME_MAX_ATTEMPTS", cfg.Certificates.MaxAttempts)
+	cfg.Certificates.RenewBeforeDays = envInt("ANYNS_CERTIFICATE_RENEW_BEFORE_DAYS", cfg.Certificates.RenewBeforeDays)
 	return cfg
 }
 

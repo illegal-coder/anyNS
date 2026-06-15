@@ -4,6 +4,9 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$ROOT"
 
+export NO_PROXY="${NO_PROXY:+${NO_PROXY},}127.0.0.1,localhost"
+export no_proxy="${no_proxy:+${no_proxy},}127.0.0.1,localhost"
+
 TMP_DIR="$(mktemp -d)"
 RUNTIME_PID=""
 
@@ -108,7 +111,8 @@ GOCACHE="${GOCACHE:-/tmp/anyns-go-build}" go build -buildvcs=false -o "$RUNTIME_
 ANYNS_CONFIG_FILE="$CONFIG" "$RUNTIME_BIN" >"$RUNTIME_LOG" 2>&1 &
 RUNTIME_PID="$!"
 
-for _ in $(seq 1 50); do
+STARTUP_ATTEMPTS="${ANYNS_ACCEPTANCE_STARTUP_ATTEMPTS:-300}"
+for _ in $(seq 1 "$STARTUP_ATTEMPTS"); do
   if curl -fsS "http://127.0.0.1:${PORT}/healthz" >/dev/null 2>&1; then
     break
   fi

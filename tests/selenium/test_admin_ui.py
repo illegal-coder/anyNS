@@ -67,7 +67,9 @@ class AdminUIWorkflowTest(unittest.TestCase):
             for element in self.driver.find_elements(By.CSS_SELECTOR, "nav button span")
             if element.text.strip()
         }
-        self.assertTrue({"总览", "PowerDNS", "插件", "DNS 安全", "审计日志", "配置"}.issubset(labels))
+        self.assertTrue(
+            {"总览", "PowerDNS", "Certificates", "插件", "DNS 安全", "审计日志", "配置"}.issubset(labels)
+        )
 
         self.nav("PowerDNS")
         WebDriverWait(self.driver, 30).until(
@@ -140,6 +142,14 @@ class AdminUIWorkflowTest(unittest.TestCase):
             lambda _: hns_toggle().get_attribute("aria-checked") == initial
         )
 
+        self.nav("Certificates")
+        WebDriverWait(self.driver, 30).until(
+            EC.visibility_of_element_located(
+                (By.XPATH, "//*[contains(., 'Certificate issuance is not configured.')]")
+            )
+        )
+        time.sleep(6)
+
         self.nav("配置")
         WebDriverWait(self.driver, 30).until(
             EC.visibility_of_element_located((By.XPATH, "//h2[contains(., '统一配置')]"))
@@ -181,7 +191,14 @@ class AdminUIWorkflowTest(unittest.TestCase):
         self.assertIn(display_name, preview.text)
         self.assertIn(punycode_name, preview.text)
 
-        self.driver.find_element(By.XPATH, "//button[contains(., '添加域名')]").click()
+        add_zone = self.driver.find_element(By.XPATH, "//button[contains(., '添加域名')]")
+        self.assertFalse(add_zone.is_enabled())
+        glue_ipv4 = self.driver.find_element(
+            By.XPATH, "//label[span[normalize-space()='Glue IPv4']]//input"
+        )
+        glue_ipv4.send_keys("192.0.2.53")
+        self.assertTrue(add_zone.is_enabled())
+        add_zone.click()
         try:
             outcome = WebDriverWait(self.driver, 30).until(
                 lambda driver: (
@@ -199,7 +216,14 @@ class AdminUIWorkflowTest(unittest.TestCase):
         finally:
             back_buttons = self.driver.find_elements(By.CSS_SELECTOR, "button[aria-label='返回域名列表']")
             if back_buttons:
-                back_buttons[0].click()
+                self.driver.execute_script(
+                    "arguments[0].scrollIntoView({block: 'center'});", back_buttons[0]
+                )
+                WebDriverWait(self.driver, 10).until(
+                    EC.element_to_be_clickable(
+                        (By.CSS_SELECTOR, "button[aria-label='返回域名列表']")
+                    )
+                ).click()
                 WebDriverWait(self.driver, 30).until(
                     EC.visibility_of_element_located((By.XPATH, "//h3[contains(., '托管域名')]"))
                 )

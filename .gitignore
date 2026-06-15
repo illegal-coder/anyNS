@@ -13,6 +13,7 @@ codex-remote.pid
 *.secret
 *.key
 *.pem
+!tests/docker/pebble.minica.pem
 config.json.client
 
 # Generated archives and temporary artifacts
@@ -30,6 +31,7 @@ node_modules/
 .cache/
 .codex/
 .agents/
+node_modules/
 
 # Server-local operations and Codex automation
 AUTOMATION_IMPROVEMENT_AUDIT.md

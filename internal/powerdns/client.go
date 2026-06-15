@@ -16,6 +16,7 @@ import (
 
 	"github.com/anyns/anyns/internal/config"
 	"github.com/anyns/anyns/internal/dnsname"
+	"github.com/anyns/anyns/internal/dnsrr"
 )
 
 type Client struct {
@@ -70,6 +71,23 @@ type RRSet struct {
 
 type PatchZoneRequest struct {
 	RRSets []RRSet `json:"rrsets"`
+}
+
+type CryptoKey struct {
+	ID        int      `json:"id"`
+	KeyType   string   `json:"keytype"`
+	Active    bool     `json:"active"`
+	Published bool     `json:"published"`
+	DNSKey    string   `json:"dnskey,omitempty"`
+	DS        []string `json:"ds,omitempty"`
+}
+
+type CreateCryptoKeyRequest struct {
+	KeyType   string `json:"keytype,omitempty"`
+	Active    bool   `json:"active"`
+	Published bool   `json:"published"`
+	Algorithm string `json:"algorithm,omitempty"`
+	Bits      int    `json:"bits,omitempty"`
 }
 
 type ServiceSnapshot struct {
@@ -308,6 +326,82 @@ func (c *Client) PatchAuthoritativeZone(ctx context.Context, zoneID string, requ
 		request,
 		nil,
 	)
+}
+
+func (c *Client) AuthoritativeCryptoKeys(ctx context.Context, zoneID string) ([]CryptoKey, error) {
+	zoneID, err := requiredZoneID(zoneID)
+	if err != nil {
+		return nil, err
+	}
+	var keys []CryptoKey
+	err = c.doJSON(
+		ctx,
+		"authoritative",
+		http.MethodGet,
+		c.serverPath("authoritative", "/zones/"+url.PathEscape(zoneID)+"/cryptokeys"),
+		nil,
+		&keys,
+	)
+	return keys, err
+}
+
+func (c *Client) CreateAuthoritativeCryptoKey(ctx context.Context, zoneID string, request CreateCryptoKeyRequest) (CryptoKey, error) {
+	zoneID, err := requiredZoneID(zoneID)
+	if err != nil {
+		return CryptoKey{}, err
+	}
+	request.KeyType = strings.ToLower(strings.TrimSpace(request.KeyType))
+	if request.KeyType == "" {
+		request.KeyType = "csk"
+	}
+	switch request.KeyType {
+	case "csk", "ksk", "zsk":
+	default:
+		return CryptoKey{}, validationErrorf("keytype must be csk, ksk, or zsk")
+	}
+	if request.Algorithm != "" {
+		request.Algorithm = strings.ToUpper(strings.TrimSpace(request.Algorithm))
+	}
+	var key CryptoKey
+	err = c.doJSON(
+		ctx,
+		"authoritative",
+		http.MethodPost,
+		c.serverPath("authoritative", "/zones/"+url.PathEscape(zoneID)+"/cryptokeys"),
+		request,
+		&key,
+	)
+	return key, err
+}
+
+func (c *Client) DeleteAuthoritativeCryptoKey(ctx context.Context, zoneID string, keyID int) error {
+	zoneID, err := requiredZoneID(zoneID)
+	if err != nil {
+		return err
+	}
+	if keyID < 0 {
+		return validationErrorf("key id must not be negative")
+	}
+	return c.doJSON(
+		ctx,
+		"authoritative",
+		http.MethodDelete,
+		c.serverPath("authoritative", "/zones/"+url.PathEscape(zoneID)+"/cryptokeys/"+strconv.Itoa(keyID)),
+		nil,
+		nil,
+	)
+}
+
+func DeriveDS(zoneName, dnskeyContent string, digestType uint8) (string, error) {
+	zoneName, err := normalizeZoneName(zoneName)
+	if err != nil {
+		return "", validationErrorf("invalid zone name: %v", err)
+	}
+	value, err := dnsrr.DSFromDNSKEY(zoneName, dnskeyContent, digestType)
+	if err != nil {
+		return "", validationErrorf("derive DS: %v", err)
+	}
+	return value, nil
 }
 
 func (c *Client) DeleteAuthoritativeZone(ctx context.Context, zoneID string) error {
@@ -603,10 +697,16 @@ func normalizeRecordContent(recordType, content string) (string, error) {
 		if err := normalizeField(1); err != nil {
 			return "", err
 		}
-	default:
-		return content, nil
 	}
-	return strings.Join(fields, " "), nil
+	content = strings.Join(fields, " ")
+	if dnsrr.ManagedType(recordType) {
+		normalized, err := dnsrr.Normalize("_validation.invalid.", recordType, content)
+		if err != nil {
+			return "", err
+		}
+		return normalized, nil
+	}
+	return content, nil
 }
 
 func decorateZone(zone *Zone) {
@@ -636,6 +736,17 @@ func defaultUint32(value, fallback uint32) uint32 {
 
 func validationErrorf(format string, args ...any) error {
 	return &ValidationError{Message: fmt.Sprintf(format, args...)}
+}
+
+func requiredZoneID(zoneID string) (string, error) {
+	normalized, err := normalizeZoneName(zoneID)
+	if err != nil {
+		return "", validationErrorf("invalid zone id: %v", err)
+	}
+	if normalized == "" || normalized == "." {
+		return "", validationErrorf("zone id is required")
+	}
+	return normalized, nil
 }
 
 func validRecordType(value string) bool {

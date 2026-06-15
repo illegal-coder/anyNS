@@ -261,6 +261,17 @@ func TestParseDNSResponseMapsNXDomain(t *testing.T) {
 	}
 }
 
+func TestFormatRDATAFormatsDNSKEYAndTLSA(t *testing.T) {
+	dnskey, ok := formatRDATA(nil, 0, []byte{0x01, 0x01, 0x03, 0x0d, 0x01, 0x02, 0x03}, 48)
+	if !ok || dnskey != "257 3 13 AQID" {
+		t.Fatalf("DNSKEY=%q ok=%v", dnskey, ok)
+	}
+	tlsa, ok := formatRDATA(nil, 0, append([]byte{3, 1, 1}, make([]byte, 32)...), 52)
+	if !ok || tlsa != "3 1 1 "+strings.Repeat("00", 32) {
+		t.Fatalf("TLSA=%q ok=%v", tlsa, ok)
+	}
+}
+
 type dnsAnswer struct {
 	name  string
 	typ   uint16
