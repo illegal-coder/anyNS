@@ -1,4 +1,9 @@
 services:
+  pdns-authoritative:
+    volumes:
+      - ./pdns-authoritative-gsqlite.conf:/etc/powerdns/pdns.conf:ro
+      - selenium-pdns-data:/var/lib/powerdns
+
   anyns-plugin-runtime:
     environment:
       ANYNS_MANAGEMENT_AUTH_REQUIRED: "false"
@@ -48,3 +53,6 @@ services:
         condition: service_healthy
     networks:
       - dnsnet
+
+volumes:
+  selenium-pdns-data:

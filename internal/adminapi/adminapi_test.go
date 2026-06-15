@@ -318,6 +318,53 @@ func TestPowerDNSStatusDoesNotExposeAPIKeys(t *testing.T) {
 	}
 }
 
+func TestCreateUnicodeHNSZoneThroughAdminAPI(t *testing.T) {
+	var created map[string]any
+	var patched powerdns.PatchZoneRequest
+	pdns := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case http.MethodPost:
+			if err := json.NewDecoder(r.Body).Decode(&created); err != nil {
+				t.Fatalf("decode create request: %v", err)
+			}
+			_ = json.NewEncoder(w).Encode(powerdns.Zone{ID: "xn--5nx.", Name: "xn--5nx.", Kind: "Native"})
+		case http.MethodPatch:
+			if err := json.NewDecoder(r.Body).Decode(&patched); err != nil {
+				t.Fatalf("decode patch request: %v", err)
+			}
+			w.WriteHeader(http.StatusNoContent)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer pdns.Close()
+
+	cfg := config.Default()
+	cfg.PowerDNS.AuthoritativeURL = pdns.URL
+	cfg.PowerDNS.AuthoritativeAPIKey = "pdns-secret"
+	application, err := app.NewFromConfig(cfg)
+	if err != nil {
+		t.Fatalf("new app: %v", err)
+	}
+	mux := http.NewServeMux()
+	Register(mux, application, &cfg)
+
+	body := `{"name":"灵","kind":"Native","hns":true,"glue_ipv4":"192.0.2.53","soa":{"ttl":600}}`
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/powerdns/authoritative/zones", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if created["name"] != "xn--5nx." || strings.Contains(rec.Body.String(), `"name":"灵."`) {
+		t.Fatalf("created=%#v response=%s", created, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), `"unicode_name":"灵."`) || len(patched.RRSets) != 3 {
+		t.Fatalf("patched=%#v response=%s", patched, rec.Body.String())
+	}
+}
+
 func TestPowerDNSZoneDetailAndRRSetPatch(t *testing.T) {
 	var patched powerdns.PatchZoneRequest
 	pdns := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

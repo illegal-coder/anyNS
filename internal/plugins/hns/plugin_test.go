@@ -154,9 +154,14 @@ func TestDNSBackendQNameTranslation(t *testing.T) {
 		"www.example.hns.": "www.example.",
 		"example.hsd":      "example.",
 		"example":          "example.",
+		"灵.hns":            "xn--5nx.",
 	}
 	for input, want := range tests {
-		if got := hnsDNSBackendQName(input); got != want {
+		got, err := hnsDNSBackendQName(input)
+		if err != nil {
+			t.Fatalf("hnsDNSBackendQName(%q): %v", input, err)
+		}
+		if got != want {
 			t.Fatalf("hnsDNSBackendQName(%q) = %q, want %q", input, got, want)
 		}
 	}

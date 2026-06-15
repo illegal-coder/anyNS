@@ -312,7 +312,7 @@ func (h *Handler) authoritativeZones(w http.ResponseWriter, r *http.Request) {
 	}
 	zone, err := powerdns.New(current.PowerDNS).CreateAuthoritativeZone(r.Context(), request)
 	if err != nil {
-		httpapi.Error(w, http.StatusBadGateway, err.Error())
+		httpapi.Error(w, powerDNSErrorStatus(err), err.Error())
 		return
 	}
 	h.application.AppendManagementAudit("powerdns.zone.create", principal.ID, r.Method, r.URL.Path, "ok", map[string]any{
@@ -349,7 +349,7 @@ func (h *Handler) authoritativeZone(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if err := powerdns.New(current.PowerDNS).PatchAuthoritativeZone(r.Context(), zoneID, request); err != nil {
-			httpapi.Error(w, http.StatusBadGateway, err.Error())
+			httpapi.Error(w, powerDNSErrorStatus(err), err.Error())
 			return
 		}
 		h.application.AppendManagementAudit("powerdns.rrset.patch", principal.ID, r.Method, r.URL.Path, "ok", map[string]any{
@@ -367,7 +367,7 @@ func (h *Handler) authoritativeZone(w http.ResponseWriter, r *http.Request) {
 		}
 		zone, err := powerdns.New(current.PowerDNS).AuthoritativeZone(r.Context(), zoneID)
 		if err != nil {
-			httpapi.Error(w, http.StatusBadGateway, err.Error())
+			httpapi.Error(w, powerDNSErrorStatus(err), err.Error())
 			return
 		}
 		httpapi.WriteJSON(w, http.StatusOK, zone)
@@ -377,7 +377,7 @@ func (h *Handler) authoritativeZone(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if err := powerdns.New(current.PowerDNS).DeleteAuthoritativeZone(r.Context(), zoneID); err != nil {
-			httpapi.Error(w, http.StatusBadGateway, err.Error())
+			httpapi.Error(w, powerDNSErrorStatus(err), err.Error())
 			return
 		}
 		h.application.AppendManagementAudit("powerdns.zone.delete", principal.ID, r.Method, r.URL.Path, "ok", map[string]any{
@@ -409,7 +409,7 @@ func (h *Handler) recursorCacheFlush(w http.ResponseWriter, r *http.Request) {
 	}
 	result, err := powerdns.New(current.PowerDNS).FlushRecursorCache(r.Context(), request.Domain, request.Subtree)
 	if err != nil {
-		httpapi.Error(w, http.StatusBadGateway, err.Error())
+		httpapi.Error(w, powerDNSErrorStatus(err), err.Error())
 		return
 	}
 	h.application.AppendManagementAudit("powerdns.cache.flush", principal.ID, r.Method, r.URL.Path, "ok", map[string]any{
@@ -418,6 +418,13 @@ func (h *Handler) recursorCacheFlush(w http.ResponseWriter, r *http.Request) {
 		"count":   result.Count,
 	})
 	httpapi.WriteJSON(w, http.StatusOK, result)
+}
+
+func powerDNSErrorStatus(err error) int {
+	if powerdns.IsValidationError(err) {
+		return http.StatusBadRequest
+	}
+	return http.StatusBadGateway
 }
 
 func (h *Handler) runtimeStatus(ctx context.Context, cfg config.Config) ServiceStatus {

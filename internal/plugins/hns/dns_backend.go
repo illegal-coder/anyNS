@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/anyns/anyns/internal/dnsname"
 	"github.com/anyns/anyns/internal/plugins"
 )
 
@@ -73,7 +74,10 @@ func (p *Plugin) resolveDNSBackend(ctx context.Context, req plugins.ResolveReque
 	callCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	originalName := plugins.NormalizeQName(req.QName)
-	queryName := hnsDNSBackendQName(originalName)
+	queryName, err := hnsDNSBackendQName(originalName)
+	if err != nil {
+		return serviceFailure("dns_query_name_invalid", started), err
+	}
 	packet, id, err := buildDNSQuery(queryName, qcode)
 	if err != nil {
 		return serviceFailure("dns_query_build_failed", started), err
@@ -109,14 +113,15 @@ func (p *Plugin) resolveDNSBackend(ctx context.Context, req plugins.ResolveReque
 	return result, nil
 }
 
-func hnsDNSBackendQName(qname string) string {
+func hnsDNSBackendQName(qname string) (string, error) {
 	normalized := plugins.NormalizeQName(qname)
 	for _, suffix := range []string{".hns.", ".hsd."} {
 		if strings.HasSuffix(normalized, suffix) && len(normalized) > len(suffix) {
-			return strings.TrimSuffix(normalized, suffix) + "."
+			normalized = strings.TrimSuffix(normalized, suffix) + "."
+			break
 		}
 	}
-	return normalized
+	return dnsname.ToASCII(normalized)
 }
 
 func restoreHNSDNSAnswerName(answerName, backendQName, originalQName string) string {
@@ -279,7 +284,11 @@ func randomDNSID() (uint16, error) {
 }
 
 func writeDNSName(buf *bytes.Buffer, qname string) error {
-	qname = strings.TrimSuffix(plugins.NormalizeQName(qname), ".")
+	asciiName, err := dnsname.ToASCII(qname)
+	if err != nil {
+		return err
+	}
+	qname = strings.TrimSuffix(asciiName, ".")
 	if qname == "" {
 		buf.WriteByte(0)
 		return nil

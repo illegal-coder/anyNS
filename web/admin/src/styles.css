@@ -205,7 +205,17 @@ textarea { resize: vertical; line-height: 1.5; }
 .segmented-control button.active { color: var(--blue); background: #fff; box-shadow: 0 1px 4px rgba(19, 45, 83, .12); }
 .form-help { margin: -2px 0 0; color: var(--muted); font-size: 10px; line-height: 1.6; }
 .form-help code { color: var(--blue); font-family: "Cascadia Code", Consolas, monospace; }
+.idna-preview { display: grid; gap: 5px; padding: 10px 11px; border: 1px solid #c9dcf4; border-radius: 7px; color: #526984; background: #f5f9ff; font-size: 10px; }
+.idna-preview span { display: flex; justify-content: space-between; gap: 12px; }
+.idna-preview strong { color: #1e3f68; }
+.idna-preview code { color: var(--blue); font-family: "Cascadia Code", Consolas, monospace; overflow-wrap: anywhere; }
+.idna-preview.invalid { color: #9f3b4d; border-color: #efc1c9; background: #fff5f6; }
+.idna-preview.invalid code { color: #b12e45; }
+.advanced-settings { border: 1px solid #dce3ec; border-radius: 7px; background: #fafbfd; }
+.advanced-settings summary { padding: 10px 11px; color: #4d5e75; cursor: pointer; font-size: 11px; font-weight: 700; }
+.advanced-settings-grid { padding: 2px 11px 12px; display: grid; grid-template-columns: 1fr 1fr; gap: 11px; }
 .zone-hns-alias { color: #78869a; }
+.zone-punycode { color: #5d78a0; font-family: "Cascadia Code", Consolas, monospace; }
 .zone-manage { min-height: 32px; padding: 0 10px; white-space: nowrap; }
 .table-actions { display: flex; justify-content: flex-end; gap: 7px; }
 .table-actions .icon-button { width: 32px; height: 32px; }
@@ -300,6 +310,8 @@ textarea { resize: vertical; line-height: 1.5; }
   .service-item { border-right: 0; border-bottom: 1px solid var(--border); }
   .service-item:last-child { border-bottom: 0; }
   .form-grid { grid-template-columns: 1fr; }
+  .advanced-settings-grid { grid-template-columns: 1fr; }
+  .idna-preview span { display: grid; gap: 3px; }
   .metric-row { grid-template-columns: 1fr 1fr; gap: 15px; }
   .metric-row div:nth-child(2) { border-right: 0; }
   .config-plugin-row { grid-template-columns: 1fr auto; }

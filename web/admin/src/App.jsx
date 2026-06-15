@@ -32,6 +32,7 @@ import {
 } from "lucide-react";
 import { api, getToken, setToken } from "./api";
 import { featureAccess, normalizeCapabilities, visibleNavigation } from "./capabilities";
+import { domainToASCII, ensureTrailingDot, normalizeZoneInput, trimTrailingDot } from "./dnsname";
 
 const navigation = [
   { id: "overview", capability: "overview", label: "总览", icon: Gauge },
@@ -340,6 +341,7 @@ function ServiceStrip({ dashboard }) {
 
 const recordTypes = ["A", "AAAA", "CNAME", "TXT", "MX", "NS", "SRV", "CAA", "PTR", "SVCB", "HTTPS", "TLSA"];
 const defaultRecordEditor = { name: "@", type: "A", ttl: "300", content: "", originalName: "", originalType: "" };
+const defaultSOA = { hostmaster: "", ttl: "300", refresh: "3600", retry: "600", expire: "86400", minimum: "300" };
 const authoritativeIPv4 = "68.64.179.208";
 
 function PowerDNSPage({ dashboard, mutate, capabilities }) {
@@ -351,6 +353,8 @@ function PowerDNSPage({ dashboard, mutate, capabilities }) {
   const [zoneName, setZoneName] = useState("");
   const [nameserver, setNameserver] = useState("");
   const [glueIPv4, setGlueIPv4] = useState(authoritativeIPv4);
+  const [glueIPv6, setGlueIPv6] = useState("");
+  const [soa, setSOA] = useState(defaultSOA);
   const [flushDomain, setFlushDomain] = useState("");
   const [selectedZoneID, setSelectedZoneID] = useState("");
   const [zoneDetail, setZoneDetail] = useState(null);
@@ -360,7 +364,9 @@ function PowerDNSPage({ dashboard, mutate, capabilities }) {
   const [recordEditor, setRecordEditor] = useState(defaultRecordEditor);
 
   const normalizedZoneName = normalizeZoneInput(zoneName, zoneMode);
-  const suggestedNameserver = normalizedZoneName ? `ns1.${normalizedZoneName}.` : "";
+  const punycodeZoneName = domainToASCII(normalizedZoneName);
+  const suggestedNameserver = punycodeZoneName ? `ns1.${punycodeZoneName}.` : "";
+  const suggestedHostmaster = punycodeZoneName ? `hostmaster.${punycodeZoneName}.` : "";
 
   const loadZone = useCallback(async (zoneID) => {
     if (!zoneID) return;
@@ -384,27 +390,27 @@ function PowerDNSPage({ dashboard, mutate, capabilities }) {
       body: JSON.stringify({
         name: normalizedZoneName,
         kind: "Native",
+        hns: zoneMode === "hns",
         nameservers: effectiveNameserver ? [ensureTrailingDot(effectiveNameserver)] : [],
+        glue_ipv4: zoneMode === "hns" ? glueIPv4.trim() : "",
+        glue_ipv6: zoneMode === "hns" ? glueIPv6.trim() : "",
+        soa: {
+          primary_ns: ensureTrailingDot(effectiveNameserver),
+          hostmaster: ensureTrailingDot(soa.hostmaster.trim() || suggestedHostmaster),
+          ttl: Number(soa.ttl) || 300,
+          refresh: Number(soa.refresh) || 3600,
+          retry: Number(soa.retry) || 600,
+          expire: Number(soa.expire) || 86400,
+          minimum: Number(soa.minimum) || 300,
+        },
       }),
     });
-    if (zoneMode === "hns" && effectiveNameserver && glueIPv4.trim()) {
-      await api(`/api/v1/powerdns/authoritative/zones/${encodeURIComponent(zone.id || zone.name)}/rrsets`, {
-        method: "PATCH",
-        body: JSON.stringify({
-          rrsets: [{
-            name: ensureTrailingDot(effectiveNameserver),
-            type: "A",
-            ttl: 300,
-            changetype: "REPLACE",
-            records: [{ content: glueIPv4.trim(), disabled: false }],
-          }],
-        }),
-      });
-    }
     setSelectedZoneID(zone.id || zone.name);
     setZoneName("");
     setNameserver("");
-  }, `Zone ${normalizedZoneName} 已创建`);
+    setGlueIPv6("");
+    setSOA(defaultSOA);
+  }, `Zone ${normalizedZoneName}（${punycodeZoneName}）已创建`);
 
   const patchRRSet = async (rrset, message) => {
     await mutate(
@@ -515,9 +521,15 @@ function PowerDNSPage({ dashboard, mutate, capabilities }) {
                 <input
                   value={zoneName}
                   onChange={(event) => setZoneName(event.target.value)}
-                  placeholder={zoneMode === "hns" ? "example（不要填写 .hns）" : "example.org"}
+                  placeholder={zoneMode === "hns" ? "灵 或 example（可填写中文，不要填写 .hns）" : "例子.测试 或 example.org"}
                 />
               </Field>
+              {normalizedZoneName && (
+                <div className={`idna-preview ${punycodeZoneName ? "" : "invalid"}`}>
+                  <span>显示名称 <strong>{normalizedZoneName}</strong></span>
+                  <span>PowerDNS / HNS Punycode <code>{punycodeZoneName || "名称格式无效"}</code></span>
+                </div>
+              )}
               <Field label="初始 Nameserver">
                 <input
                   value={nameserver}
@@ -530,8 +542,36 @@ function PowerDNSPage({ dashboard, mutate, capabilities }) {
                   <input value={glueIPv4} onChange={(event) => setGlueIPv4(event.target.value)} placeholder={authoritativeIPv4} />
                 </Field>
               )}
-              {zoneMode === "hns" && <p className="form-help">将创建 <code>{normalizedZoneName ? `${normalizedZoneName}.` : "example."}</code>，并自动添加 Nameserver 的 A 记录。链上仍需发布 NS/GLUE4。</p>}
-              <button className="button primary" disabled={!normalizedZoneName} onClick={createZone}><Plus size={16} />添加域名</button>
+              {zoneMode === "hns" && (
+                <Field label="Glue IPv6（可选）">
+                  <input value={glueIPv6} onChange={(event) => setGlueIPv6(event.target.value)} placeholder="2001:db8::53" />
+                </Field>
+              )}
+              <details className="advanced-settings">
+                <summary>SOA 高级设置</summary>
+                <div className="advanced-settings-grid">
+                  <Field label="Hostmaster">
+                    <input value={soa.hostmaster} onChange={(event) => setSOA({ ...soa, hostmaster: event.target.value })} placeholder={suggestedHostmaster || "hostmaster.example."} />
+                  </Field>
+                  <Field label="SOA TTL">
+                    <input type="number" min="60" value={soa.ttl} onChange={(event) => setSOA({ ...soa, ttl: event.target.value })} />
+                  </Field>
+                  <Field label="Refresh">
+                    <input type="number" min="60" value={soa.refresh} onChange={(event) => setSOA({ ...soa, refresh: event.target.value })} />
+                  </Field>
+                  <Field label="Retry">
+                    <input type="number" min="60" value={soa.retry} onChange={(event) => setSOA({ ...soa, retry: event.target.value })} />
+                  </Field>
+                  <Field label="Expire">
+                    <input type="number" min="300" value={soa.expire} onChange={(event) => setSOA({ ...soa, expire: event.target.value })} />
+                  </Field>
+                  <Field label="Negative TTL">
+                    <input type="number" min="60" value={soa.minimum} onChange={(event) => setSOA({ ...soa, minimum: event.target.value })} />
+                  </Field>
+                </div>
+              </details>
+              {zoneMode === "hns" && <p className="form-help">将创建 <code>{punycodeZoneName ? `${punycodeZoneName}.` : "example."}</code>，并原子写入 SOA、NS 和 Glue。HNS 链上仍需发布相同的 NS/GLUE4/GLUE6。</p>}
+              <button className="button primary" disabled={!punycodeZoneName} onClick={createZone}><Plus size={16} />添加域名</button>
             </div>
             </fieldset>
           </Panel>
@@ -573,6 +613,7 @@ function ZoneWorkspace({
   onBack,
 }) {
   const zoneName = zone?.name || "";
+  const displayZoneName = zone?.unicode_name || zoneName;
   const hnsZone = isHNSZoneName(zoneName);
   const editing = Boolean(editor.originalName);
   return (
@@ -581,7 +622,7 @@ function ZoneWorkspace({
         <button className="icon-button" onClick={onBack} aria-label="返回域名列表"><ArrowLeft size={18} /></button>
         <div className="zone-identity">
           <div className="zone-icon"><Globe2 size={21} /></div>
-          <div><h2>{zoneName || "加载 Zone"}</h2><p>权威 DNS 记录与 HNS 委派管理</p></div>
+          <div><h2>{displayZoneName || "加载 Zone"}</h2><p>{displayZoneName !== zoneName ? `Punycode ${zoneName} · ` : ""}权威 DNS 记录与 HNS 委派管理</p></div>
         </div>
         <div className="zone-meta">
           <span>Serial <b>{zone?.serial || "-"}</b></span>
@@ -598,7 +639,7 @@ function ZoneWorkspace({
         </div>
         <DelegationValue label="NS" value={`ns1.${zoneName}`} />
         <DelegationValue label="GLUE4" value={`ns1.${zoneName} ${authoritativeIPv4}`} />
-        <div className="delegation-test"><code>{hnsZone ? `${trimTrailingDot(zoneName)}.hns` : trimTrailingDot(zoneName)}</code><span>{hnsZone ? "通过私有 DoH 验证" : "通过权威 DNS 验证"}</span></div>
+        <div className="delegation-test"><code>{hnsZone ? `${trimTrailingDot(displayZoneName)}.hns` : trimTrailingDot(displayZoneName)}</code><span>{hnsZone ? "通过私有 DoH 验证" : "通过权威 DNS 验证"}</span></div>
       </div>
 
       <div className="record-toolbar">
@@ -987,7 +1028,11 @@ function ZoneTable({ zones = [], onDelete, onSelect, compact = false }) {
         <tbody>
           {zones.map((zone) => (
             <tr key={zone.id || zone.name}>
-              <td><strong>{zone.name}</strong>{isHNSZoneName(zone.name) && <small className="zone-hns-alias">{trimTrailingDot(zone.name)}.hns</small>}</td>
+              <td>
+                <strong>{zone.unicode_name || zone.name}</strong>
+                {zone.unicode_name && zone.unicode_name !== zone.name && <small className="zone-punycode">{zone.name}</small>}
+                {isHNSZoneName(zone.name) && <small className="zone-hns-alias">{trimTrailingDot(zone.unicode_name || zone.name)}.hns</small>}
+              </td>
               <td>{zone.kind || "-"}</td>
               <td className="mono">{zone.serial || "-"}</td>
               <td>{zone.dnssec ? <HealthDot healthy label="已启用" /> : <span className="muted">未启用</span>}</td>
@@ -1005,24 +1050,9 @@ function ZoneTable({ zones = [], onDelete, onSelect, compact = false }) {
   );
 }
 
-function normalizeZoneInput(value, mode) {
-  let normalized = value.trim().toLowerCase().replace(/\s+/g, "");
-  if (mode === "hns") normalized = normalized.replace(/\.hns\.?$/, "");
-  return trimTrailingDot(normalized);
-}
-
-function trimTrailingDot(value = "") {
-  return value.replace(/\.+$/, "");
-}
-
 function isHNSZoneName(value = "") {
   const normalized = trimTrailingDot(value);
   return Boolean(normalized) && !normalized.includes(".");
-}
-
-function ensureTrailingDot(value = "") {
-  const normalized = value.trim();
-  return normalized ? `${trimTrailingDot(normalized)}.` : "";
 }
 
 function absoluteRecordName(value, zoneName) {

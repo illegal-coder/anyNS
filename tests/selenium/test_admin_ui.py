@@ -76,15 +76,17 @@ class AdminUIWorkflowTest(unittest.TestCase):
         page_text = self.driver.find_element(By.CSS_SELECTOR, "main").text
         self.assertIn("Authoritative", page_text)
         self.assertIn("Recursor", page_text)
-        manage = WebDriverWait(self.driver, 30).until(
-            EC.element_to_be_clickable((By.XPATH, "//tr[td/strong[contains(., 'anyns.test')]]//button[contains(., '管理记录')]"))
+        self.driver.find_element(By.XPATH, "//button[normalize-space()='传统 DNS']").click()
+        zone_input = self.driver.find_element(
+            By.XPATH, "//label[span[normalize-space()='Zone 名称']]//input"
         )
-        manage.click()
+        zone_input.send_keys("selenium.test")
+        self.driver.find_element(By.XPATH, "//button[contains(., '添加域名')]").click()
         WebDriverWait(self.driver, 30).until(
-            EC.visibility_of_element_located((By.XPATH, "//h2[contains(., 'anyns.test')]"))
+            EC.visibility_of_element_located((By.XPATH, "//h2[contains(., 'selenium.test')]"))
         )
         workspace_text = self.driver.find_element(By.CSS_SELECTOR, "main").text
-        self.assertIn("HNS 链上委派", workspace_text)
+        self.assertIn("权威 DNS 委派", workspace_text)
         self.assertIn("DNS 记录", workspace_text)
 
         editor = self.driver.find_element(By.CSS_SELECTOR, ".record-editor")
@@ -108,6 +110,15 @@ class AdminUIWorkflowTest(unittest.TestCase):
         self.driver.find_element(By.CSS_SELECTOR, "button[aria-label='返回域名列表']").click()
         WebDriverWait(self.driver, 30).until(
             EC.visibility_of_element_located((By.XPATH, "//h3[contains(., '托管域名')]"))
+        )
+        zone_row = self.driver.find_element(
+            By.XPATH, "//tr[td/strong[contains(., 'selenium.test')]]"
+        )
+        zone_row.find_element(By.CSS_SELECTOR, "button[title='删除 Zone']").click()
+        WebDriverWait(self.driver, 30).until_not(
+            EC.presence_of_element_located(
+                (By.XPATH, "//tr[td/strong[contains(., 'selenium.test')]]")
+            )
         )
 
         self.nav("插件")
@@ -146,6 +157,62 @@ class AdminUIWorkflowTest(unittest.TestCase):
         WebDriverWait(self.driver, 30).until(
             EC.visibility_of_element_located((By.XPATH, "//h2[contains(., 'DNS 服务运行概览')]"))
         )
+
+    def test_unicode_hns_zone_workflow(self):
+        self.driver.set_window_size(1440, 1000)
+        self.driver.get(ADMIN_URL)
+        WebDriverWait(self.driver, 30).until(
+            EC.visibility_of_element_located((By.XPATH, "//h2[contains(., 'DNS 服务运行概览')]"))
+        )
+        self.nav("PowerDNS")
+        WebDriverWait(self.driver, 30).until(
+            EC.visibility_of_element_located((By.XPATH, "//h2[contains(., '权威与递归服务')]"))
+        )
+
+        display_name = f"验收{int(time.time()) % 1000000}"
+        punycode_name = display_name.encode("idna").decode("ascii")
+        zone_input = self.driver.find_element(
+            By.XPATH, "//label[span[normalize-space()='HNS 名称']]//input"
+        )
+        zone_input.send_keys(display_name)
+        preview = WebDriverWait(self.driver, 10).until(
+            EC.visibility_of_element_located((By.CSS_SELECTOR, ".idna-preview"))
+        )
+        self.assertIn(display_name, preview.text)
+        self.assertIn(punycode_name, preview.text)
+
+        self.driver.find_element(By.XPATH, "//button[contains(., '添加域名')]").click()
+        try:
+            outcome = WebDriverWait(self.driver, 30).until(
+                lambda driver: (
+                    driver.find_elements(By.XPATH, f"//h2[contains(., '{display_name}')]")
+                    or driver.find_elements(By.CSS_SELECTOR, ".toast.error")
+                )
+            )
+            if "toast error" in (outcome[0].get_attribute("class") or ""):
+                self.fail(f"Unicode HNS zone creation failed: {outcome[0].text}")
+            workspace_text = self.driver.find_element(By.CSS_SELECTOR, "main").text
+            self.assertIn(f"Punycode {punycode_name}.", workspace_text)
+            self.assertIn("SOA", workspace_text)
+            self.assertIn("NS", workspace_text)
+            self.assertIn("A", workspace_text)
+        finally:
+            back_buttons = self.driver.find_elements(By.CSS_SELECTOR, "button[aria-label='返回域名列表']")
+            if back_buttons:
+                back_buttons[0].click()
+                WebDriverWait(self.driver, 30).until(
+                    EC.visibility_of_element_located((By.XPATH, "//h3[contains(., '托管域名')]"))
+                )
+            rows = self.driver.find_elements(
+                By.XPATH, f"//tr[td/strong[normalize-space()='{display_name}']]"
+            )
+            if rows:
+                rows[0].find_element(By.CSS_SELECTOR, "button[title='删除 Zone']").click()
+                WebDriverWait(self.driver, 30).until_not(
+                    EC.presence_of_element_located(
+                        (By.XPATH, f"//tr[td/strong[normalize-space()='{display_name}']]")
+                    )
+                )
 
 
 if __name__ == "__main__":
