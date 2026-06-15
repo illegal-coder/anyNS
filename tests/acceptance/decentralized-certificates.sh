@@ -5,6 +5,8 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 COMPOSE_FILE="$ROOT/tests/docker/compose.decentralized-certificates.yml"
 PROJECT="${ANYNS_CERTIFICATE_PROJECT:-anyns-decentralized-certificates}"
 export COMPOSE_PARALLEL_LIMIT=1
+export NO_PROXY="${NO_PROXY:+${NO_PROXY},}127.0.0.1,localhost"
+export no_proxy="${no_proxy:+${no_proxy},}127.0.0.1,localhost"
 
 cd "$ROOT"
 

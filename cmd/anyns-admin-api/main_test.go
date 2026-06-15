@@ -212,8 +212,13 @@ func TestRegisterAdminUIServesAssetsAndSPAFallback(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "app.js"), []byte("console.log('anyNS')"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	mux := http.NewServeMux()
-	registerAdminUI(mux, dir)
+	t.Setenv("ANYNS_ADMIN_UI_DIR", dir)
+	cfg := config.Default()
+	application, err := app.NewFromConfig(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	mux := newAdminMux(application, cfg)
 
 	for path, want := range map[string]string{
 		"/":              "anyNS UI",
