@@ -1,14 +1,18 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   Activity,
+  ArrowLeft,
   Blocks,
   BookOpenCheck,
   Check,
   ChevronRight,
   CircleAlert,
+  Copy,
   Database,
+  Edit3,
   FileClock,
   Gauge,
+  Globe2,
   KeyRound,
   Layers3,
   LoaderCircle,
@@ -334,27 +338,150 @@ function ServiceStrip({ dashboard }) {
   );
 }
 
+const recordTypes = ["A", "AAAA", "CNAME", "TXT", "MX", "NS", "SRV", "CAA", "PTR", "SVCB", "HTTPS", "TLSA"];
+const defaultRecordEditor = { name: "@", type: "A", ttl: "300", content: "", originalName: "", originalType: "" };
+const authoritativeIPv4 = "68.64.179.208";
+
 function PowerDNSPage({ dashboard, mutate, capabilities }) {
   const access = featureAccess(capabilities, "powerdns");
   const canWrite = access.available && access.write;
   const snapshot = dashboard?.services?.powerdns || {};
   const zones = snapshot.authoritative?.zones || [];
+  const [zoneMode, setZoneMode] = useState("hns");
   const [zoneName, setZoneName] = useState("");
   const [nameserver, setNameserver] = useState("");
+  const [glueIPv4, setGlueIPv4] = useState(authoritativeIPv4);
   const [flushDomain, setFlushDomain] = useState("");
+  const [selectedZoneID, setSelectedZoneID] = useState("");
+  const [zoneDetail, setZoneDetail] = useState(null);
+  const [zoneLoading, setZoneLoading] = useState(false);
+  const [recordQuery, setRecordQuery] = useState("");
+  const [recordType, setRecordType] = useState("ALL");
+  const [recordEditor, setRecordEditor] = useState(defaultRecordEditor);
+
+  const normalizedZoneName = normalizeZoneInput(zoneName, zoneMode);
+  const suggestedNameserver = normalizedZoneName ? `ns1.${normalizedZoneName}.` : "";
+
+  const loadZone = useCallback(async (zoneID) => {
+    if (!zoneID) return;
+    setZoneLoading(true);
+    try {
+      const detail = await api(`/api/v1/powerdns/authoritative/zones/${encodeURIComponent(zoneID)}`);
+      setZoneDetail(detail);
+    } finally {
+      setZoneLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (selectedZoneID) loadZone(selectedZoneID);
+  }, [loadZone, selectedZoneID]);
 
   const createZone = () => mutate(async () => {
-    await api("/api/v1/powerdns/authoritative/zones", {
+    const effectiveNameserver = nameserver.trim() || suggestedNameserver;
+    const zone = await api("/api/v1/powerdns/authoritative/zones", {
       method: "POST",
       body: JSON.stringify({
-        name: zoneName,
+        name: normalizedZoneName,
         kind: "Native",
-        nameservers: nameserver ? [nameserver] : [],
+        nameservers: effectiveNameserver ? [ensureTrailingDot(effectiveNameserver)] : [],
       }),
     });
+    if (zoneMode === "hns" && effectiveNameserver && glueIPv4.trim()) {
+      await api(`/api/v1/powerdns/authoritative/zones/${encodeURIComponent(zone.id || zone.name)}/rrsets`, {
+        method: "PATCH",
+        body: JSON.stringify({
+          rrsets: [{
+            name: ensureTrailingDot(effectiveNameserver),
+            type: "A",
+            ttl: 300,
+            changetype: "REPLACE",
+            records: [{ content: glueIPv4.trim(), disabled: false }],
+          }],
+        }),
+      });
+    }
+    setSelectedZoneID(zone.id || zone.name);
     setZoneName("");
     setNameserver("");
-  }, `Zone ${zoneName} 已创建`);
+  }, `Zone ${normalizedZoneName} 已创建`);
+
+  const patchRRSet = async (rrset, message) => {
+    await mutate(
+      () => api(`/api/v1/powerdns/authoritative/zones/${encodeURIComponent(selectedZoneID)}/rrsets`, {
+        method: "PATCH",
+        body: JSON.stringify({ rrsets: [rrset] }),
+      }),
+      message,
+    );
+    await loadZone(selectedZoneID);
+  };
+
+  const saveRecord = async () => {
+    const zone = zoneDetail?.name || selectedZoneID;
+    const name = absoluteRecordName(recordEditor.name, zone);
+    const records = recordEditor.content
+      .split("\n")
+      .map((content) => formatRecordContent(recordEditor.type, content))
+      .filter(Boolean)
+      .map((content) => ({ content, disabled: false }));
+    if (recordEditor.originalName && (
+      recordEditor.originalName !== name ||
+      recordEditor.originalType !== recordEditor.type
+    )) {
+      await patchRRSet({
+        name: recordEditor.originalName,
+        type: recordEditor.originalType,
+        changetype: "DELETE",
+      }, "原记录集已移除");
+    }
+    await patchRRSet({
+      name,
+      type: recordEditor.type,
+      ttl: Number(recordEditor.ttl) || 300,
+      changetype: "REPLACE",
+      records,
+    }, `${recordEditor.type} 记录已保存`);
+    setRecordEditor(defaultRecordEditor);
+  };
+
+  const visibleRRSets = useMemo(() => {
+    const query = recordQuery.trim().toLowerCase();
+    return (zoneDetail?.rrsets || []).filter((rrset) => {
+      if (recordType !== "ALL" && rrset.type !== recordType) return false;
+      if (!query) return true;
+      return [rrset.name, rrset.type, ...(rrset.records || []).map((record) => record.content)]
+        .some((value) => String(value || "").toLowerCase().includes(query));
+    });
+  }, [recordQuery, recordType, zoneDetail]);
+
+  if (selectedZoneID) {
+    return (
+      <ZoneWorkspace
+        zone={zoneDetail}
+        loading={zoneLoading}
+        canWrite={canWrite}
+        recordQuery={recordQuery}
+        setRecordQuery={setRecordQuery}
+        recordType={recordType}
+        setRecordType={setRecordType}
+        rrsets={visibleRRSets}
+        editor={recordEditor}
+        setEditor={setRecordEditor}
+        onSave={saveRecord}
+        onDelete={(rrset) => patchRRSet({
+          name: rrset.name,
+          type: rrset.type,
+          changetype: "DELETE",
+        }, `${rrset.type} 记录已删除`)}
+        onBack={() => {
+          setSelectedZoneID("");
+          setZoneDetail(null);
+          setRecordEditor(defaultRecordEditor);
+        }}
+      />
+    );
+  }
 
   return (
     <div className="page-stack">
@@ -365,10 +492,11 @@ function PowerDNSPage({ dashboard, mutate, capabilities }) {
       <div className="split-status">        <PowerDNSService service={snapshot.authoritative} title="Authoritative" />
         <PowerDNSService service={snapshot.recursor} title="Recursor" />
       </div>
-      <div className="two-column">
-        <Panel title="权威区域" subtitle={`${zones.length} 个 Zone`}>
+      <div className="dns-zone-layout">
+        <Panel title="托管域名" subtitle={`${zones.length} 个权威 Zone`}>
           <ZoneTable
             zones={zones}
+            onSelect={(zone) => setSelectedZoneID(zone.id || zone.name)}
             onDelete={canWrite ? (zone) => mutate(
               () => api(`/api/v1/powerdns/authoritative/zones/${encodeURIComponent(zone.id)}`, { method: "DELETE" }),
               `Zone ${zone.name} 已删除`,
@@ -376,16 +504,34 @@ function PowerDNSPage({ dashboard, mutate, capabilities }) {
           />
         </Panel>
         <div className="form-stack">
-          <Panel title="创建 Authoritative Zone" subtitle="通过 PowerDNS Authoritative API">
+          <Panel title="添加托管域名" subtitle="创建权威 Zone 并准备 HNS 委派">
             <fieldset className="readonly-fieldset" disabled={!canWrite}>
             <div className="form-grid single">
-              <Field label="Zone 名称">
-                <input value={zoneName} onChange={(event) => setZoneName(event.target.value)} placeholder="example.org" />
+              <div className="segmented-control" aria-label="域名类型">
+                <button type="button" className={zoneMode === "hns" ? "active" : ""} onClick={() => setZoneMode("hns")}>HNS 域名</button>
+                <button type="button" className={zoneMode === "dns" ? "active" : ""} onClick={() => setZoneMode("dns")}>传统 DNS</button>
+              </div>
+              <Field label={zoneMode === "hns" ? "HNS 名称" : "Zone 名称"}>
+                <input
+                  value={zoneName}
+                  onChange={(event) => setZoneName(event.target.value)}
+                  placeholder={zoneMode === "hns" ? "example（不要填写 .hns）" : "example.org"}
+                />
               </Field>
               <Field label="初始 Nameserver">
-                <input value={nameserver} onChange={(event) => setNameserver(event.target.value)} placeholder="ns1.example.org." />
+                <input
+                  value={nameserver}
+                  onChange={(event) => setNameserver(event.target.value)}
+                  placeholder={suggestedNameserver || "ns1.example."}
+                />
               </Field>
-              <button className="button primary" disabled={!zoneName} onClick={createZone}><Plus size={16} />创建 Zone</button>
+              {zoneMode === "hns" && (
+                <Field label="Glue IPv4">
+                  <input value={glueIPv4} onChange={(event) => setGlueIPv4(event.target.value)} placeholder={authoritativeIPv4} />
+                </Field>
+              )}
+              {zoneMode === "hns" && <p className="form-help">将创建 <code>{normalizedZoneName ? `${normalizedZoneName}.` : "example."}</code>，并自动添加 Nameserver 的 A 记录。链上仍需发布 NS/GLUE4。</p>}
+              <button className="button primary" disabled={!normalizedZoneName} onClick={createZone}><Plus size={16} />添加域名</button>
             </div>
             </fieldset>
           </Panel>
@@ -407,6 +553,179 @@ function PowerDNSPage({ dashboard, mutate, capabilities }) {
           </Panel>
         </div>
       </div>
+    </div>
+  );
+}
+
+function ZoneWorkspace({
+  zone,
+  loading,
+  canWrite,
+  recordQuery,
+  setRecordQuery,
+  recordType,
+  setRecordType,
+  rrsets,
+  editor,
+  setEditor,
+  onSave,
+  onDelete,
+  onBack,
+}) {
+  const zoneName = zone?.name || "";
+  const hnsZone = isHNSZoneName(zoneName);
+  const editing = Boolean(editor.originalName);
+  return (
+    <div className="page-stack">
+      <div className="zone-workspace-head">
+        <button className="icon-button" onClick={onBack} aria-label="返回域名列表"><ArrowLeft size={18} /></button>
+        <div className="zone-identity">
+          <div className="zone-icon"><Globe2 size={21} /></div>
+          <div><h2>{zoneName || "加载 Zone"}</h2><p>权威 DNS 记录与 HNS 委派管理</p></div>
+        </div>
+        <div className="zone-meta">
+          <span>Serial <b>{zone?.serial || "-"}</b></span>
+          <span>DNSSEC <b>{zone?.dnssec ? "已启用" : "未启用"}</b></span>
+        </div>
+      </div>
+
+      <div className="hns-delegation">
+        <div>
+          <strong>{hnsZone ? "HNS 链上委派" : "权威 DNS 委派"}</strong>
+          <span>{hnsZone
+            ? "在钱包中为名称发布以下资源。网页负责托管记录，链上资源负责把请求交给本服务器。"
+            : "在域名注册商或上级 DNS 中设置以下 NS；使用同域 Nameserver 时还需要 Glue 记录。"}</span>
+        </div>
+        <DelegationValue label="NS" value={`ns1.${zoneName}`} />
+        <DelegationValue label="GLUE4" value={`ns1.${zoneName} ${authoritativeIPv4}`} />
+        <div className="delegation-test"><code>{hnsZone ? `${trimTrailingDot(zoneName)}.hns` : trimTrailingDot(zoneName)}</code><span>{hnsZone ? "通过私有 DoH 验证" : "通过权威 DNS 验证"}</span></div>
+      </div>
+
+      <div className="record-toolbar">
+        <label className="search-box"><Search size={16} /><input value={recordQuery} onChange={(event) => setRecordQuery(event.target.value)} placeholder="搜索名称、类型或内容" /></label>
+        <select value={recordType} onChange={(event) => setRecordType(event.target.value)}>
+          <option value="ALL">全部记录</option>
+          {recordTypes.map((type) => <option key={type} value={type}>{type}</option>)}
+        </select>
+        <button className="button primary" disabled={!canWrite} onClick={() => setEditor(defaultRecordEditor)}><Plus size={16} />添加记录</button>
+      </div>
+
+      <div className="dns-record-layout">
+        <Panel title="DNS 记录" subtitle={`${rrsets.length} 个记录集`}>
+          {loading ? <LoadingState /> : (
+            <RecordTable
+              zoneName={zoneName}
+              rrsets={rrsets}
+              canWrite={canWrite}
+              onEdit={(rrset) => setEditor({
+                name: relativeRecordName(rrset.name, zoneName),
+                type: rrset.type,
+                ttl: String(rrset.ttl || 300),
+                content: (rrset.records || []).map((record) => displayRecordContent(rrset.type, record.content)).join("\n"),
+                originalName: rrset.name,
+                originalType: rrset.type,
+              })}
+              onDelete={onDelete}
+            />
+          )}
+        </Panel>
+
+        <Panel title={editing ? "编辑记录集" : "添加 DNS 记录"} subtitle="每行内容会保存为同一名称和类型下的一条记录">
+          <fieldset className="readonly-fieldset" disabled={!canWrite}>
+            <div className="record-editor">
+              <div className="record-editor-grid">
+                <Field label="类型">
+                  <select value={editor.type} onChange={(event) => setEditor({ ...editor, type: event.target.value })}>
+                    {recordTypes.map((type) => <option key={type} value={type}>{type}</option>)}
+                  </select>
+                </Field>
+                <Field label="名称">
+                  <input value={editor.name} onChange={(event) => setEditor({ ...editor, name: event.target.value })} placeholder="@ 或 www" />
+                </Field>
+                <Field label="TTL">
+                  <select value={editor.ttl} onChange={(event) => setEditor({ ...editor, ttl: event.target.value })}>
+                    <option value="60">1 分钟</option>
+                    <option value="300">5 分钟</option>
+                    <option value="1800">30 分钟</option>
+                    <option value="3600">1 小时</option>
+                    <option value="86400">1 天</option>
+                  </select>
+                </Field>
+              </div>
+              <Field label="记录内容">
+                <textarea
+                  rows="5"
+                  value={editor.content}
+                  onChange={(event) => setEditor({ ...editor, content: event.target.value })}
+                  placeholder={recordContentPlaceholder(editor.type, zoneName)}
+                />
+              </Field>
+              <RecordHints type={editor.type} onTemplate={(content) => setEditor({ ...editor, type: "TXT", name: "_wallet", content })} />
+              <div className="record-editor-actions">
+                {editing && <button className="button secondary" onClick={() => setEditor(defaultRecordEditor)}>取消编辑</button>}
+                <button className="button primary" disabled={!editor.name.trim() || !editor.content.trim()} onClick={onSave}><Save size={16} />保存记录</button>
+              </div>
+            </div>
+          </fieldset>
+        </Panel>
+      </div>
+    </div>
+  );
+}
+
+function DelegationValue({ label, value }) {
+  const copy = () => navigator.clipboard?.writeText(value);
+  return (
+    <div className="delegation-value">
+      <span>{label}</span><code>{value}</code>
+      <button className="icon-button" onClick={copy} title={`复制 ${label}`}><Copy size={14} /></button>
+    </div>
+  );
+}
+
+function RecordTable({ zoneName, rrsets, canWrite, onEdit, onDelete }) {
+  return (
+    <div className="table-wrap">
+      <table className="record-table">
+        <thead><tr><th>类型</th><th>名称</th><th>内容</th><th>TTL</th><th>状态</th><th /></tr></thead>
+        <tbody>
+          {rrsets.map((rrset) => {
+            const protectedRecord = rrset.type === "SOA";
+            const editableRecord = !protectedRecord && recordTypes.includes(rrset.type);
+            return (
+              <tr key={`${rrset.name}-${rrset.type}`}>
+                <td><span className={`record-type type-${rrset.type.toLowerCase()}`}>{rrset.type}</span></td>
+                <td><strong>{relativeRecordName(rrset.name, zoneName)}</strong><small className="record-fqdn">{rrset.name}</small></td>
+                <td className="record-content">{(rrset.records || []).map((record) => <code key={record.content}>{record.content}</code>)}</td>
+                <td className="mono">{rrset.ttl || "-"}</td>
+                <td><HealthDot healthy={(rrset.records || []).some((record) => !record.disabled)} label={protectedRecord ? "系统" : "启用"} /></td>
+                <td>
+                  <div className="table-actions">
+                    <button className="icon-button" disabled={!canWrite || !editableRecord} title={editableRecord ? "编辑记录" : "该记录类型仅支持查看"} onClick={() => onEdit(rrset)}><Edit3 size={15} /></button>
+                    <button className="icon-button danger" disabled={!canWrite || protectedRecord} title={protectedRecord ? "SOA 由系统维护" : "删除记录"} onClick={() => onDelete(rrset)}><Trash2 size={15} /></button>
+                  </div>
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+      {!rrsets.length && <EmptyState text="没有符合筛选条件的 DNS 记录" />}
+    </div>
+  );
+}
+
+function RecordHints({ type, onTemplate }) {
+  return (
+    <div className="record-hints">
+      <span>{recordHint(type)}</span>
+      {type === "TXT" && (
+        <div>
+          <button type="button" onClick={() => onTemplate("oa1:eth recipient_address=0x...; recipient_name=wallet;")}>OpenAlias ETH</button>
+          <button type="button" onClick={() => onTemplate("oa1:btc recipient_address=bc1...; recipient_name=wallet;")}>OpenAlias BTC</button>
+          <button type="button" onClick={() => onTemplate("chain=hns;address=hs1...")}>HNS Wallet</button>
+        </div>
+      )}
     </div>
   );
 }
@@ -660,20 +979,23 @@ function PluginTable({ plugins = [], onToggle, compact = false }) {
   );
 }
 
-function ZoneTable({ zones = [], onDelete, compact = false }) {
+function ZoneTable({ zones = [], onDelete, onSelect, compact = false }) {
   return (
     <div className="table-wrap">
       <table className={compact ? "compact-table" : ""}>
-        <thead><tr><th>域名</th><th>类型</th><th>Serial</th><th>DNSSEC</th><th>状态</th>{onDelete && <th />}</tr></thead>
+        <thead><tr><th>域名</th><th>类型</th><th>Serial</th><th>DNSSEC</th><th>状态</th>{(onDelete || onSelect) && <th />}</tr></thead>
         <tbody>
           {zones.map((zone) => (
             <tr key={zone.id || zone.name}>
-              <td><strong>{zone.name}</strong></td>
+              <td><strong>{zone.name}</strong>{isHNSZoneName(zone.name) && <small className="zone-hns-alias">{trimTrailingDot(zone.name)}.hns</small>}</td>
               <td>{zone.kind || "-"}</td>
               <td className="mono">{zone.serial || "-"}</td>
               <td>{zone.dnssec ? <HealthDot healthy label="已启用" /> : <span className="muted">未启用</span>}</td>
               <td><HealthDot healthy label="正常" /></td>
-              {onDelete && <td><button className="icon-button danger" title="删除 Zone" onClick={() => onDelete(zone)}><Trash2 size={16} /></button></td>}
+              {(onDelete || onSelect) && <td><div className="table-actions">
+                {onSelect && <button className="button secondary zone-manage" onClick={() => onSelect(zone)}>管理记录<ChevronRight size={14} /></button>}
+                {onDelete && <button className="icon-button danger" title="删除 Zone" onClick={() => onDelete(zone)}><Trash2 size={16} /></button>}
+              </div></td>}
             </tr>
           ))}
         </tbody>
@@ -681,6 +1003,90 @@ function ZoneTable({ zones = [], onDelete, compact = false }) {
       {!zones.length && <EmptyState text="PowerDNS 尚无 Zone，或服务未连接" />}
     </div>
   );
+}
+
+function normalizeZoneInput(value, mode) {
+  let normalized = value.trim().toLowerCase().replace(/\s+/g, "");
+  if (mode === "hns") normalized = normalized.replace(/\.hns\.?$/, "");
+  return trimTrailingDot(normalized);
+}
+
+function trimTrailingDot(value = "") {
+  return value.replace(/\.+$/, "");
+}
+
+function isHNSZoneName(value = "") {
+  const normalized = trimTrailingDot(value);
+  return Boolean(normalized) && !normalized.includes(".");
+}
+
+function ensureTrailingDot(value = "") {
+  const normalized = value.trim();
+  return normalized ? `${trimTrailingDot(normalized)}.` : "";
+}
+
+function absoluteRecordName(value, zoneName) {
+  const zone = ensureTrailingDot(zoneName);
+  const name = value.trim();
+  if (!name || name === "@") return zone;
+  const absolute = ensureTrailingDot(name);
+  if (absolute === zone || absolute.endsWith(`.${zone}`)) return absolute;
+  return `${trimTrailingDot(name)}.${zone}`;
+}
+
+function relativeRecordName(value, zoneName) {
+  const name = ensureTrailingDot(value);
+  const zone = ensureTrailingDot(zoneName);
+  if (name === zone) return "@";
+  return trimTrailingDot(name.slice(0, -(zone.length + 1)));
+}
+
+function formatRecordContent(type, value) {
+  const content = value.trim();
+  if (!content) return "";
+  if (type !== "TXT" || (content.startsWith('"') && content.endsWith('"'))) return content;
+  return `"${content.replaceAll("\\", "\\\\").replaceAll('"', '\\"')}"`;
+}
+
+function displayRecordContent(type, value) {
+  if (type === "TXT" && value.startsWith('"') && value.endsWith('"')) return value.slice(1, -1);
+  return value;
+}
+
+function recordContentPlaceholder(type, zoneName) {
+  const examples = {
+    A: authoritativeIPv4,
+    AAAA: "2001:db8::53",
+    CNAME: `target.${zoneName}`,
+    TXT: "verification=... 或钱包记录",
+    MX: `10 mail.${zoneName}`,
+    NS: `ns1.${zoneName}`,
+    SRV: `10 5 443 service.${zoneName}`,
+    CAA: '0 issue "letsencrypt.org"',
+    PTR: `host.${zoneName}`,
+    SVCB: `1 service.${zoneName} alpn=h2,h3`,
+    HTTPS: `1 . alpn=h2,h3 ipv4hint=${authoritativeIPv4}`,
+    TLSA: "3 1 1 <certificate-sha256>",
+  };
+  return examples[type] || "记录内容";
+}
+
+function recordHint(type) {
+  const hints = {
+    A: "填写 IPv4 地址。@ 表示 Zone 根域名。",
+    AAAA: "填写 IPv6 地址。",
+    CNAME: "目标必须使用完整域名，建议以点结尾。",
+    TXT: "输入时无需外层引号；支持每行一条值和钱包模板。",
+    MX: "格式：优先级 邮件服务器，例如 10 mail.example.",
+    NS: "格式：完整 Nameserver 域名。HNS 链上还需发布 NS/GLUE。",
+    SRV: "格式：优先级 权重 端口 目标。",
+    CAA: '格式：标志 标签 值，例如 0 issue "letsencrypt.org"',
+    PTR: "填写反向解析目标的完整域名。",
+    SVCB: "格式：优先级 目标 参数。",
+    HTTPS: "用于 HTTPS/SVCB 服务绑定和 HTTP/3 等现代解析提示。",
+    TLSA: "格式：证书用途 选择器 匹配类型 证书数据。",
+  };
+  return hints[type] || "每行保存为同一 RRSet 下的一条记录。";
 }
 
 function TrafficChart({ events }) {

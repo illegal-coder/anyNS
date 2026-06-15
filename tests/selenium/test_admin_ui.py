@@ -76,6 +76,39 @@ class AdminUIWorkflowTest(unittest.TestCase):
         page_text = self.driver.find_element(By.CSS_SELECTOR, "main").text
         self.assertIn("Authoritative", page_text)
         self.assertIn("Recursor", page_text)
+        manage = WebDriverWait(self.driver, 30).until(
+            EC.element_to_be_clickable((By.XPATH, "//tr[td/strong[contains(., 'anyns.test')]]//button[contains(., '管理记录')]"))
+        )
+        manage.click()
+        WebDriverWait(self.driver, 30).until(
+            EC.visibility_of_element_located((By.XPATH, "//h2[contains(., 'anyns.test')]"))
+        )
+        workspace_text = self.driver.find_element(By.CSS_SELECTOR, "main").text
+        self.assertIn("HNS 链上委派", workspace_text)
+        self.assertIn("DNS 记录", workspace_text)
+
+        editor = self.driver.find_element(By.CSS_SELECTOR, ".record-editor")
+        selects = editor.find_elements(By.CSS_SELECTOR, "select")
+        selects[0].send_keys("TXT")
+        name = editor.find_element(By.CSS_SELECTOR, "input")
+        name.clear()
+        name.send_keys("_selenium")
+        content = editor.find_element(By.CSS_SELECTOR, "textarea")
+        content.send_keys("automation=ok")
+        editor.find_element(By.XPATH, ".//button[contains(., '保存记录')]").click()
+        record_row = WebDriverWait(self.driver, 30).until(
+            EC.visibility_of_element_located((By.XPATH, "//tr[td/strong[normalize-space()='_selenium']]"))
+        )
+        self.assertIn("automation=ok", record_row.text)
+        record_row.find_element(By.CSS_SELECTOR, "button[title='删除记录']").click()
+        WebDriverWait(self.driver, 30).until_not(
+            EC.presence_of_element_located((By.XPATH, "//tr[td/strong[normalize-space()='_selenium']]"))
+        )
+
+        self.driver.find_element(By.CSS_SELECTOR, "button[aria-label='返回域名列表']").click()
+        WebDriverWait(self.driver, 30).until(
+            EC.visibility_of_element_located((By.XPATH, "//h3[contains(., '托管域名')]"))
+        )
 
         self.nav("插件")
         WebDriverWait(self.driver, 30).until(

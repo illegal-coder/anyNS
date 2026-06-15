@@ -40,6 +40,31 @@ type Zone struct {
 	Masters        []string `json:"masters"`
 	Account        string   `json:"account"`
 	URL            string   `json:"url"`
+	RRSets         []RRSet  `json:"rrsets,omitempty"`
+}
+
+type Record struct {
+	Content  string `json:"content"`
+	Disabled bool   `json:"disabled"`
+}
+
+type Comment struct {
+	Content    string `json:"content"`
+	Account    string `json:"account,omitempty"`
+	ModifiedAt int64  `json:"modified_at,omitempty"`
+}
+
+type RRSet struct {
+	Name       string    `json:"name"`
+	Type       string    `json:"type"`
+	TTL        uint32    `json:"ttl,omitempty"`
+	ChangeType string    `json:"changetype,omitempty"`
+	Records    []Record  `json:"records,omitempty"`
+	Comments   []Comment `json:"comments,omitempty"`
+}
+
+type PatchZoneRequest struct {
+	RRSets []RRSet `json:"rrsets"`
 }
 
 type ServiceSnapshot struct {
@@ -114,6 +139,70 @@ func (c *Client) CreateAuthoritativeZone(ctx context.Context, request CreateZone
 	var zone Zone
 	err := c.doJSON(ctx, "authoritative", http.MethodPost, c.serverPath("authoritative", "/zones"), request, &zone)
 	return zone, err
+}
+
+func (c *Client) AuthoritativeZone(ctx context.Context, zoneID string) (Zone, error) {
+	zoneID = normalizeZoneName(zoneID)
+	if zoneID == "." || strings.TrimSpace(zoneID) == "" {
+		return Zone{}, fmt.Errorf("zone id is required")
+	}
+	var zone Zone
+	err := c.doJSON(ctx, "authoritative", http.MethodGet, c.serverPath("authoritative", "/zones/"+url.PathEscape(zoneID)), nil, &zone)
+	return zone, err
+}
+
+func (c *Client) PatchAuthoritativeZone(ctx context.Context, zoneID string, request PatchZoneRequest) error {
+	zoneID = normalizeZoneName(zoneID)
+	if zoneID == "." || strings.TrimSpace(zoneID) == "" {
+		return fmt.Errorf("zone id is required")
+	}
+	if len(request.RRSets) == 0 {
+		return fmt.Errorf("at least one rrset is required")
+	}
+	for index := range request.RRSets {
+		rrset := &request.RRSets[index]
+		rrset.Name = normalizeZoneName(rrset.Name)
+		rrset.Type = strings.ToUpper(strings.TrimSpace(rrset.Type))
+		rrset.ChangeType = strings.ToUpper(strings.TrimSpace(rrset.ChangeType))
+		if rrset.Name == "." || rrset.Name == "" {
+			return fmt.Errorf("rrsets[%d].name is required", index)
+		}
+		if rrset.Name != zoneID && !strings.HasSuffix(rrset.Name, "."+zoneID) {
+			return fmt.Errorf("rrsets[%d].name must be inside zone %s", index, zoneID)
+		}
+		if !validRecordType(rrset.Type) {
+			return fmt.Errorf("rrsets[%d].type is invalid", index)
+		}
+		switch rrset.ChangeType {
+		case "REPLACE":
+			if rrset.TTL == 0 {
+				rrset.TTL = 300
+			}
+			if len(rrset.Records) == 0 {
+				return fmt.Errorf("rrsets[%d].records is required for REPLACE", index)
+			}
+			for recordIndex := range rrset.Records {
+				rrset.Records[recordIndex].Content = strings.TrimSpace(rrset.Records[recordIndex].Content)
+				if rrset.Records[recordIndex].Content == "" {
+					return fmt.Errorf("rrsets[%d].records[%d].content is required", index, recordIndex)
+				}
+			}
+		case "DELETE":
+			rrset.TTL = 0
+			rrset.Records = nil
+			rrset.Comments = nil
+		default:
+			return fmt.Errorf("rrsets[%d].changetype must be REPLACE or DELETE", index)
+		}
+	}
+	return c.doJSON(
+		ctx,
+		"authoritative",
+		http.MethodPatch,
+		c.serverPath("authoritative", "/zones/"+url.PathEscape(zoneID)),
+		request,
+		nil,
+	)
 }
 
 func (c *Client) DeleteAuthoritativeZone(ctx context.Context, zoneID string) error {
@@ -247,4 +336,20 @@ func normalizeZoneName(name string) string {
 		return name
 	}
 	return strings.TrimSuffix(name, ".") + "."
+}
+
+func validRecordType(value string) bool {
+	if value == "" {
+		return false
+	}
+	for index, character := range value {
+		if character >= 'A' && character <= 'Z' {
+			continue
+		}
+		if index > 0 && character >= '0' && character <= '9' {
+			continue
+		}
+		return false
+	}
+	return true
 }

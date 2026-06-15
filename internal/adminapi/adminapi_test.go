@@ -13,6 +13,7 @@ import (
 	"github.com/anyns/anyns/internal/app"
 	"github.com/anyns/anyns/internal/config"
 	"github.com/anyns/anyns/internal/httpapi"
+	"github.com/anyns/anyns/internal/powerdns"
 )
 
 func TestCapabilitiesDescribeAvailabilityAndWritableState(t *testing.T) {
@@ -314,6 +315,65 @@ func TestPowerDNSStatusDoesNotExposeAPIKeys(t *testing.T) {
 	}
 	if strings.Contains(rec.Body.String(), "pdns-secret") {
 		t.Fatalf("response leaked API key: %s", rec.Body.String())
+	}
+}
+
+func TestPowerDNSZoneDetailAndRRSetPatch(t *testing.T) {
+	var patched powerdns.PatchZoneRequest
+	pdns := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("X-API-Key") != "pdns-secret" {
+			t.Fatalf("PowerDNS key not forwarded")
+		}
+		switch r.Method {
+		case http.MethodGet:
+			_ = json.NewEncoder(w).Encode(powerdns.Zone{
+				ID:   "example.",
+				Name: "example.",
+				RRSets: []powerdns.RRSet{{
+					Name:    "www.example.",
+					Type:    "A",
+					TTL:     300,
+					Records: []powerdns.Record{{Content: "192.0.2.10"}},
+				}},
+			})
+		case http.MethodPatch:
+			if err := json.NewDecoder(r.Body).Decode(&patched); err != nil {
+				t.Fatalf("decode patch: %v", err)
+			}
+			w.WriteHeader(http.StatusNoContent)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer pdns.Close()
+
+	cfg := config.Default()
+	cfg.PowerDNS.AuthoritativeURL = pdns.URL
+	cfg.PowerDNS.AuthoritativeAPIKey = "pdns-secret"
+	application, err := app.NewFromConfig(cfg)
+	if err != nil {
+		t.Fatalf("new app: %v", err)
+	}
+	mux := http.NewServeMux()
+	Register(mux, application, &cfg)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/powerdns/authoritative/zones/example.", nil)
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "www.example.") {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+
+	body := `{"rrsets":[{"name":"wallet.example","type":"TXT","ttl":300,"changetype":"REPLACE","records":[{"content":"\"wallet=0x1234\"","disabled":false}]}]}`
+	req = httptest.NewRequest(http.MethodPatch, "/api/v1/powerdns/authoritative/zones/example./rrsets", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec = httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if len(patched.RRSets) != 1 || patched.RRSets[0].Name != "wallet.example." {
+		t.Fatalf("patched=%#v", patched)
 	}
 }
 

@@ -92,3 +92,76 @@ func TestCreateDeleteZoneAndFlushCache(t *testing.T) {
 		t.Fatalf("flush result=%#v err=%v", result, err)
 	}
 }
+
+func TestReadAndPatchAuthoritativeZone(t *testing.T) {
+	var patched PatchZoneRequest
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case http.MethodGet:
+			_ = json.NewEncoder(w).Encode(Zone{
+				ID:   "example.",
+				Name: "example.",
+				RRSets: []RRSet{{
+					Name: "www.example.",
+					Type: "A",
+					TTL:  300,
+					Records: []Record{{
+						Content: "192.0.2.10",
+					}},
+				}},
+			})
+		case http.MethodPatch:
+			if err := json.NewDecoder(r.Body).Decode(&patched); err != nil {
+				t.Fatalf("decode patch: %v", err)
+			}
+			w.WriteHeader(http.StatusNoContent)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	cfg := config.Default().PowerDNS
+	cfg.AuthoritativeURL = server.URL
+	client := NewWithHTTPClient(cfg, server.Client())
+
+	zone, err := client.AuthoritativeZone(context.Background(), "example")
+	if err != nil || len(zone.RRSets) != 1 {
+		t.Fatalf("zone=%#v err=%v", zone, err)
+	}
+	err = client.PatchAuthoritativeZone(context.Background(), "example", PatchZoneRequest{
+		RRSets: []RRSet{{
+			Name:       "www.example",
+			Type:       "a",
+			ChangeType: "replace",
+			Records:    []Record{{Content: " 192.0.2.20 "}},
+		}},
+	})
+	if err != nil {
+		t.Fatalf("patch zone: %v", err)
+	}
+	if patched.RRSets[0].Name != "www.example." ||
+		patched.RRSets[0].Type != "A" ||
+		patched.RRSets[0].ChangeType != "REPLACE" ||
+		patched.RRSets[0].TTL != 300 ||
+		patched.RRSets[0].Records[0].Content != "192.0.2.20" {
+		t.Fatalf("patched=%#v", patched)
+	}
+}
+
+func TestPatchAuthoritativeZoneRejectsOutOfZoneRecords(t *testing.T) {
+	cfg := config.Default().PowerDNS
+	cfg.AuthoritativeURL = "http://powerdns.invalid"
+	client := New(cfg)
+	err := client.PatchAuthoritativeZone(context.Background(), "example", PatchZoneRequest{
+		RRSets: []RRSet{{
+			Name:       "outside.test",
+			Type:       "A",
+			ChangeType: "REPLACE",
+			Records:    []Record{{Content: "192.0.2.20"}},
+		}},
+	})
+	if err == nil || !strings.Contains(err.Error(), "inside zone") {
+		t.Fatalf("err=%v", err)
+	}
+}

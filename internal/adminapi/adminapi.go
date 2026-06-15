@@ -110,6 +110,8 @@ func (h *Handler) capabilities(w http.ResponseWriter, r *http.Request) {
 			"GET /api/v1/powerdns/status",
 			"GET /api/v1/powerdns/zones",
 			"POST /api/v1/powerdns/authoritative/zones",
+			"GET /api/v1/powerdns/authoritative/zones/{id}",
+			"PATCH /api/v1/powerdns/authoritative/zones/{id}/rrsets",
 			"DELETE /api/v1/powerdns/authoritative/zones/{id}",
 			"POST /api/v1/powerdns/recursor/cache/flush",
 		),
@@ -320,29 +322,71 @@ func (h *Handler) authoritativeZones(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) authoritativeZone(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodDelete {
-		httpapi.Error(w, http.StatusMethodNotAllowed, "method not allowed")
-		return
-	}
 	current := *h.cfg
-	principal, ok := httpapi.RequireScopePrincipal(w, r, current, httpapi.ScopePowerDNSWrite)
-	if !ok {
-		return
-	}
 	rawID := strings.TrimPrefix(r.URL.Path, "/api/v1/powerdns/authoritative/zones/")
+	isRRSetRequest := strings.HasSuffix(rawID, "/rrsets")
+	if isRRSetRequest {
+		rawID = strings.TrimSuffix(rawID, "/rrsets")
+	}
 	zoneID, err := url.PathUnescape(rawID)
 	if err != nil || strings.TrimSpace(zoneID) == "" {
 		httpapi.Error(w, http.StatusBadRequest, "zone id is required")
 		return
 	}
-	if err := powerdns.New(current.PowerDNS).DeleteAuthoritativeZone(r.Context(), zoneID); err != nil {
-		httpapi.Error(w, http.StatusBadGateway, err.Error())
+
+	if isRRSetRequest {
+		if r.Method != http.MethodPatch {
+			httpapi.Error(w, http.StatusMethodNotAllowed, "method not allowed")
+			return
+		}
+		principal, ok := httpapi.RequireScopePrincipal(w, r, current, httpapi.ScopePowerDNSWrite)
+		if !ok {
+			return
+		}
+		var request powerdns.PatchZoneRequest
+		if err := httpapi.DecodeJSON(r, &request); err != nil {
+			httpapi.Error(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		if err := powerdns.New(current.PowerDNS).PatchAuthoritativeZone(r.Context(), zoneID, request); err != nil {
+			httpapi.Error(w, http.StatusBadGateway, err.Error())
+			return
+		}
+		h.application.AppendManagementAudit("powerdns.rrset.patch", principal.ID, r.Method, r.URL.Path, "ok", map[string]any{
+			"zone_id": zoneID,
+			"rrsets":  len(request.RRSets),
+		})
+		w.WriteHeader(http.StatusNoContent)
 		return
 	}
-	h.application.AppendManagementAudit("powerdns.zone.delete", principal.ID, r.Method, r.URL.Path, "ok", map[string]any{
-		"zone_id": zoneID,
-	})
-	w.WriteHeader(http.StatusNoContent)
+
+	switch r.Method {
+	case http.MethodGet:
+		if !httpapi.RequireScope(w, r, current, httpapi.ScopePowerDNSRead) {
+			return
+		}
+		zone, err := powerdns.New(current.PowerDNS).AuthoritativeZone(r.Context(), zoneID)
+		if err != nil {
+			httpapi.Error(w, http.StatusBadGateway, err.Error())
+			return
+		}
+		httpapi.WriteJSON(w, http.StatusOK, zone)
+	case http.MethodDelete:
+		principal, ok := httpapi.RequireScopePrincipal(w, r, current, httpapi.ScopePowerDNSWrite)
+		if !ok {
+			return
+		}
+		if err := powerdns.New(current.PowerDNS).DeleteAuthoritativeZone(r.Context(), zoneID); err != nil {
+			httpapi.Error(w, http.StatusBadGateway, err.Error())
+			return
+		}
+		h.application.AppendManagementAudit("powerdns.zone.delete", principal.ID, r.Method, r.URL.Path, "ok", map[string]any{
+			"zone_id": zoneID,
+		})
+		w.WriteHeader(http.StatusNoContent)
+	default:
+		httpapi.Error(w, http.StatusMethodNotAllowed, "method not allowed")
+	}
 }
 
 func (h *Handler) recursorCacheFlush(w http.ResponseWriter, r *http.Request) {
