@@ -12,8 +12,277 @@ import (
 
 	"github.com/anyns/anyns/internal/app"
 	"github.com/anyns/anyns/internal/config"
+	"github.com/anyns/anyns/internal/httpapi"
+	"github.com/anyns/anyns/internal/powerdns"
 )
 
+func TestCapabilitiesDescribeAvailabilityAndWritableState(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.json")
+	if err := os.WriteFile(path, []byte(`{"plugins":[{"name":"hns","enabled":true}]}`), 0o600); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+	cfg, err := config.LoadFile(path)
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+	cfg.PowerDNS.AuthoritativeURL = "http://pdns.internal"
+	application, err := app.NewFromConfig(cfg)
+	if err != nil {
+		t.Fatalf("new app: %v", err)
+	}
+	mux := http.NewServeMux()
+	Register(mux, application, &cfg)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/capabilities", nil)
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	var response CapabilitiesResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode capabilities: %v", err)
+	}
+	if response.Version != 1 {
+		t.Fatalf("version=%d", response.Version)
+	}
+	if got := response.Features["powerdns"]; !got.Available || !got.Read || !got.Write || got.Mode != "readwrite" {
+		t.Fatalf("powerdns capability=%+v", got)
+	}
+	if got := response.Features["config"]; !got.Read || !got.Write || got.Mode != "readwrite" {
+		t.Fatalf("config capability=%+v", got)
+	}
+	if strings.Contains(rec.Body.String(), "api_key") {
+		t.Fatalf("capabilities exposed secret-shaped fields: %s", rec.Body.String())
+	}
+}
+
+func TestCapabilitiesRespectScopedReadOnlyPrincipal(t *testing.T) {
+	cfg := config.Default()
+	cfg.Management.AuthRequired = true
+	cfg.Management.Keys = []config.ManagementKey{{
+		ID:     "observer",
+		APIKey: "observer-secret",
+		Scopes: []string{httpapi.ScopeManagementRead, httpapi.ScopePowerDNSRead, httpapi.ScopeAuditRead},
+	}}
+	cfg.PowerDNS.RecursorURL = "http://recursor.internal"
+	application, err := app.NewFromConfig(cfg)
+	if err != nil {
+		t.Fatalf("new app: %v", err)
+	}
+	mux := http.NewServeMux()
+	Register(mux, application, &cfg)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/capabilities", nil)
+	req.Header.Set("Authorization", "Bearer observer-secret")
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	var response CapabilitiesResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode capabilities: %v", err)
+	}
+	if got := response.Features["powerdns"]; !got.Read || got.Write || got.Mode != "readonly" {
+		t.Fatalf("powerdns capability=%+v", got)
+	}
+	if got := response.Features["plugins"]; got.Read || got.Mode != "hidden" {
+		t.Fatalf("plugins capability=%+v", got)
+	}
+	if strings.Contains(rec.Body.String(), "observer-secret") {
+		t.Fatalf("capabilities leaked bearer token: %s", rec.Body.String())
+	}
+}
+
+func TestCapabilitiesFollowFineGrainedEndpointReadScopes(t *testing.T) {
+	cfg := config.Default()
+	cfg.Management.AuthRequired = true
+	cfg.PowerDNS.AuthoritativeURL = "http://pdns.internal"
+	cfg.Management.Keys = []config.ManagementKey{
+		{ID: "powerdns-reader", APIKey: "powerdns-secret", Scopes: []string{httpapi.ScopePowerDNSRead}},
+		{ID: "plugin-reader", APIKey: "plugin-secret", Scopes: []string{httpapi.ScopePluginsRead}},
+		{ID: "audit-reader", APIKey: "audit-secret", Scopes: []string{httpapi.ScopeAuditRead}},
+		{ID: "config-reader", APIKey: "config-secret", Scopes: []string{httpapi.ScopeConfigRead}},
+		{ID: "cache-reader", APIKey: "cache-secret", Scopes: []string{httpapi.ScopeCacheRead}},
+	}
+	application, err := app.NewFromConfig(cfg)
+	if err != nil {
+		t.Fatalf("new app: %v", err)
+	}
+	mux := http.NewServeMux()
+	Register(mux, application, &cfg)
+
+	tests := []struct {
+		name            string
+		token           string
+		visibleFeatures []string
+	}{
+		{name: "powerdns", token: "powerdns-secret", visibleFeatures: []string{"powerdns"}},
+		{name: "plugins", token: "plugin-secret", visibleFeatures: []string{"plugins"}},
+		{name: "audit", token: "audit-secret", visibleFeatures: []string{"audit"}},
+		{name: "configuration", token: "config-secret", visibleFeatures: []string{"security", "config"}},
+		{name: "cache", token: "cache-secret", visibleFeatures: []string{"cache"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodGet, "/api/v1/capabilities", nil)
+			req.Header.Set("Authorization", "Bearer "+tt.token)
+			rec := httptest.NewRecorder()
+			mux.ServeHTTP(rec, req)
+			if rec.Code != http.StatusOK {
+				t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+			}
+			var response CapabilitiesResponse
+			if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
+				t.Fatalf("decode capabilities: %v", err)
+			}
+			visible := make(map[string]bool, len(tt.visibleFeatures))
+			for _, feature := range tt.visibleFeatures {
+				visible[feature] = true
+			}
+			for feature, capability := range response.Features {
+				if visible[feature] {
+					if !capability.Read || capability.Mode == "hidden" {
+						t.Errorf("%s capability=%+v", feature, capability)
+					}
+					continue
+				}
+				if capability.Read || capability.Write || capability.Mode != "hidden" {
+					t.Errorf("unrelated %s capability=%+v", feature, capability)
+				}
+			}
+		})
+	}
+}
+
+func TestCapabilitiesRequireAuthentication(t *testing.T) {
+	cfg := config.Default()
+	cfg.Management.AuthRequired = true
+	application, err := app.NewFromConfig(cfg)
+	if err != nil {
+		t.Fatalf("new app: %v", err)
+	}
+	mux := http.NewServeMux()
+	Register(mux, application, &cfg)
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/v1/capabilities", nil))
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestDashboardOmitsDataOutsidePrincipalScopes(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.json")
+	if err := os.WriteFile(path, []byte(`{"plugins":[{"name":"hns","enabled":true}]}`), 0o600); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+	cfg, err := config.LoadFile(path)
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+	cfg.Management.AuthRequired = true
+	cfg.Management.Keys = []config.ManagementKey{{
+		ID:     "overview-only",
+		APIKey: "overview-secret",
+		Scopes: []string{httpapi.ScopeManagementRead},
+	}}
+	cfg.PowerDNS.AuthoritativeURL = "http://pdns.internal"
+	application, err := app.NewFromConfig(cfg)
+	if err != nil {
+		t.Fatalf("new app: %v", err)
+	}
+	application.AppendManagementAudit("config.update", "operator", http.MethodPut, "/api/v1/configuration", "ok", nil)
+	mux := http.NewServeMux()
+	Register(mux, application, &cfg)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/dashboard", nil)
+	req.Header.Set("Authorization", "Bearer overview-secret")
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	var response struct {
+		Services map[string]json.RawMessage `json:"services"`
+		Plugins  json.RawMessage            `json:"plugins"`
+		Cache    json.RawMessage            `json:"cache"`
+		Audit    json.RawMessage            `json:"audit_summary"`
+		Events   json.RawMessage            `json:"recent_events"`
+		Config   json.RawMessage            `json:"configuration"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode dashboard: %v", err)
+	}
+	if _, ok := response.Services["powerdns"]; ok {
+		t.Fatalf("dashboard exposed PowerDNS data: %s", rec.Body.String())
+	}
+	for name, value := range map[string]json.RawMessage{
+		"plugins":       response.Plugins,
+		"cache":         response.Cache,
+		"audit_summary": response.Audit,
+		"recent_events": response.Events,
+		"configuration": response.Config,
+	} {
+		if len(value) != 0 {
+			t.Fatalf("dashboard exposed %s outside principal scope: %s", name, rec.Body.String())
+		}
+	}
+}
+
+func TestDashboardUsesRuntimePluginViewsWhenProxyEnabled(t *testing.T) {
+	runtime := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/healthz":
+			_, _ = w.Write([]byte(`{"status":"ok"}`))
+		case "/api/v1/plugins":
+			if r.Header.Get("Authorization") != "Bearer runtime-reader" {
+				t.Fatalf("authorization was not forwarded")
+			}
+			_, _ = w.Write([]byte(`[{"name":"hns","enabled":false,"suffixes":[".hns"],"healthy":true}]`))
+		default:
+			t.Fatalf("runtime path=%s", r.URL.Path)
+		}
+	}))
+	defer runtime.Close()
+
+	cfg := config.Default()
+	cfg.ControlPlane.AdminProxyRuntime = true
+	cfg.ControlPlane.RuntimeControlURL = runtime.URL
+	cfg.Management.AuthRequired = true
+	cfg.Management.Keys = []config.ManagementKey{{
+		ID:     "reader",
+		APIKey: "runtime-reader",
+		Scopes: []string{httpapi.ScopeManagementRead, httpapi.ScopePluginsRead},
+	}}
+	application, err := app.NewFromConfig(cfg)
+	if err != nil {
+		t.Fatalf("new app: %v", err)
+	}
+	mux := http.NewServeMux()
+	Register(mux, application, &cfg)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/dashboard", nil)
+	req.Header.Set("Authorization", "Bearer runtime-reader")
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	var response struct {
+		Plugins []struct {
+			Name    string `json:"name"`
+			Enabled bool   `json:"enabled"`
+		} `json:"plugins"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode dashboard: %v", err)
+	}
+	if len(response.Plugins) != 1 || response.Plugins[0].Name != "hns" || response.Plugins[0].Enabled {
+		t.Fatalf("plugins=%+v", response.Plugins)
+	}
+}
 func TestPowerDNSStatusDoesNotExposeAPIKeys(t *testing.T) {
 	pdns := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Header.Get("X-API-Key") != "pdns-secret" {
@@ -46,6 +315,138 @@ func TestPowerDNSStatusDoesNotExposeAPIKeys(t *testing.T) {
 	}
 	if strings.Contains(rec.Body.String(), "pdns-secret") {
 		t.Fatalf("response leaked API key: %s", rec.Body.String())
+	}
+}
+
+func TestCreateUnicodeHNSZoneThroughAdminAPI(t *testing.T) {
+	var created map[string]any
+	var patched powerdns.PatchZoneRequest
+	pdns := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case http.MethodPost:
+			if err := json.NewDecoder(r.Body).Decode(&created); err != nil {
+				t.Fatalf("decode create request: %v", err)
+			}
+			_ = json.NewEncoder(w).Encode(powerdns.Zone{ID: "xn--5nx.", Name: "xn--5nx.", Kind: "Native"})
+		case http.MethodPatch:
+			if err := json.NewDecoder(r.Body).Decode(&patched); err != nil {
+				t.Fatalf("decode patch request: %v", err)
+			}
+			w.WriteHeader(http.StatusNoContent)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer pdns.Close()
+
+	cfg := config.Default()
+	cfg.PowerDNS.AuthoritativeURL = pdns.URL
+	cfg.PowerDNS.AuthoritativeAPIKey = "pdns-secret"
+	application, err := app.NewFromConfig(cfg)
+	if err != nil {
+		t.Fatalf("new app: %v", err)
+	}
+	mux := http.NewServeMux()
+	Register(mux, application, &cfg)
+
+	body := `{"name":"灵","kind":"Native","hns":true,"glue_ipv4":"192.0.2.53","soa":{"ttl":600}}`
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/powerdns/authoritative/zones", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if created["name"] != "xn--5nx." || strings.Contains(rec.Body.String(), `"name":"灵."`) {
+		t.Fatalf("created=%#v response=%s", created, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), `"unicode_name":"灵."`) || len(patched.RRSets) != 3 {
+		t.Fatalf("patched=%#v response=%s", patched, rec.Body.String())
+	}
+}
+
+func TestPowerDNSZoneDetailAndRRSetPatch(t *testing.T) {
+	var patched powerdns.PatchZoneRequest
+	pdns := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("X-API-Key") != "pdns-secret" {
+			t.Fatalf("PowerDNS key not forwarded")
+		}
+		switch r.Method {
+		case http.MethodGet:
+			_ = json.NewEncoder(w).Encode(powerdns.Zone{
+				ID:   "example.",
+				Name: "example.",
+				RRSets: []powerdns.RRSet{{
+					Name:    "www.example.",
+					Type:    "A",
+					TTL:     300,
+					Records: []powerdns.Record{{Content: "192.0.2.10"}},
+				}},
+			})
+		case http.MethodPatch:
+			if err := json.NewDecoder(r.Body).Decode(&patched); err != nil {
+				t.Fatalf("decode patch: %v", err)
+			}
+			w.WriteHeader(http.StatusNoContent)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer pdns.Close()
+
+	cfg := config.Default()
+	cfg.PowerDNS.AuthoritativeURL = pdns.URL
+	cfg.PowerDNS.AuthoritativeAPIKey = "pdns-secret"
+	application, err := app.NewFromConfig(cfg)
+	if err != nil {
+		t.Fatalf("new app: %v", err)
+	}
+	mux := http.NewServeMux()
+	Register(mux, application, &cfg)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/powerdns/authoritative/zones/example.", nil)
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "www.example.") {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+
+	body := `{"rrsets":[{"name":"wallet.example","type":"TXT","ttl":300,"changetype":"REPLACE","records":[{"content":"\"wallet=0x1234\"","disabled":false}]}]}`
+	req = httptest.NewRequest(http.MethodPatch, "/api/v1/powerdns/authoritative/zones/example./rrsets", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec = httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if len(patched.RRSets) != 1 || patched.RRSets[0].Name != "wallet.example." {
+		t.Fatalf("patched=%#v", patched)
+	}
+}
+
+func TestAuthoritativeZonesListsZones(t *testing.T) {
+	pdns := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet || r.URL.Path != "/api/v1/servers/localhost/zones" {
+			t.Fatalf("unexpected PowerDNS request %s %s", r.Method, r.URL.Path)
+		}
+		_ = json.NewEncoder(w).Encode([]powerdns.Zone{{ID: "example.", Name: "example.", Kind: "Native"}})
+	}))
+	defer pdns.Close()
+
+	cfg := config.Default()
+	cfg.PowerDNS.AuthoritativeURL = pdns.URL
+	application, err := app.NewFromConfig(cfg)
+	if err != nil {
+		t.Fatalf("new app: %v", err)
+	}
+	mux := http.NewServeMux()
+	Register(mux, application, &cfg)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/powerdns/authoritative/zones", nil)
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"name":"example."`) {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
 	}
 }
 

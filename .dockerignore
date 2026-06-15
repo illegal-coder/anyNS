@@ -1,0 +1,5 @@
+.git
+**/node_modules
+web/admin/dist
+coverage
+*.log

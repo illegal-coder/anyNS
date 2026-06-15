@@ -1,0 +1,58 @@
+services:
+  pdns-authoritative:
+    volumes:
+      - ./pdns-authoritative-gsqlite.conf:/etc/powerdns/pdns.conf:ro
+      - selenium-pdns-data:/var/lib/powerdns
+
+  anyns-plugin-runtime:
+    environment:
+      ANYNS_MANAGEMENT_AUTH_REQUIRED: "false"
+
+  anyns-admin-api:
+    environment:
+      ANYNS_MANAGEMENT_AUTH_REQUIRED: "false"
+      ANYNS_PDNS_AUTH_URL: http://pdns-authoritative:8081
+      ANYNS_PDNS_RECURSOR_URL: http://pdns-recursor:8082
+      ANYNS_PDNS_SERVER_ID: localhost
+      PDNS_AUTH_API_KEY: docker-integration
+      PDNS_RECURSOR_API_KEY: docker-integration
+    depends_on:
+      anyns-plugin-runtime:
+        condition: service_started
+      pdns-authoritative:
+        condition: service_started
+      pdns-recursor:
+        condition: service_started
+
+  selenium-chromium:
+    image: selenium/standalone-chromium:latest
+    shm_size: 2gb
+    environment:
+      SE_NODE_MAX_SESSIONS: "1"
+      SE_NODE_OVERRIDE_MAX_SESSIONS: "true"
+    healthcheck:
+      test: ["CMD", "/opt/bin/check-grid.sh"]
+      interval: 5s
+      timeout: 5s
+      retries: 24
+    networks:
+      - dnsnet
+
+  selenium-tests:
+    build:
+      context: ../..
+      dockerfile: tests/selenium/Dockerfile
+    image: anyns/selenium-tests:integration
+    environment:
+      SELENIUM_REMOTE_URL: http://selenium-chromium:4444/wd/hub
+      ANYNS_ADMIN_URL: http://anyns-admin-api:8080
+    depends_on:
+      anyns-admin-api:
+        condition: service_started
+      selenium-chromium:
+        condition: service_healthy
+    networks:
+      - dnsnet
+
+volumes:
+  selenium-pdns-data:

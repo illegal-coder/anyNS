@@ -393,6 +393,28 @@
     "admin_proxy_runtime": true,
     "runtime_control_url": "http://anyns-plugin-runtime:8081"
   },
+  "powerdns": {
+    "authoritative_url": "http://pdns-authoritative:8081",
+    "authoritative_api_key": "",
+    "authoritative_api_key_file": "",
+    "recursor_url": "http://pdns-recursor:8082",
+    "recursor_api_key": "",
+    "recursor_api_key_file": "",
+    "server_id": "localhost",
+    "request_timeout": "5s"
+  },
+  "certificates": {
+    "enabled": false,
+    "directory_url": "https://acme-staging-v02.api.letsencrypt.org/directory",
+    "account_email": "",
+    "accept_tos": false,
+    "storage_dir": "/var/lib/anyns/certificates",
+    "request_timeout": "300s",
+    "dns_propagation_timeout": "120s",
+    "dns_poll_interval": "2s",
+    "max_attempts": 3,
+    "renew_before_days": 30
+  },
   "management": {
     "api_key": "",
     "api_key_file": "",
@@ -400,11 +422,11 @@
     "roles": [
       {
         "id": "ops-reader",
-        "scopes": ["plugins:read", "cache:read", "audit:read", "honeypot:read", "management:read"]
+        "scopes": ["plugins:read", "cache:read", "audit:read", "honeypot:read", "management:read", "powerdns:read", "certificates:read"]
       },
       {
         "id": "ops-writer",
-        "scopes": ["plugins:write", "cache:write", "policy:write", "honeypot:write", "management:read"]
+        "scopes": ["plugins:write", "cache:write", "policy:write", "honeypot:write", "management:read", "powerdns:write", "certificates:write"]
       }
     ],
     "keys": [

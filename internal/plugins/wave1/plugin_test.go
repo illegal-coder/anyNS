@@ -8,6 +8,9 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/http/httptest"
+	"net/url"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -334,6 +337,176 @@ func TestENSNamehashUsesLegacyKeccak(t *testing.T) {
 	if got != want {
 		t.Fatalf("namehash = %s, want %s", got, want)
 	}
+}
+
+func TestEthCallFollowsCCIPReadAndBindsSender(t *testing.T) {
+	const resolver = "0x1111111111111111111111111111111111111111"
+	var rpcCalls int
+	var callbackData string
+	var server *httptest.Server
+	server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasPrefix(r.URL.Path, "/gateway/") {
+			_ = json.NewEncoder(w).Encode(map[string]string{"data": "0xdeadbeef"})
+			return
+		}
+		var request struct {
+			Params []json.RawMessage `json:"params"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+			t.Fatal(err)
+		}
+		var call struct {
+			To   string `json:"to"`
+			Data string `json:"data"`
+		}
+		if len(request.Params) == 0 {
+			t.Fatal("missing eth_call params")
+		}
+		if err := json.Unmarshal(request.Params[0], &call); err != nil {
+			t.Fatal(err)
+		}
+		rpcCalls++
+		if rpcCalls == 1 {
+			errorData := encodeOffchainLookupForTest(
+				resolver,
+				[]string{server.URL + "/gateway/{sender}/{data}"},
+				[]byte{1, 2, 3},
+				[]byte{0xaa, 0xbb, 0xcc, 0xdd},
+				[]byte{4, 5},
+			)
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"jsonrpc": "2.0",
+				"id":      "anyns-ens-json-rpc",
+				"error": map[string]any{
+					"code":    3,
+					"message": "execution reverted",
+					"data":    errorData,
+				},
+			})
+			return
+		}
+		callbackData = call.Data
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"jsonrpc": "2.0",
+			"id":      "anyns-ens-json-rpc",
+			"result":  "0x1234",
+		})
+	}))
+	defer server.Close()
+
+	result, err := ethCall(context.Background(), server.Client(), server.URL, "", 2*time.Second, resolver, "0x0102")
+	if err != nil {
+		t.Fatalf("ethCall: %v", err)
+	}
+	if result != "0x1234" || rpcCalls != 2 {
+		t.Fatalf("result=%q rpcCalls=%d", result, rpcCalls)
+	}
+	if !strings.HasPrefix(callbackData, "0xaabbccdd") || !strings.Contains(callbackData, "deadbeef") {
+		t.Fatalf("callback data=%q", callbackData)
+	}
+}
+
+func TestCCIPReadRejectsSenderMismatchAndUnsafeGateway(t *testing.T) {
+	errorData := json.RawMessage(strconv.Quote(encodeOffchainLookupForTest(
+		"0x1111111111111111111111111111111111111111",
+		[]string{"https://gateway.example/{data}"},
+		[]byte{1},
+		[]byte{1, 2, 3, 4},
+		nil,
+	)))
+	_, err := ccipRead(
+		context.Background(),
+		http.DefaultClient,
+		"https://rpc.example",
+		"",
+		time.Second,
+		"0x2222222222222222222222222222222222222222",
+		errorData,
+		0,
+	)
+	if err == nil || !strings.Contains(err.Error(), "sender") {
+		t.Fatalf("sender mismatch err=%v", err)
+	}
+	target, _ := url.Parse("http://192.168.1.5/gateway")
+	if err := validateCCIPGateway(target); err == nil {
+		t.Fatal("private HTTP gateway accepted")
+	}
+	target, _ = url.Parse("https://127.0.0.1/gateway")
+	if err := validateCCIPGateway(target); err == nil {
+		t.Fatal("HTTPS loopback gateway accepted")
+	}
+	target, _ = url.Parse("http://127.0.0.1/gateway")
+	if err := validateCCIPGateway(target); err != nil {
+		t.Fatalf("HTTP loopback test gateway rejected: %v", err)
+	}
+}
+
+func TestCCIPReadRejectsRedirectToPrivateGateway(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, "http://192.168.1.5/private", http.StatusFound)
+	}))
+	defer server.Close()
+
+	_, err := fetchCCIPURL(context.Background(), server.Client(), server.URL, offchainLookup{
+		Sender:   "0x1111111111111111111111111111111111111111",
+		CallData: []byte{1},
+	})
+	if err == nil || !strings.Contains(err.Error(), "redirect") || !strings.Contains(err.Error(), "private") {
+		t.Fatalf("private redirect err=%v", err)
+	}
+}
+
+func TestCCIPReadRejectsOversizedResponseAndRecursion(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = io.WriteString(w, strings.Repeat("x", maxCCIPResponseBytes+32))
+	}))
+	defer server.Close()
+
+	_, err := fetchCCIPURL(context.Background(), server.Client(), server.URL, offchainLookup{
+		Sender:   "0x1111111111111111111111111111111111111111",
+		CallData: []byte{1},
+	})
+	if err == nil || !strings.Contains(err.Error(), "exceeds 1 MiB") {
+		t.Fatalf("oversized response err=%v", err)
+	}
+
+	_, err = ccipRead(
+		context.Background(),
+		nil,
+		"https://rpc.example",
+		"",
+		time.Second,
+		"0x1111111111111111111111111111111111111111",
+		nil,
+		maxCCIPDepth,
+	)
+	if err == nil || !strings.Contains(err.Error(), "recursion limit") {
+		t.Fatalf("recursion limit err=%v", err)
+	}
+}
+
+func encodeOffchainLookupForTest(sender string, urls []string, callData, callback, extra []byte) string {
+	head := make([]byte, 160)
+	senderRaw, _ := hex.DecodeString(strings.TrimPrefix(sender, "0x"))
+	copy(head[32-len(senderRaw):32], senderRaw)
+	putABIUint(head[32:64], 160)
+	copy(head[96:100], callback)
+
+	urlHead := make([]byte, 32+32*len(urls))
+	putABIUint(urlHead[:32], len(urls))
+	var urlTail []byte
+	for index, value := range urls {
+		putABIUint(urlHead[32+index*32:64+index*32], 32*len(urls)+len(urlTail))
+		urlTail = append(urlTail, encodeABIBytes([]byte(value))...)
+	}
+	urlArray := append(urlHead, urlTail...)
+	callOffset := len(head) + len(urlArray)
+	putABIUint(head[64:96], callOffset)
+	callEncoded := encodeABIBytes(callData)
+	extraOffset := callOffset + len(callEncoded)
+	putABIUint(head[128:160], extraOffset)
+	payload := append(append(append(head, urlArray...), callEncoded...), encodeABIBytes(extra)...)
+	return "0x" + offchainLookupSelector + hex.EncodeToString(payload)
 }
 
 func TestPulseChainPNSJSONRPCBackendMapsWalletTextAndContenthash(t *testing.T) {

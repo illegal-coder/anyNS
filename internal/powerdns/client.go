@@ -4,8 +4,10 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -13,6 +15,8 @@ import (
 	"time"
 
 	"github.com/anyns/anyns/internal/config"
+	"github.com/anyns/anyns/internal/dnsname"
+	"github.com/anyns/anyns/internal/dnsrr"
 )
 
 type Client struct {
@@ -32,6 +36,7 @@ type Server struct {
 type Zone struct {
 	ID             string   `json:"id"`
 	Name           string   `json:"name"`
+	UnicodeName    string   `json:"unicode_name,omitempty"`
 	Kind           string   `json:"kind"`
 	DNSSEC         bool     `json:"dnssec"`
 	Serial         uint32   `json:"serial"`
@@ -40,6 +45,49 @@ type Zone struct {
 	Masters        []string `json:"masters"`
 	Account        string   `json:"account"`
 	URL            string   `json:"url"`
+	RRSets         []RRSet  `json:"rrsets,omitempty"`
+}
+
+type Record struct {
+	Content  string `json:"content"`
+	Disabled bool   `json:"disabled"`
+}
+
+type Comment struct {
+	Content    string `json:"content"`
+	Account    string `json:"account,omitempty"`
+	ModifiedAt int64  `json:"modified_at,omitempty"`
+}
+
+type RRSet struct {
+	Name        string    `json:"name"`
+	UnicodeName string    `json:"unicode_name,omitempty"`
+	Type        string    `json:"type"`
+	TTL         uint32    `json:"ttl,omitempty"`
+	ChangeType  string    `json:"changetype,omitempty"`
+	Records     []Record  `json:"records,omitempty"`
+	Comments    []Comment `json:"comments,omitempty"`
+}
+
+type PatchZoneRequest struct {
+	RRSets []RRSet `json:"rrsets"`
+}
+
+type CryptoKey struct {
+	ID        int      `json:"id"`
+	KeyType   string   `json:"keytype"`
+	Active    bool     `json:"active"`
+	Published bool     `json:"published"`
+	DNSKey    string   `json:"dnskey,omitempty"`
+	DS        []string `json:"ds,omitempty"`
+}
+
+type CreateCryptoKeyRequest struct {
+	KeyType   string `json:"keytype,omitempty"`
+	Active    bool   `json:"active"`
+	Published bool   `json:"published"`
+	Algorithm string `json:"algorithm,omitempty"`
+	Bits      int    `json:"bits,omitempty"`
 }
 
 type ServiceSnapshot struct {
@@ -59,11 +107,47 @@ type Snapshot struct {
 }
 
 type CreateZoneRequest struct {
+	Name        string     `json:"name"`
+	Kind        string     `json:"kind"`
+	Nameservers []string   `json:"nameservers,omitempty"`
+	Masters     []string   `json:"masters,omitempty"`
+	DNSSEC      bool       `json:"dnssec,omitempty"`
+	HNS         bool       `json:"hns,omitempty"`
+	GlueIPv4    string     `json:"glue_ipv4,omitempty"`
+	GlueIPv6    string     `json:"glue_ipv6,omitempty"`
+	SOA         *SOAConfig `json:"soa,omitempty"`
+}
+
+type SOAConfig struct {
+	PrimaryNS  string `json:"primary_ns,omitempty"`
+	Hostmaster string `json:"hostmaster,omitempty"`
+	Serial     uint32 `json:"serial,omitempty"`
+	TTL        uint32 `json:"ttl,omitempty"`
+	Refresh    uint32 `json:"refresh,omitempty"`
+	Retry      uint32 `json:"retry,omitempty"`
+	Expire     uint32 `json:"expire,omitempty"`
+	Minimum    uint32 `json:"minimum,omitempty"`
+}
+
+type powerDNSCreateZoneRequest struct {
 	Name        string   `json:"name"`
 	Kind        string   `json:"kind"`
 	Nameservers []string `json:"nameservers,omitempty"`
 	Masters     []string `json:"masters,omitempty"`
 	DNSSEC      bool     `json:"dnssec,omitempty"`
+}
+
+type ValidationError struct {
+	Message string
+}
+
+func (e *ValidationError) Error() string {
+	return e.Message
+}
+
+func IsValidationError(err error) bool {
+	var validationError *ValidationError
+	return errors.As(err, &validationError)
 }
 
 type CacheFlushResult struct {
@@ -100,32 +184,243 @@ func (c *Client) Snapshot(ctx context.Context) Snapshot {
 func (c *Client) Zones(ctx context.Context, service string) ([]Zone, error) {
 	var zones []Zone
 	err := c.doJSON(ctx, service, http.MethodGet, c.serverPath(service, "/zones"), nil, &zones)
+	for index := range zones {
+		decorateZone(&zones[index])
+	}
 	return zones, err
 }
 
 func (c *Client) CreateAuthoritativeZone(ctx context.Context, request CreateZoneRequest) (Zone, error) {
-	request.Name = normalizeZoneName(request.Name)
-	if request.Name == "." || strings.TrimSpace(request.Name) == "" {
-		return Zone{}, fmt.Errorf("zone name is required")
+	if request.HNS {
+		request.Name = trimHNSSuffix(request.Name)
+	}
+	zoneName, err := normalizeZoneName(request.Name)
+	if err != nil {
+		return Zone{}, validationErrorf("invalid zone name: %v", err)
+	}
+	if zoneName == "." || strings.TrimSpace(zoneName) == "" {
+		return Zone{}, validationErrorf("zone name is required")
+	}
+	if request.HNS && strings.Contains(strings.TrimSuffix(zoneName, "."), ".") {
+		return Zone{}, validationErrorf("HNS zone must be a single top-level label")
 	}
 	if request.Kind == "" {
 		request.Kind = "Native"
 	}
+	nameservers := make([]string, 0, len(request.Nameservers)+1)
+	for index, nameserver := range request.Nameservers {
+		normalized, normalizeErr := normalizeZoneName(nameserver)
+		if normalizeErr != nil || normalized == "" || normalized == "." {
+			return Zone{}, validationErrorf("nameservers[%d] is invalid: %v", index, normalizeErr)
+		}
+		nameservers = append(nameservers, normalized)
+	}
+	if len(nameservers) == 0 && (request.HNS || request.SOA != nil) {
+		nameservers = append(nameservers, "ns1."+zoneName)
+	}
+	powerDNSRequest := powerDNSCreateZoneRequest{
+		Name:        zoneName,
+		Kind:        request.Kind,
+		Nameservers: nameservers,
+		Masters:     request.Masters,
+		DNSSEC:      request.DNSSEC,
+	}
+	var initialRRSets []RRSet
+	if request.HNS || request.SOA != nil || request.GlueIPv4 != "" || request.GlueIPv6 != "" {
+		initialRRSets, err = initialZoneRRSets(zoneName, nameservers, request)
+		if err != nil {
+			return Zone{}, err
+		}
+	}
 	var zone Zone
-	err := c.doJSON(ctx, "authoritative", http.MethodPost, c.serverPath("authoritative", "/zones"), request, &zone)
+	if err := c.doJSON(ctx, "authoritative", http.MethodPost, c.serverPath("authoritative", "/zones"), powerDNSRequest, &zone); err != nil {
+		return Zone{}, err
+	}
+	decorateZone(&zone)
+	if len(initialRRSets) == 0 {
+		return zone, nil
+	}
+	if err := c.PatchAuthoritativeZone(ctx, zoneName, PatchZoneRequest{RRSets: initialRRSets}); err != nil {
+		_ = c.deleteAuthoritativeZone(ctx, zoneName)
+		return Zone{}, fmt.Errorf("initialize authoritative zone %s: %w", zoneName, err)
+	}
+	return zone, nil
+}
+
+func (c *Client) AuthoritativeZone(ctx context.Context, zoneID string) (Zone, error) {
+	var err error
+	zoneID, err = normalizeZoneName(zoneID)
+	if err != nil {
+		return Zone{}, validationErrorf("invalid zone id: %v", err)
+	}
+	if zoneID == "." || strings.TrimSpace(zoneID) == "" {
+		return Zone{}, validationErrorf("zone id is required")
+	}
+	var zone Zone
+	err = c.doJSON(ctx, "authoritative", http.MethodGet, c.serverPath("authoritative", "/zones/"+url.PathEscape(zoneID)), nil, &zone)
+	decorateZone(&zone)
 	return zone, err
 }
 
-func (c *Client) DeleteAuthoritativeZone(ctx context.Context, zoneID string) error {
-	zoneID = strings.TrimSpace(zoneID)
-	if zoneID == "" {
-		return fmt.Errorf("zone id is required")
+func (c *Client) PatchAuthoritativeZone(ctx context.Context, zoneID string, request PatchZoneRequest) error {
+	var err error
+	zoneID, err = normalizeZoneName(zoneID)
+	if err != nil {
+		return validationErrorf("invalid zone id: %v", err)
 	}
-	return c.doJSON(ctx, "authoritative", http.MethodDelete, c.serverPath("authoritative", "/zones/"+url.PathEscape(zoneID)), nil, nil)
+	if zoneID == "." || strings.TrimSpace(zoneID) == "" {
+		return validationErrorf("zone id is required")
+	}
+	if len(request.RRSets) == 0 {
+		return validationErrorf("at least one rrset is required")
+	}
+	for index := range request.RRSets {
+		rrset := &request.RRSets[index]
+		rrset.Name, err = normalizeZoneName(rrset.Name)
+		if err != nil {
+			return validationErrorf("rrsets[%d].name is invalid: %v", index, err)
+		}
+		rrset.UnicodeName = ""
+		rrset.Type = strings.ToUpper(strings.TrimSpace(rrset.Type))
+		rrset.ChangeType = strings.ToUpper(strings.TrimSpace(rrset.ChangeType))
+		if rrset.Name == "." || rrset.Name == "" {
+			return validationErrorf("rrsets[%d].name is required", index)
+		}
+		if rrset.Name != zoneID && !strings.HasSuffix(rrset.Name, "."+zoneID) {
+			return validationErrorf("rrsets[%d].name must be inside zone %s", index, zoneID)
+		}
+		if !validRecordType(rrset.Type) {
+			return validationErrorf("rrsets[%d].type is invalid", index)
+		}
+		switch rrset.ChangeType {
+		case "REPLACE":
+			if rrset.TTL == 0 {
+				rrset.TTL = 300
+			}
+			if len(rrset.Records) == 0 {
+				return validationErrorf("rrsets[%d].records is required for REPLACE", index)
+			}
+			for recordIndex := range rrset.Records {
+				content, normalizeErr := normalizeRecordContent(rrset.Type, rrset.Records[recordIndex].Content)
+				if normalizeErr != nil {
+					return validationErrorf("rrsets[%d].records[%d].content is invalid: %v", index, recordIndex, normalizeErr)
+				}
+				rrset.Records[recordIndex].Content = content
+				if content == "" {
+					return validationErrorf("rrsets[%d].records[%d].content is required", index, recordIndex)
+				}
+			}
+		case "DELETE":
+			rrset.TTL = 0
+			rrset.Records = nil
+			rrset.Comments = nil
+		default:
+			return validationErrorf("rrsets[%d].changetype must be REPLACE or DELETE", index)
+		}
+	}
+	return c.doJSON(
+		ctx,
+		"authoritative",
+		http.MethodPatch,
+		c.serverPath("authoritative", "/zones/"+url.PathEscape(zoneID)),
+		request,
+		nil,
+	)
+}
+
+func (c *Client) AuthoritativeCryptoKeys(ctx context.Context, zoneID string) ([]CryptoKey, error) {
+	zoneID, err := requiredZoneID(zoneID)
+	if err != nil {
+		return nil, err
+	}
+	var keys []CryptoKey
+	err = c.doJSON(
+		ctx,
+		"authoritative",
+		http.MethodGet,
+		c.serverPath("authoritative", "/zones/"+url.PathEscape(zoneID)+"/cryptokeys"),
+		nil,
+		&keys,
+	)
+	return keys, err
+}
+
+func (c *Client) CreateAuthoritativeCryptoKey(ctx context.Context, zoneID string, request CreateCryptoKeyRequest) (CryptoKey, error) {
+	zoneID, err := requiredZoneID(zoneID)
+	if err != nil {
+		return CryptoKey{}, err
+	}
+	request.KeyType = strings.ToLower(strings.TrimSpace(request.KeyType))
+	if request.KeyType == "" {
+		request.KeyType = "csk"
+	}
+	switch request.KeyType {
+	case "csk", "ksk", "zsk":
+	default:
+		return CryptoKey{}, validationErrorf("keytype must be csk, ksk, or zsk")
+	}
+	if request.Algorithm != "" {
+		request.Algorithm = strings.ToUpper(strings.TrimSpace(request.Algorithm))
+	}
+	var key CryptoKey
+	err = c.doJSON(
+		ctx,
+		"authoritative",
+		http.MethodPost,
+		c.serverPath("authoritative", "/zones/"+url.PathEscape(zoneID)+"/cryptokeys"),
+		request,
+		&key,
+	)
+	return key, err
+}
+
+func (c *Client) DeleteAuthoritativeCryptoKey(ctx context.Context, zoneID string, keyID int) error {
+	zoneID, err := requiredZoneID(zoneID)
+	if err != nil {
+		return err
+	}
+	if keyID < 0 {
+		return validationErrorf("key id must not be negative")
+	}
+	return c.doJSON(
+		ctx,
+		"authoritative",
+		http.MethodDelete,
+		c.serverPath("authoritative", "/zones/"+url.PathEscape(zoneID)+"/cryptokeys/"+strconv.Itoa(keyID)),
+		nil,
+		nil,
+	)
+}
+
+func DeriveDS(zoneName, dnskeyContent string, digestType uint8) (string, error) {
+	zoneName, err := normalizeZoneName(zoneName)
+	if err != nil {
+		return "", validationErrorf("invalid zone name: %v", err)
+	}
+	value, err := dnsrr.DSFromDNSKEY(zoneName, dnskeyContent, digestType)
+	if err != nil {
+		return "", validationErrorf("derive DS: %v", err)
+	}
+	return value, nil
+}
+
+func (c *Client) DeleteAuthoritativeZone(ctx context.Context, zoneID string) error {
+	normalized, err := normalizeZoneName(zoneID)
+	if err != nil {
+		return validationErrorf("invalid zone id: %v", err)
+	}
+	if normalized == "" || normalized == "." {
+		return validationErrorf("zone id is required")
+	}
+	return c.deleteAuthoritativeZone(ctx, normalized)
 }
 
 func (c *Client) FlushRecursorCache(ctx context.Context, domain string, subtree bool) (CacheFlushResult, error) {
-	domain = normalizeZoneName(domain)
+	var err error
+	domain, err = normalizeZoneName(domain)
+	if err != nil {
+		return CacheFlushResult{}, validationErrorf("invalid cache domain: %v", err)
+	}
 	if domain == "." {
 		domain = ""
 	}
@@ -133,7 +428,7 @@ func (c *Client) FlushRecursorCache(ctx context.Context, domain string, subtree 
 	values.Set("domain", domain)
 	values.Set("subtree", strconv.FormatBool(subtree))
 	var result CacheFlushResult
-	err := c.doJSON(ctx, "recursor", http.MethodPut, c.serverPath("recursor", "/cache/flush")+"?"+values.Encode(), nil, &result)
+	err = c.doJSON(ctx, "recursor", http.MethodPut, c.serverPath("recursor", "/cache/flush")+"?"+values.Encode(), nil, &result)
 	return result, err
 }
 
@@ -241,10 +536,231 @@ func (c *Client) doJSON(ctx context.Context, service, method, path string, input
 	return nil
 }
 
-func normalizeZoneName(name string) string {
-	name = strings.TrimSpace(name)
-	if name == "" || name == "." {
-		return name
+func normalizeZoneName(name string) (string, error) {
+	return dnsname.ToASCII(name)
+}
+
+func trimHNSSuffix(name string) string {
+	name = strings.TrimSuffix(strings.TrimSpace(name), ".")
+	lower := strings.ToLower(name)
+	for _, suffix := range []string{".hns", ".hsd"} {
+		if strings.HasSuffix(lower, suffix) {
+			return name[:len(name)-len(suffix)]
+		}
 	}
-	return strings.TrimSuffix(name, ".") + "."
+	return name
+}
+
+func initialZoneRRSets(zoneName string, nameservers []string, request CreateZoneRequest) ([]RRSet, error) {
+	if len(nameservers) == 0 {
+		return nil, validationErrorf("at least one nameserver is required to initialize SOA")
+	}
+	config := SOAConfig{}
+	if request.SOA != nil {
+		config = *request.SOA
+	}
+	primaryNS := nameservers[0]
+	if strings.TrimSpace(config.PrimaryNS) != "" {
+		var err error
+		primaryNS, err = normalizeZoneName(config.PrimaryNS)
+		if err != nil {
+			return nil, validationErrorf("soa.primary_ns is invalid: %v", err)
+		}
+	}
+	hostmaster := "hostmaster." + zoneName
+	if strings.TrimSpace(config.Hostmaster) != "" {
+		var err error
+		hostmaster, err = normalizeZoneName(config.Hostmaster)
+		if err != nil {
+			return nil, validationErrorf("soa.hostmaster is invalid: %v", err)
+		}
+	}
+	serial := config.Serial
+	if serial == 0 {
+		serialValue, _ := strconv.ParseUint(time.Now().UTC().Format("20060102")+"01", 10, 32)
+		serial = uint32(serialValue)
+	}
+	ttl := defaultUint32(config.TTL, 300)
+	refresh := defaultUint32(config.Refresh, 3600)
+	retry := defaultUint32(config.Retry, 600)
+	expire := defaultUint32(config.Expire, 86400)
+	minimum := defaultUint32(config.Minimum, 300)
+
+	nsRecords := make([]Record, 0, len(nameservers))
+	for _, nameserver := range nameservers {
+		nsRecords = append(nsRecords, Record{Content: nameserver})
+	}
+	rrsets := []RRSet{
+		{
+			Name:       zoneName,
+			Type:       "SOA",
+			TTL:        ttl,
+			ChangeType: "REPLACE",
+			Records: []Record{{
+				Content: fmt.Sprintf("%s %s %d %d %d %d %d", primaryNS, hostmaster, serial, refresh, retry, expire, minimum),
+			}},
+		},
+		{
+			Name:       zoneName,
+			Type:       "NS",
+			TTL:        ttl,
+			ChangeType: "REPLACE",
+			Records:    nsRecords,
+		},
+	}
+	if strings.TrimSpace(request.GlueIPv4) != "" {
+		if ip := net.ParseIP(strings.TrimSpace(request.GlueIPv4)); ip == nil || ip.To4() == nil {
+			return nil, validationErrorf("glue_ipv4 must be a valid IPv4 address")
+		}
+		if !nameInsideZone(primaryNS, zoneName) {
+			return nil, validationErrorf("glue_ipv4 requires primary nameserver %s to be inside zone %s", primaryNS, zoneName)
+		}
+		rrsets = append(rrsets, RRSet{
+			Name:       primaryNS,
+			Type:       "A",
+			TTL:        ttl,
+			ChangeType: "REPLACE",
+			Records:    []Record{{Content: strings.TrimSpace(request.GlueIPv4)}},
+		})
+	}
+	if strings.TrimSpace(request.GlueIPv6) != "" {
+		if ip := net.ParseIP(strings.TrimSpace(request.GlueIPv6)); ip == nil || ip.To4() != nil {
+			return nil, validationErrorf("glue_ipv6 must be a valid IPv6 address")
+		}
+		if !nameInsideZone(primaryNS, zoneName) {
+			return nil, validationErrorf("glue_ipv6 requires primary nameserver %s to be inside zone %s", primaryNS, zoneName)
+		}
+		rrsets = append(rrsets, RRSet{
+			Name:       primaryNS,
+			Type:       "AAAA",
+			TTL:        ttl,
+			ChangeType: "REPLACE",
+			Records:    []Record{{Content: strings.TrimSpace(request.GlueIPv6)}},
+		})
+	}
+	return rrsets, nil
+}
+
+func normalizeRecordContent(recordType, content string) (string, error) {
+	content = strings.TrimSpace(content)
+	if content == "" {
+		return "", nil
+	}
+	fields := strings.Fields(content)
+	normalizeField := func(index int) error {
+		if index >= len(fields) || fields[index] == "." {
+			return nil
+		}
+		normalized, err := normalizeZoneName(fields[index])
+		if err != nil {
+			return err
+		}
+		fields[index] = normalized
+		return nil
+	}
+	switch recordType {
+	case "CNAME", "DNAME", "NS", "PTR":
+		if len(fields) != 1 {
+			return "", fmt.Errorf("%s record requires one DNS name", recordType)
+		}
+		if err := normalizeField(0); err != nil {
+			return "", err
+		}
+	case "MX":
+		if len(fields) != 2 {
+			return "", fmt.Errorf("MX record requires priority and target")
+		}
+		if err := normalizeField(1); err != nil {
+			return "", err
+		}
+	case "SRV":
+		if len(fields) != 4 {
+			return "", fmt.Errorf("SRV record requires priority, weight, port, and target")
+		}
+		if err := normalizeField(3); err != nil {
+			return "", err
+		}
+	case "SOA":
+		if len(fields) != 7 {
+			return "", fmt.Errorf("SOA record requires seven fields")
+		}
+		if err := normalizeField(0); err != nil {
+			return "", err
+		}
+		if err := normalizeField(1); err != nil {
+			return "", err
+		}
+	case "SVCB", "HTTPS":
+		if len(fields) < 2 {
+			return "", fmt.Errorf("%s record requires priority and target", recordType)
+		}
+		if err := normalizeField(1); err != nil {
+			return "", err
+		}
+	}
+	content = strings.Join(fields, " ")
+	if dnsrr.ManagedType(recordType) {
+		normalized, err := dnsrr.Normalize("_validation.invalid.", recordType, content)
+		if err != nil {
+			return "", err
+		}
+		return normalized, nil
+	}
+	return content, nil
+}
+
+func decorateZone(zone *Zone) {
+	if zone == nil {
+		return
+	}
+	zone.UnicodeName = dnsname.ToUnicode(zone.Name)
+	for index := range zone.RRSets {
+		zone.RRSets[index].UnicodeName = dnsname.ToUnicode(zone.RRSets[index].Name)
+	}
+}
+
+func (c *Client) deleteAuthoritativeZone(ctx context.Context, zoneID string) error {
+	return c.doJSON(ctx, "authoritative", http.MethodDelete, c.serverPath("authoritative", "/zones/"+url.PathEscape(zoneID)), nil, nil)
+}
+
+func nameInsideZone(name, zoneName string) bool {
+	return name == zoneName || strings.HasSuffix(name, "."+zoneName)
+}
+
+func defaultUint32(value, fallback uint32) uint32 {
+	if value == 0 {
+		return fallback
+	}
+	return value
+}
+
+func validationErrorf(format string, args ...any) error {
+	return &ValidationError{Message: fmt.Sprintf(format, args...)}
+}
+
+func requiredZoneID(zoneID string) (string, error) {
+	normalized, err := normalizeZoneName(zoneID)
+	if err != nil {
+		return "", validationErrorf("invalid zone id: %v", err)
+	}
+	if normalized == "" || normalized == "." {
+		return "", validationErrorf("zone id is required")
+	}
+	return normalized, nil
+}
+
+func validRecordType(value string) bool {
+	if value == "" {
+		return false
+	}
+	for index, character := range value {
+		if character >= 'A' && character <= 'Z' {
+			continue
+		}
+		if index > 0 && character >= '0' && character <= '9' {
+			continue
+		}
+		return false
+	}
+	return true
 }

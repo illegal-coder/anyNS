@@ -496,6 +496,10 @@ func ensRecordsForQType(ctx context.Context, client *http.Client, backendURL, ap
 }
 
 func ethCall(ctx context.Context, client *http.Client, backendURL, apiKey string, timeout time.Duration, to, data string) (string, error) {
+	return ethCallDepth(ctx, client, backendURL, apiKey, timeout, to, data, 0)
+}
+
+func ethCallDepth(ctx context.Context, client *http.Client, backendURL, apiKey string, timeout time.Duration, to, data string, depth int) (string, error) {
 	body, err := json.Marshal(map[string]any{
 		"jsonrpc": "2.0",
 		"id":      "anyns-ens-json-rpc",
@@ -530,14 +534,18 @@ func ethCall(ctx context.Context, client *http.Client, backendURL, apiKey string
 	var rpcResp struct {
 		Result string `json:"result"`
 		Error  *struct {
-			Code    int    `json:"code"`
-			Message string `json:"message"`
+			Code    int             `json:"code"`
+			Message string          `json:"message"`
+			Data    json.RawMessage `json:"data"`
 		} `json:"error"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&rpcResp); err != nil {
 		return "", err
 	}
 	if rpcResp.Error != nil {
+		if strings.HasPrefix(strings.ToLower(strings.TrimPrefix(extractRPCErrorData(rpcResp.Error.Data), "0x")), offchainLookupSelector) {
+			return ccipRead(ctx, client, backendURL, apiKey, timeout, to, rpcResp.Error.Data, depth)
+		}
 		return "", fmt.Errorf("ens json-rpc error %d: %s", rpcResp.Error.Code, rpcResp.Error.Message)
 	}
 	return rpcResp.Result, nil

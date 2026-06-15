@@ -753,6 +753,30 @@ func TestValidateRequiresRuntimeControlURLWhenProxying(t *testing.T) {
 	}
 }
 
+func TestValidateCertificateIssuanceConfiguration(t *testing.T) {
+	cfg := Default()
+	cfg.Certificates.Enabled = true
+	cfg.Certificates.AccountEmail = ""
+	cfg.Certificates.AcceptTOS = false
+	cfg.PowerDNS.AuthoritativeURL = ""
+	err := cfg.Validate()
+	if err == nil {
+		t.Fatal("expected certificate configuration validation error")
+	}
+	for _, want := range []string{"account_email", "accept_tos", "powerdns.authoritative_url"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Fatalf("validation error %q missing %q", err, want)
+		}
+	}
+
+	cfg.Certificates.AccountEmail = "ops@example.test"
+	cfg.Certificates.AcceptTOS = true
+	cfg.PowerDNS.AuthoritativeURL = "http://pdns-authoritative:8081"
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("valid certificate configuration: %v", err)
+	}
+}
+
 func stringSliceContains(values []string, want string) bool {
 	for _, value := range values {
 		if value == want {

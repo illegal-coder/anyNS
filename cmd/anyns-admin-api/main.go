@@ -5,10 +5,12 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
 
+	"github.com/anyns/anyns/internal/adminapi"
 	"github.com/anyns/anyns/internal/app"
 	"github.com/anyns/anyns/internal/config"
 	"github.com/anyns/anyns/internal/controlplane"
@@ -59,6 +61,7 @@ func newAdminMux(application *app.App, cfg config.Config) *http.ServeMux {
 		})
 	})
 	controlplane.RegisterHandlers(mux, application, &cfg, controlplane.ScopeAdmin)
+	adminapi.Register(mux, application, &cfg)
 	mux.HandleFunc("/api/v1/policies/reload", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			httpapi.Error(w, http.StatusMethodNotAllowed, "method not allowed")
@@ -179,7 +182,39 @@ func newAdminMux(application *app.App, cfg config.Config) *http.ServeMux {
 		})
 		httpapi.WriteJSON(w, http.StatusOK, result)
 	})
+	registerAdminUI(mux, os.Getenv("ANYNS_ADMIN_UI_DIR"))
 	return mux
+}
+
+func registerAdminUI(mux *http.ServeMux, directory string) {
+	directory = strings.TrimSpace(directory)
+	if directory == "" {
+		return
+	}
+	indexPath := filepath.Join(directory, "index.html")
+	if info, err := os.Stat(indexPath); err != nil || info.IsDir() {
+		return
+	}
+	files := http.FileServer(http.Dir(directory))
+	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet && r.Method != http.MethodHead {
+			httpapi.Error(w, http.StatusMethodNotAllowed, "method not allowed")
+			return
+		}
+		clean := filepath.Clean(strings.TrimPrefix(r.URL.Path, "/"))
+		if clean == ".." || strings.HasPrefix(clean, ".."+string(filepath.Separator)) {
+			http.NotFound(w, r)
+			return
+		}
+		if clean != "." {
+			if info, err := os.Stat(filepath.Join(directory, clean)); err == nil && !info.IsDir() {
+				files.ServeHTTP(w, r)
+				return
+			}
+		}
+		w.Header().Set("Cache-Control", "no-cache")
+		http.ServeFile(w, r, indexPath)
+	})
 }
 
 func queryInt(r *http.Request, name string, fallback int) int {

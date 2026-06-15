@@ -92,3 +92,265 @@ func TestCreateDeleteZoneAndFlushCache(t *testing.T) {
 		t.Fatalf("flush result=%#v err=%v", result, err)
 	}
 }
+
+func TestCreateUnicodeHNSZoneInitializesSOAAndGlue(t *testing.T) {
+	var created powerDNSCreateZoneRequest
+	var patched PatchZoneRequest
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case http.MethodPost:
+			if err := json.NewDecoder(r.Body).Decode(&created); err != nil {
+				t.Fatalf("decode create zone: %v", err)
+			}
+			_ = json.NewEncoder(w).Encode(Zone{ID: created.Name, Name: created.Name, Kind: created.Kind})
+		case http.MethodPatch:
+			if err := json.NewDecoder(r.Body).Decode(&patched); err != nil {
+				t.Fatalf("decode patch zone: %v", err)
+			}
+			w.WriteHeader(http.StatusNoContent)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	cfg := config.Default().PowerDNS
+	cfg.AuthoritativeURL = server.URL
+	client := NewWithHTTPClient(cfg, server.Client())
+	zone, err := client.CreateAuthoritativeZone(context.Background(), CreateZoneRequest{
+		Name:     "灵.hns",
+		HNS:      true,
+		GlueIPv4: "192.0.2.53",
+		SOA: &SOAConfig{
+			TTL:     600,
+			Refresh: 7200,
+		},
+	})
+	if err != nil {
+		t.Fatalf("create Unicode HNS zone: %v", err)
+	}
+	if created.Name != "xn--5nx." || len(created.Nameservers) != 1 || created.Nameservers[0] != "ns1.xn--5nx." {
+		t.Fatalf("created=%#v", created)
+	}
+	if zone.UnicodeName != "灵." {
+		t.Fatalf("zone=%#v", zone)
+	}
+	if len(patched.RRSets) != 3 {
+		t.Fatalf("patched=%#v", patched)
+	}
+	rrsets := map[string]RRSet{}
+	for _, rrset := range patched.RRSets {
+		rrsets[rrset.Type] = rrset
+	}
+	if rrsets["SOA"].TTL != 600 ||
+		!strings.HasPrefix(rrsets["SOA"].Records[0].Content, "ns1.xn--5nx. hostmaster.xn--5nx.") ||
+		!strings.Contains(rrsets["SOA"].Records[0].Content, " 7200 600 86400 300") {
+		t.Fatalf("SOA=%#v", rrsets["SOA"])
+	}
+	if rrsets["NS"].Records[0].Content != "ns1.xn--5nx." {
+		t.Fatalf("NS=%#v", rrsets["NS"])
+	}
+	if rrsets["A"].Name != "ns1.xn--5nx." || rrsets["A"].Records[0].Content != "192.0.2.53" {
+		t.Fatalf("A=%#v", rrsets["A"])
+	}
+}
+
+func TestReadAndPatchAuthoritativeZone(t *testing.T) {
+	var patched PatchZoneRequest
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case http.MethodGet:
+			_ = json.NewEncoder(w).Encode(Zone{
+				ID:   "example.",
+				Name: "example.",
+				RRSets: []RRSet{{
+					Name: "www.example.",
+					Type: "A",
+					TTL:  300,
+					Records: []Record{{
+						Content: "192.0.2.10",
+					}},
+				}},
+			})
+		case http.MethodPatch:
+			if err := json.NewDecoder(r.Body).Decode(&patched); err != nil {
+				t.Fatalf("decode patch: %v", err)
+			}
+			w.WriteHeader(http.StatusNoContent)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	cfg := config.Default().PowerDNS
+	cfg.AuthoritativeURL = server.URL
+	client := NewWithHTTPClient(cfg, server.Client())
+
+	zone, err := client.AuthoritativeZone(context.Background(), "example")
+	if err != nil || len(zone.RRSets) != 1 {
+		t.Fatalf("zone=%#v err=%v", zone, err)
+	}
+	err = client.PatchAuthoritativeZone(context.Background(), "example", PatchZoneRequest{
+		RRSets: []RRSet{{
+			Name:       "www.example",
+			Type:       "a",
+			ChangeType: "replace",
+			Records:    []Record{{Content: " 192.0.2.20 "}},
+		}},
+	})
+	if err != nil {
+		t.Fatalf("patch zone: %v", err)
+	}
+	if patched.RRSets[0].Name != "www.example." ||
+		patched.RRSets[0].Type != "A" ||
+		patched.RRSets[0].ChangeType != "REPLACE" ||
+		patched.RRSets[0].TTL != 300 ||
+		patched.RRSets[0].Records[0].Content != "192.0.2.20" {
+		t.Fatalf("patched=%#v", patched)
+	}
+}
+
+func TestPatchAuthoritativeZoneNormalizesUnicodeOwnerAndTarget(t *testing.T) {
+	var patched PatchZoneRequest
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if err := json.NewDecoder(r.Body).Decode(&patched); err != nil {
+			t.Fatalf("decode patch: %v", err)
+		}
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer server.Close()
+
+	cfg := config.Default().PowerDNS
+	cfg.AuthoritativeURL = server.URL
+	client := NewWithHTTPClient(cfg, server.Client())
+	err := client.PatchAuthoritativeZone(context.Background(), "灵", PatchZoneRequest{
+		RRSets: []RRSet{{
+			Name:       "钱包.灵",
+			Type:       "CNAME",
+			ChangeType: "REPLACE",
+			Records:    []Record{{Content: "目标.灵"}},
+		}},
+	})
+	if err != nil {
+		t.Fatalf("patch Unicode zone: %v", err)
+	}
+	if patched.RRSets[0].Name != "xn--uir314m.xn--5nx." ||
+		patched.RRSets[0].Records[0].Content != "xn--iwvq54a.xn--5nx." {
+		t.Fatalf("patched=%#v", patched)
+	}
+}
+
+func TestPatchAuthoritativeZoneRejectsOutOfZoneRecords(t *testing.T) {
+	cfg := config.Default().PowerDNS
+	cfg.AuthoritativeURL = "http://powerdns.invalid"
+	client := New(cfg)
+	err := client.PatchAuthoritativeZone(context.Background(), "example", PatchZoneRequest{
+		RRSets: []RRSet{{
+			Name:       "outside.test",
+			Type:       "A",
+			ChangeType: "REPLACE",
+			Records:    []Record{{Content: "192.0.2.20"}},
+		}},
+	})
+	if err == nil || !strings.Contains(err.Error(), "inside zone") {
+		t.Fatalf("err=%v", err)
+	}
+}
+
+func TestCreateHNSZoneRejectsMultipleLabels(t *testing.T) {
+	cfg := config.Default().PowerDNS
+	cfg.AuthoritativeURL = "http://powerdns.invalid"
+	client := New(cfg)
+	_, err := client.CreateAuthoritativeZone(context.Background(), CreateZoneRequest{Name: "www.灵", HNS: true})
+	if err == nil || !IsValidationError(err) || !strings.Contains(err.Error(), "single top-level label") {
+		t.Fatalf("err=%v", err)
+	}
+}
+
+func TestPatchAuthoritativeZoneValidatesDNSSECDANEAndCAARecords(t *testing.T) {
+	var patched PatchZoneRequest
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if err := json.NewDecoder(r.Body).Decode(&patched); err != nil {
+			t.Fatal(err)
+		}
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer server.Close()
+	cfg := config.Default().PowerDNS
+	cfg.AuthoritativeURL = server.URL
+	client := NewWithHTTPClient(cfg, server.Client())
+	err := client.PatchAuthoritativeZone(context.Background(), "example.", PatchZoneRequest{RRSets: []RRSet{
+		{Name: "example.", Type: "DS", ChangeType: "REPLACE", Records: []Record{{Content: "12345 13 2 " + strings.Repeat("ab", 32)}}},
+		{Name: "example.", Type: "DNSKEY", ChangeType: "REPLACE", Records: []Record{{Content: "257 3 13 AQIDBA=="}}},
+		{Name: "_443._tcp.example.", Type: "TLSA", ChangeType: "REPLACE", Records: []Record{{Content: "3 1 1 " + strings.Repeat("cd", 32)}}},
+		{Name: "example.", Type: "CAA", ChangeType: "REPLACE", Records: []Record{{Content: `0 ISSUE "letsencrypt.org"`}}},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if patched.RRSets[0].Records[0].Content != "12345 13 2 "+strings.Repeat("AB", 32) {
+		t.Fatalf("DS=%q", patched.RRSets[0].Records[0].Content)
+	}
+	if patched.RRSets[3].Records[0].Content != `0 issue "letsencrypt.org"` {
+		t.Fatalf("CAA=%q", patched.RRSets[3].Records[0].Content)
+	}
+
+	err = client.PatchAuthoritativeZone(context.Background(), "example.", PatchZoneRequest{RRSets: []RRSet{{
+		Name: "_443._tcp.example.", Type: "TLSA", ChangeType: "REPLACE",
+		Records: []Record{{Content: "3 1 1 ABCD"}},
+	}}})
+	if err == nil || !IsValidationError(err) {
+		t.Fatalf("malformed TLSA err=%v", err)
+	}
+}
+
+func TestAuthoritativeCryptoKeyLifecycle(t *testing.T) {
+	var created CreateCryptoKeyRequest
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case http.MethodGet:
+			_ = json.NewEncoder(w).Encode([]CryptoKey{{ID: 7, KeyType: "csk", Active: true, Published: true, DS: []string{"12345 13 2 ABCD"}}})
+		case http.MethodPost:
+			if err := json.NewDecoder(r.Body).Decode(&created); err != nil {
+				t.Fatal(err)
+			}
+			_ = json.NewEncoder(w).Encode(CryptoKey{ID: 8, KeyType: created.KeyType, Active: created.Active, Published: created.Published})
+		case http.MethodDelete:
+			if !strings.HasSuffix(r.URL.Path, "/cryptokeys/8") {
+				t.Fatalf("delete path=%s", r.URL.Path)
+			}
+			w.WriteHeader(http.StatusNoContent)
+		}
+	}))
+	defer server.Close()
+	cfg := config.Default().PowerDNS
+	cfg.AuthoritativeURL = server.URL
+	client := NewWithHTTPClient(cfg, server.Client())
+	keys, err := client.AuthoritativeCryptoKeys(context.Background(), "example")
+	if err != nil || len(keys) != 1 || keys[0].ID != 7 {
+		t.Fatalf("keys=%+v err=%v", keys, err)
+	}
+	key, err := client.CreateAuthoritativeCryptoKey(context.Background(), "example", CreateCryptoKeyRequest{Active: true, Published: true})
+	if err != nil || key.ID != 8 || created.KeyType != "csk" {
+		t.Fatalf("key=%+v request=%+v err=%v", key, created, err)
+	}
+	if err := client.DeleteAuthoritativeCryptoKey(context.Background(), "example", 8); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestDeriveDSFromDNSKEY(t *testing.T) {
+	ds, err := DeriveDS(
+		"example.",
+		"257 3 13 m5OSnKq7UTi6UjJ6pZcE2P1pHW0RrQ5P4P6xQmJ3Y7n8jP1wM2xL6Wf4dYt5Yq5xVhQm1qgA2v8Qm3pP7Q==",
+		2,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fields := strings.Fields(ds)
+	if len(fields) != 4 || fields[2] != "2" || len(fields[3]) != 64 {
+		t.Fatalf("DS=%q", ds)
+	}
+}

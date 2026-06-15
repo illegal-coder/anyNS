@@ -154,9 +154,14 @@ func TestDNSBackendQNameTranslation(t *testing.T) {
 		"www.example.hns.": "www.example.",
 		"example.hsd":      "example.",
 		"example":          "example.",
+		"灵.hns":            "xn--5nx.",
 	}
 	for input, want := range tests {
-		if got := hnsDNSBackendQName(input); got != want {
+		got, err := hnsDNSBackendQName(input)
+		if err != nil {
+			t.Fatalf("hnsDNSBackendQName(%q): %v", input, err)
+		}
+		if got != want {
 			t.Fatalf("hnsDNSBackendQName(%q) = %q, want %q", input, got, want)
 		}
 	}
@@ -253,6 +258,17 @@ func TestParseDNSResponseMapsNXDomain(t *testing.T) {
 	}
 	if result.AuditMetadata["reason"] != "dns_backend_nxdomain" {
 		t.Fatalf("audit = %#v", result.AuditMetadata)
+	}
+}
+
+func TestFormatRDATAFormatsDNSKEYAndTLSA(t *testing.T) {
+	dnskey, ok := formatRDATA(nil, 0, []byte{0x01, 0x01, 0x03, 0x0d, 0x01, 0x02, 0x03}, 48)
+	if !ok || dnskey != "257 3 13 AQID" {
+		t.Fatalf("DNSKEY=%q ok=%v", dnskey, ok)
+	}
+	tlsa, ok := formatRDATA(nil, 0, append([]byte{3, 1, 1}, make([]byte, 32)...), 52)
+	if !ok || tlsa != "3 1 1 "+strings.Repeat("00", 32) {
+		t.Fatalf("TLSA=%q ok=%v", tlsa, ok)
 	}
 }
 

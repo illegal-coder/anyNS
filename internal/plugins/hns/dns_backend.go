@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/rand"
+	"encoding/base64"
 	"encoding/binary"
 	"encoding/hex"
 	"errors"
@@ -14,6 +15,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/anyns/anyns/internal/dnsname"
 	"github.com/anyns/anyns/internal/plugins"
 )
 
@@ -31,6 +33,7 @@ var qtypeToCode = map[string]uint16{
 	"AAAA":    28,
 	"SRV":     33,
 	"DS":      43,
+	"DNSKEY":  48,
 	"TLSA":    52,
 	"CAA":     257,
 	"SVCB":    64,
@@ -50,6 +53,7 @@ var codeToType = map[uint16]string{
 	28:  "AAAA",
 	33:  "SRV",
 	43:  "DS",
+	48:  "DNSKEY",
 	52:  "TLSA",
 	64:  "SVCB",
 	65:  "HTTPS",
@@ -73,7 +77,10 @@ func (p *Plugin) resolveDNSBackend(ctx context.Context, req plugins.ResolveReque
 	callCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	originalName := plugins.NormalizeQName(req.QName)
-	queryName := hnsDNSBackendQName(originalName)
+	queryName, err := hnsDNSBackendQName(originalName)
+	if err != nil {
+		return serviceFailure("dns_query_name_invalid", started), err
+	}
 	packet, id, err := buildDNSQuery(queryName, qcode)
 	if err != nil {
 		return serviceFailure("dns_query_build_failed", started), err
@@ -109,14 +116,15 @@ func (p *Plugin) resolveDNSBackend(ctx context.Context, req plugins.ResolveReque
 	return result, nil
 }
 
-func hnsDNSBackendQName(qname string) string {
+func hnsDNSBackendQName(qname string) (string, error) {
 	normalized := plugins.NormalizeQName(qname)
 	for _, suffix := range []string{".hns.", ".hsd."} {
 		if strings.HasSuffix(normalized, suffix) && len(normalized) > len(suffix) {
-			return strings.TrimSuffix(normalized, suffix) + "."
+			normalized = strings.TrimSuffix(normalized, suffix) + "."
+			break
 		}
 	}
-	return normalized
+	return dnsname.ToASCII(normalized)
 }
 
 func restoreHNSDNSAnswerName(answerName, backendQName, originalQName string) string {
@@ -279,7 +287,11 @@ func randomDNSID() (uint16, error) {
 }
 
 func writeDNSName(buf *bytes.Buffer, qname string) error {
-	qname = strings.TrimSuffix(plugins.NormalizeQName(qname), ".")
+	asciiName, err := dnsname.ToASCII(qname)
+	if err != nil {
+		return err
+	}
+	qname = strings.TrimSuffix(asciiName, ".")
 	if qname == "" {
 		buf.WriteByte(0)
 		return nil
@@ -431,6 +443,16 @@ func formatRDATA(packet []byte, offset int, rdata []byte, typ uint16) (string, b
 			return "", false
 		}
 		return fmt.Sprintf("%d %d %d %s", binary.BigEndian.Uint16(rdata[0:2]), rdata[2], rdata[3], strings.ToUpper(hex.EncodeToString(rdata[4:]))), true
+	case 48:
+		if len(rdata) < 4 {
+			return "", false
+		}
+		return fmt.Sprintf("%d %d %d %s", binary.BigEndian.Uint16(rdata[0:2]), rdata[2], rdata[3], base64.StdEncoding.EncodeToString(rdata[4:])), true
+	case 52:
+		if len(rdata) < 3 {
+			return "", false
+		}
+		return fmt.Sprintf("%d %d %d %s", rdata[0], rdata[1], rdata[2], strings.ToUpper(hex.EncodeToString(rdata[3:]))), true
 	case 257:
 		if len(rdata) < 2 {
 			return "", false
