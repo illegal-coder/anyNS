@@ -5,5 +5,6 @@ $TTL 300
 ns1 IN A 127.0.0.1
 www IN A 192.0.2.53
 svc IN HTTPS 1 . alpn="h2,h3" ipv4hint=192.0.2.53
-svc IN SVCB 1 svc.anyns.test. alpn="dot"
+svc IN SVCB 1 svcb-target.anyns.test. alpn="dot"
+svcb-target IN A 192.0.2.53
 wallet IN TYPE262 \# 47 036574682A307830303030303030303030303030303030303030303030303030303030303030303030303030303030

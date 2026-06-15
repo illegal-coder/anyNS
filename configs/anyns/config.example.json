@@ -422,11 +422,11 @@
     "roles": [
       {
         "id": "ops-reader",
-        "scopes": ["plugins:read", "cache:read", "audit:read", "honeypot:read", "management:read", "powerdns:read", "certificates:read"]
+        "scopes": ["plugins:read", "cache:read", "audit:read", "honeypot:read", "management:read", "powerdns:read", "config:read", "certificates:read"]
       },
       {
         "id": "ops-writer",
-        "scopes": ["plugins:write", "cache:write", "policy:write", "honeypot:write", "management:read", "powerdns:write", "certificates:write"]
+        "scopes": ["plugins:write", "cache:write", "policy:write", "honeypot:write", "management:read", "powerdns:write", "config:write", "certificates:write"]
       }
     ],
     "keys": [
