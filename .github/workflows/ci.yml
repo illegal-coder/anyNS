@@ -82,6 +82,7 @@ jobs:
           PDNS_AUTH_WEBSERVER_PASSWORD: ci-model-only
           PDNS_RECURSOR_API_KEY: ci-model-only
         run: |
+          cp .env.example .env
           docker compose --env-file .env.example config --quiet
           docker compose -f docker-compose.gpgsql.yml config --quiet
           docker compose -f tests/docker/compose.dns-integration.yml config --quiet
