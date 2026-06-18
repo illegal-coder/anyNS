@@ -64,7 +64,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: anyns-admin-web
-          path: web/admin/dist/
+          path: internal/adminui/dist/
           if-no-files-found: error
 
   configuration:
@@ -82,7 +82,7 @@ jobs:
           PDNS_AUTH_WEBSERVER_PASSWORD: ci-model-only
           PDNS_RECURSOR_API_KEY: ci-model-only
         run: |
-          docker compose config --quiet
+          docker compose --env-file .env.example config --quiet
           docker compose -f docker-compose.gpgsql.yml config --quiet
           docker compose -f tests/docker/compose.dns-integration.yml config --quiet
           docker compose -f tests/docker/compose.decentralized-certificates.yml config --quiet

@@ -147,6 +147,7 @@ func TestManagerRejectsIdempotencyReplayWithDifferentDomains(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(manager.Close)
 	if _, _, err := manager.Start(IssueRequest{Domains: []string{"example.test"}, IdempotencyKey: "same"}); err != nil {
 		t.Fatal(err)
 	}
