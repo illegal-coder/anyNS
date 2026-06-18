@@ -2,6 +2,19 @@
 
 日期：2026-06-12
 
+## 2026-06-18 优先级调整
+
+- [x] 将 SOA、单标签 HNS 顶级权威区、NS/glue 和 serial 正确性提升为 P0。
+- [x] 将证书清单、ACME、私有根 CA 与叶证书签发提升为 P0，并明确公开信任与私有信任边界。
+- [x] 采用 clean-room 方式重写 certy 类功能，不复制 `eskimo/certy` 源码或 PKI.js。
+- [x] 将 Cloudflare 风格的 Zone/DNS/SOA/DNSSEC/SSL-TLS 工作流列为 P1。
+- [x] 增加 GitHub Actions 快速门禁规划，覆盖 Go、前端、shell 与 Compose model。
+- [ ] 完成 SOA/TLD 全链路测试矩阵。
+- [ ] 完成 private-ca 根证书生命周期、叶证书签发和安全测试。
+- [ ] 完成 DNS/SSL 控制面组件拆分和浏览器验收。
+
+详细执行顺序见 `docs/10-当前高优先级路线.md`。
+
 本文件以 `docs/00-项目需求书.md`、`docs/06-开发路线与验收.md` 为最早计划基线。百分比为工程验收覆盖度估算，不代表工期。
 
 ## 当前任务完成度

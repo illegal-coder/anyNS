@@ -1,0 +1,90 @@
+name: CI
+
+on:
+  push:
+    branches: ["main", "feature/**"]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  go:
+    name: Go test, vet, and build
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Test
+        run: go test -buildvcs=false ./...
+      - name: Vet
+        run: go vet -buildvcs=false ./...
+      - name: Build Linux binaries
+        env:
+          CGO_ENABLED: "0"
+        run: |
+          mkdir -p artifacts
+          go build -buildvcs=false -trimpath -o artifacts/anyns-admin-api ./cmd/anyns-admin-api
+          go build -buildvcs=false -trimpath -o artifacts/anyns-plugin-runtime ./cmd/anyns-plugin-runtime
+          go build -buildvcs=false -trimpath -o artifacts/anyns-log-forwarder ./cmd/anyns-log-forwarder
+          go build -buildvcs=false -trimpath -o artifacts/anyns-config-check ./cmd/anyns-config-check
+          go build -buildvcs=false -trimpath -o artifacts/anyns-management-key ./cmd/anyns-management-key
+      - uses: actions/upload-artifact@v4
+        with:
+          name: anyns-linux-amd64
+          path: artifacts/
+          if-no-files-found: error
+
+  frontend:
+    name: Frontend test, lint, and build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: web/admin
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: web/admin/package-lock.json
+      - run: npm ci
+      - run: npm test
+      - run: npm run check
+      - run: npm run build
+      - uses: actions/upload-artifact@v4
+        with:
+          name: anyns-admin-web
+          path: web/admin/dist/
+          if-no-files-found: error
+
+  configuration:
+    name: Configuration and shell validation
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate tracked shell scripts
+        run: git ls-files '*.sh' -z | xargs -0 -r -n1 bash -n
+      - name: Validate Compose models
+        env:
+          PDNS_POSTGRES_PASSWORD: ci-model-only
+          PDNS_AUTH_API_KEY: ci-model-only
+          PDNS_AUTH_WEBSERVER_PASSWORD: ci-model-only
+          PDNS_RECURSOR_API_KEY: ci-model-only
+        run: |
+          docker compose config --quiet
+          docker compose -f docker-compose.gpgsql.yml config --quiet
+          docker compose -f tests/docker/compose.dns-integration.yml config --quiet
+          docker compose -f tests/docker/compose.decentralized-certificates.yml config --quiet
+          docker compose -f tests/docker/compose.hnsd.yml config --quiet
+          docker compose -f tests/docker/compose.dns-integration.yml -f tests/docker/compose.selenium.yml config --quiet
