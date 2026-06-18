@@ -36,6 +36,7 @@
 - [x] 修复移动端 Toast 遮挡侧栏导航的问题。
 - [x] 修复 Dashboard 仅校验 `management:read` 却返回越权 PowerDNS、插件、缓存、审计和配置数据的问题，按细粒度读取 scope 裁剪响应。
 - [x] 修复 capability 响应额外要求 `management:read`、导致仅持有合法细粒度读取 scope 的用户无法使用对应管理页面的问题；增加 PowerDNS、插件、审计、配置和缓存读取权限矩阵回归测试。
+- [x] 将 PowerDNS capability 拆分为 Authoritative 与 Recursor 后端状态；仅配置单一后端时，管理页面只启用对应的 Zone/记录管理或缓存清理操作。
 
 ## 测试与验收
 
@@ -47,6 +48,8 @@
 - [x] `bash tests/acceptance/check-local.sh`
 - [x] Dashboard scope 回归测试验证仅有 `management:read` 的凭据无法读取其他功能数据。
 - [x] Capability scope 回归测试验证细粒度读取凭据只显示其可访问功能，并继续隐藏 overview 和无关功能。
+- [x] PowerDNS capability 回归测试覆盖仅 Authoritative、仅 Recursor 和旧版聚合 capability 前端兼容。
+- [x] `bash tests/acceptance/selenium-admin.sh` 验证 capability-aware 管理流程及 Unicode HNS Zone/记录增删交互。
 - [ ] 服务器当前仅提供 `go1.18 gccgo`；`go test -race -buildvcs=false ./internal/adminapi` 在生成 `testmain` 时失败为 `package testmain: cannot find package`，尚需使用标准 gc Go 工具链补跑 race gate。
 - [x] `docker compose config --quiet`
 - [x] `bash tests/acceptance/docker-gpgsql-backup-restore.sh` 验证 gpgsql 空库初始化、健康检查、DNS 查询、逻辑备份、数据变更和恢复。

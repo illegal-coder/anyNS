@@ -91,7 +91,9 @@ func (h *Handler) capabilities(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	editable := current.Editable()
-	powerDNSConfigured := strings.TrimSpace(current.PowerDNS.AuthoritativeURL) != "" || strings.TrimSpace(current.PowerDNS.RecursorURL) != ""
+	authoritativeConfigured := strings.TrimSpace(current.PowerDNS.AuthoritativeURL) != ""
+	recursorConfigured := strings.TrimSpace(current.PowerDNS.RecursorURL) != ""
+	powerDNSConfigured := authoritativeConfigured || recursorConfigured
 	policyConfigured := strings.TrimSpace(current.ConfigFile) != ""
 	certificatesAvailable := current.Certificates.Enabled && h.certificates != nil
 
@@ -129,6 +131,9 @@ func (h *Handler) capabilities(w http.ResponseWriter, r *http.Request) {
 			httpapi.ScopePowerDNSRead, httpapi.ScopePowerDNSWrite, powerDNSConfigured, true,
 			"GET /api/v1/powerdns/status",
 			"GET /api/v1/powerdns/zones",
+		),
+		"powerdns_authoritative": feature(
+			httpapi.ScopePowerDNSRead, httpapi.ScopePowerDNSWrite, authoritativeConfigured, true,
 			"POST /api/v1/powerdns/authoritative/zones",
 			"GET /api/v1/powerdns/authoritative/zones/{id}",
 			"PATCH /api/v1/powerdns/authoritative/zones/{id}/rrsets",
@@ -137,6 +142,9 @@ func (h *Handler) capabilities(w http.ResponseWriter, r *http.Request) {
 			"DELETE /api/v1/powerdns/authoritative/zones/{id}/cryptokeys/{key_id}",
 			"POST /api/v1/powerdns/authoritative/zones/{id}/derive-ds",
 			"DELETE /api/v1/powerdns/authoritative/zones/{id}",
+		),
+		"powerdns_recursor": feature(
+			httpapi.ScopePowerDNSRead, httpapi.ScopePowerDNSWrite, recursorConfigured, true,
 			"POST /api/v1/powerdns/recursor/cache/flush",
 		),
 		"certificates": feature(

@@ -36,6 +36,13 @@ export function featureAccess(capabilities, id) {
   return capabilities?.[id] || hiddenCapability;
 }
 
+export function featureAccessWithFallback(capabilities, id, fallbackID) {
+  if (capabilities && Object.hasOwn(capabilities, id)) {
+    return featureAccess(capabilities, id);
+  }
+  return featureAccess(capabilities, fallbackID);
+}
+
 export function visibleNavigation(navigation, capabilities) {
   return navigation
     .map((item) => ({ ...item, access: featureAccess(capabilities, item.capability || item.id) }))

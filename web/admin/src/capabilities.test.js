@@ -1,6 +1,11 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { featureAccess, normalizeCapabilities, visibleNavigation } from "./capabilities.js";
+import {
+  featureAccess,
+  featureAccessWithFallback,
+  normalizeCapabilities,
+  visibleNavigation,
+} from "./capabilities.js";
 
 const navigation = [
   { id: "overview" },
@@ -37,4 +42,25 @@ test("unknown capabilities default to hidden", () => {
     reason: "capability_not_exposed",
     endpoints: [],
   });
+});
+
+test("backend-specific capabilities override aggregate PowerDNS access", () => {
+  const capabilities = normalizeCapabilities({
+    features: {
+      powerdns: { available: true, read: true, write: true, mode: "readwrite" },
+      powerdns_authoritative: { available: false, read: true, write: false, mode: "unavailable" },
+      powerdns_recursor: { available: true, read: true, write: true, mode: "readwrite" },
+    },
+  });
+  assert.equal(featureAccessWithFallback(capabilities, "powerdns_authoritative", "powerdns").write, false);
+  assert.equal(featureAccessWithFallback(capabilities, "powerdns_recursor", "powerdns").write, true);
+});
+
+test("backend-specific access falls back for older capability payloads", () => {
+  const capabilities = normalizeCapabilities({
+    features: {
+      powerdns: { available: true, read: true, write: true, mode: "readwrite" },
+    },
+  });
+  assert.equal(featureAccessWithFallback(capabilities, "powerdns_authoritative", "powerdns").write, true);
 });

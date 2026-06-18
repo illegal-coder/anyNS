@@ -31,7 +31,12 @@ import {
   X,
 } from "lucide-react";
 import { api, getToken, setToken } from "./api";
-import { featureAccess, normalizeCapabilities, visibleNavigation } from "./capabilities";
+import {
+  featureAccess,
+  featureAccessWithFallback,
+  normalizeCapabilities,
+  visibleNavigation,
+} from "./capabilities";
 import { domainToASCII, ensureTrailingDot, normalizeZoneInput, trimTrailingDot } from "./dnsname";
 
 const navigation = [
@@ -436,7 +441,10 @@ const authoritativeIPv4Example = "192.0.2.53";
 
 function PowerDNSPage({ dashboard, mutate, capabilities }) {
   const access = featureAccess(capabilities, "powerdns");
-  const canWrite = access.available && access.write;
+  const authoritativeAccess = featureAccessWithFallback(capabilities, "powerdns_authoritative", "powerdns");
+  const recursorAccess = featureAccessWithFallback(capabilities, "powerdns_recursor", "powerdns");
+  const canWriteAuthoritative = authoritativeAccess.available && authoritativeAccess.write;
+  const canFlushRecursor = recursorAccess.available && recursorAccess.write;
   const snapshot = dashboard?.services?.powerdns || {};
   const zones = snapshot.authoritative?.zones || [];
   const [zoneMode, setZoneMode] = useState("hns");
@@ -562,7 +570,7 @@ function PowerDNSPage({ dashboard, mutate, capabilities }) {
         zone={zoneDetail}
         cryptoKeys={cryptoKeys}
         loading={zoneLoading}
-        canWrite={canWrite}
+        canWrite={canWriteAuthoritative}
         recordQuery={recordQuery}
         setRecordQuery={setRecordQuery}
         recordType={recordType}
@@ -611,7 +619,7 @@ function PowerDNSPage({ dashboard, mutate, capabilities }) {
           <ZoneTable
             zones={zones}
             onSelect={(zone) => setSelectedZoneID(zone.id || zone.name)}
-            onDelete={canWrite ? (zone) => mutate(
+            onDelete={canWriteAuthoritative ? (zone) => mutate(
               () => api(`/api/v1/powerdns/authoritative/zones/${encodeURIComponent(zone.id)}`, { method: "DELETE" }),
               `Zone ${zone.name} 已删除`,
             ) : undefined}
@@ -619,7 +627,8 @@ function PowerDNSPage({ dashboard, mutate, capabilities }) {
         </Panel>
         <div className="form-stack">
           <Panel title="添加托管域名" subtitle="创建权威 Zone 并准备 HNS 委派">
-            <fieldset className="readonly-fieldset" disabled={!canWrite}>
+            {!authoritativeAccess.available && <InlineWarning text="PowerDNS Authoritative 后端尚未配置，无法创建或管理 Zone。" />}
+            <fieldset className="readonly-fieldset" disabled={!canWriteAuthoritative}>
             <div className="form-grid single">
               <div className="segmented-control" aria-label="域名类型">
                 <button type="button" className={zoneMode === "hns" ? "active" : ""} onClick={() => setZoneMode("hns")}>HNS 域名</button>
@@ -688,12 +697,13 @@ function PowerDNSPage({ dashboard, mutate, capabilities }) {
             </fieldset>
           </Panel>
           <Panel title="清理 Recursor 缓存" subtitle="支持单域名或子树缓存">
-            <fieldset className="readonly-fieldset" disabled={!canWrite}>
+            {!recursorAccess.available && <InlineWarning text="PowerDNS Recursor 后端尚未配置，无法清理缓存。" />}
+            <fieldset className="readonly-fieldset" disabled={!canFlushRecursor}>
             <div className="form-grid single">
               <Field label="域名（留空表示全部）">
                 <input value={flushDomain} onChange={(event) => setFlushDomain(event.target.value)} placeholder="example.org" />
               </Field>
-              <button className="button secondary" disabled={!canWrite} onClick={() => mutate(
+              <button className="button secondary" disabled={!canFlushRecursor} onClick={() => mutate(
                 () => api("/api/v1/powerdns/recursor/cache/flush", {
                   method: "POST",
                   body: JSON.stringify({ domain: flushDomain, subtree: true }),

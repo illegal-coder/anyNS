@@ -50,6 +50,12 @@ func TestCapabilitiesDescribeAvailabilityAndWritableState(t *testing.T) {
 	if got := response.Features["powerdns"]; !got.Available || !got.Read || !got.Write || got.Mode != "readwrite" {
 		t.Fatalf("powerdns capability=%+v", got)
 	}
+	if got := response.Features["powerdns_authoritative"]; !got.Available || !got.Read || !got.Write || got.Mode != "readwrite" {
+		t.Fatalf("authoritative capability=%+v", got)
+	}
+	if got := response.Features["powerdns_recursor"]; got.Available || !got.Read || got.Write || got.Mode != "unavailable" {
+		t.Fatalf("recursor capability=%+v", got)
+	}
 	if got := response.Features["config"]; !got.Read || !got.Write || got.Mode != "readwrite" {
 		t.Fatalf("config capability=%+v", got)
 	}
@@ -119,7 +125,11 @@ func TestCapabilitiesFollowFineGrainedEndpointReadScopes(t *testing.T) {
 		token           string
 		visibleFeatures []string
 	}{
-		{name: "powerdns", token: "powerdns-secret", visibleFeatures: []string{"powerdns"}},
+		{
+			name:            "powerdns",
+			token:           "powerdns-secret",
+			visibleFeatures: []string{"powerdns", "powerdns_authoritative", "powerdns_recursor"},
+		},
 		{name: "plugins", token: "plugin-secret", visibleFeatures: []string{"plugins"}},
 		{name: "audit", token: "audit-secret", visibleFeatures: []string{"audit"}},
 		{name: "configuration", token: "config-secret", visibleFeatures: []string{"security", "config"}},
@@ -152,6 +162,62 @@ func TestCapabilitiesFollowFineGrainedEndpointReadScopes(t *testing.T) {
 				if capability.Read || capability.Write || capability.Mode != "hidden" {
 					t.Errorf("unrelated %s capability=%+v", feature, capability)
 				}
+			}
+		})
+	}
+}
+
+func TestCapabilitiesSeparatePowerDNSBackendAvailability(t *testing.T) {
+	tests := []struct {
+		name                  string
+		authoritativeURL      string
+		recursorURL           string
+		authoritativeMode     string
+		authoritativeWritable bool
+		recursorMode          string
+		recursorWritable      bool
+	}{
+		{
+			name:                  "authoritative only",
+			authoritativeURL:      "http://authoritative.internal",
+			authoritativeMode:     "readwrite",
+			authoritativeWritable: true,
+			recursorMode:          "unavailable",
+		},
+		{
+			name:              "recursor only",
+			recursorURL:       "http://recursor.internal",
+			authoritativeMode: "unavailable",
+			recursorMode:      "readwrite",
+			recursorWritable:  true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := config.Default()
+			cfg.PowerDNS.AuthoritativeURL = tt.authoritativeURL
+			cfg.PowerDNS.RecursorURL = tt.recursorURL
+			application, err := app.NewFromConfig(cfg)
+			if err != nil {
+				t.Fatalf("new app: %v", err)
+			}
+			mux := http.NewServeMux()
+			Register(mux, application, &cfg)
+
+			rec := httptest.NewRecorder()
+			mux.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/v1/capabilities", nil))
+			if rec.Code != http.StatusOK {
+				t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+			}
+			var response CapabilitiesResponse
+			if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
+				t.Fatalf("decode capabilities: %v", err)
+			}
+			if got := response.Features["powerdns_authoritative"]; got.Mode != tt.authoritativeMode || got.Write != tt.authoritativeWritable {
+				t.Fatalf("authoritative capability=%+v", got)
+			}
+			if got := response.Features["powerdns_recursor"]; got.Mode != tt.recursorMode || got.Write != tt.recursorWritable {
+				t.Fatalf("recursor capability=%+v", got)
 			}
 		})
 	}
