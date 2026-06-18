@@ -1,0 +1,31 @@
+incoming:
+  listen:
+    - "0.0.0.0:53"
+  allow_from:
+    - "0.0.0.0/0"
+    - "::/0"
+
+recursor:
+  forward_zones:
+    - zone: "example"
+      forwarders:
+        - "pdns-authoritative:5300"
+    - zone: "xn--5nx"
+      forwarders:
+        - "pdns-authoritative:5300"
+  system_resolver_ttl: 60
+
+dnssec:
+  validation: validate
+  negative_trustanchors:
+    - name: "example"
+      reason: "isolated single-label HNS acceptance zone"
+    - name: "xn--5nx"
+      reason: "isolated Unicode HNS acceptance zone"
+
+recordcache:
+  max_entries: 1000
+
+logging:
+  quiet: false
+  loglevel: 5
