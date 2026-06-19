@@ -75,6 +75,7 @@ func Register(mux *http.ServeMux, application *app.App, cfg *config.Config) {
 	mux.HandleFunc("/api/v1/powerdns/recursor/cache/flush", handler.recursorCacheFlush)
 	mux.HandleFunc("/api/v1/certificates/orders", handler.certificateOrders)
 	mux.HandleFunc("/api/v1/certificates/orders/", handler.certificateOrder)
+	mux.HandleFunc("/api/v1/certificates/private-ca/root", handler.certificatePrivateCARoot)
 	mux.HandleFunc("/api/v1/certificates/tlsa", handler.certificateTLSA)
 }
 
@@ -167,6 +168,7 @@ func (h *Handler) capabilities(w http.ResponseWriter, r *http.Request) {
 			"GET /api/v1/certificates/orders/{id}/certificate",
 			"POST /api/v1/certificates/orders/{id}/renew",
 			"POST /api/v1/certificates/orders/{id}/revoke",
+			"GET /api/v1/certificates/private-ca/root",
 			"POST /api/v1/certificates/tlsa",
 		),
 		"plugins": feature(
@@ -392,6 +394,31 @@ func (h *Handler) certificateOrder(w http.ResponseWriter, r *http.Request) {
 	default:
 		httpapi.Error(w, http.StatusNotFound, "certificate action not found")
 	}
+}
+
+func (h *Handler) certificatePrivateCARoot(w http.ResponseWriter, r *http.Request) {
+	current := *h.cfg
+	if r.Method != http.MethodGet {
+		httpapi.Error(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	if !httpapi.RequireScope(w, r, current, httpapi.ScopeCertificatesRead) {
+		return
+	}
+	if strings.TrimSpace(current.Certificates.IssuerMode) != "private-ca" {
+		httpapi.Error(w, http.StatusNotFound, "private CA root is not configured")
+		return
+	}
+	if h.certificates == nil {
+		httpapi.Error(w, http.StatusServiceUnavailable, h.certificateUnavailable())
+		return
+	}
+	metadata, err := certificates.PrivateRootMetadataForConfig(current.Certificates)
+	if err != nil {
+		httpapi.Error(w, http.StatusServiceUnavailable, err.Error())
+		return
+	}
+	httpapi.WriteJSON(w, http.StatusOK, metadata)
 }
 
 func (h *Handler) certificateTLSA(w http.ResponseWriter, r *http.Request) {

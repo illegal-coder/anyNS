@@ -284,6 +284,28 @@ func TestPrivateCACertificateOrderUsesLocalIssuer(t *testing.T) {
 	if count := strings.Count(rec.Body.String(), "BEGIN CERTIFICATE"); count != 2 {
 		t.Fatalf("certificate chain count=%d body=%s", count, rec.Body.String())
 	}
+
+	rec = httptest.NewRecorder()
+	mux.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/v1/certificates/private-ca/root", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("root metadata status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	var metadata struct {
+		IssuerMode        string   `json:"issuer_mode"`
+		SHA256Fingerprint string   `json:"sha256_fingerprint"`
+		RootKeyPresent    bool     `json:"root_key_present"`
+		RootKeyMode       string   `json:"root_key_mode"`
+		KeyUsage          []string `json:"key_usage"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &metadata); err != nil {
+		t.Fatalf("decode root metadata: %v", err)
+	}
+	if metadata.IssuerMode != "private-ca" || metadata.SHA256Fingerprint == "" || !metadata.RootKeyPresent || metadata.RootKeyMode != "0600" {
+		t.Fatalf("metadata=%+v", metadata)
+	}
+	if strings.Contains(rec.Body.String(), "PRIVATE KEY") || strings.Contains(rec.Body.String(), "BEGIN ") {
+		t.Fatalf("root metadata leaked key or PEM material: %s", rec.Body.String())
+	}
 }
 
 func TestCapabilitiesRequireAuthentication(t *testing.T) {

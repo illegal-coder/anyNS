@@ -33,6 +33,22 @@ type PrivateRootIssuer struct {
 	rootPEM  []byte
 }
 
+type PrivateRootMetadata struct {
+	IssuerMode        string    `json:"issuer_mode"`
+	Subject           string    `json:"subject"`
+	Issuer            string    `json:"issuer"`
+	SerialNumber      string    `json:"serial_number"`
+	NotBefore         time.Time `json:"not_before"`
+	NotAfter          time.Time `json:"not_after"`
+	SHA256Fingerprint string    `json:"sha256_fingerprint"`
+	SubjectKeyID      string    `json:"subject_key_id,omitempty"`
+	AuthorityKeyID    string    `json:"authority_key_id,omitempty"`
+	IsCA              bool      `json:"is_ca"`
+	KeyUsage          []string  `json:"key_usage"`
+	RootKeyPresent    bool      `json:"root_key_present"`
+	RootKeyMode       string    `json:"root_key_mode,omitempty"`
+}
+
 func NewPrivateRootIssuer(cfg config.CertificatesConfig) (*PrivateRootIssuer, error) {
 	rootDir := filepath.Join(cfg.StorageDir, "private-ca")
 	if err := os.MkdirAll(rootDir, 0o700); err != nil {
@@ -52,6 +68,31 @@ func NewPrivateRootIssuer(cfg config.CertificatesConfig) (*PrivateRootIssuer, er
 		return nil, err
 	}
 	return &PrivateRootIssuer{cfg: cfg, rootKey: key, rootCert: cert, rootPEM: certPEM}, nil
+}
+
+func PrivateRootMetadataForConfig(cfg config.CertificatesConfig) (PrivateRootMetadata, error) {
+	rootDir := filepath.Join(cfg.StorageDir, "private-ca")
+	rootKeyPath := filepath.Join(rootDir, privateRootKeyFile)
+	rootCertPath := filepath.Join(rootDir, privateRootCertFile)
+	certBody, err := os.ReadFile(rootCertPath)
+	if errors.Is(err, os.ErrNotExist) {
+		return PrivateRootMetadata{}, errors.New("private CA root certificate is not initialized")
+	}
+	if err != nil {
+		return PrivateRootMetadata{}, errors.New("private CA root certificate cannot be read")
+	}
+	cert, err := parseCertificatePEM(certBody)
+	if err != nil {
+		return PrivateRootMetadata{}, err
+	}
+	metadata := privateRootMetadata(cert)
+	if info, statErr := os.Stat(rootKeyPath); statErr == nil {
+		metadata.RootKeyPresent = true
+		metadata.RootKeyMode = fmt.Sprintf("%04o", info.Mode().Perm())
+	} else if !errors.Is(statErr, os.ErrNotExist) {
+		return PrivateRootMetadata{}, errors.New("private CA root key status cannot be read")
+	}
+	return metadata, nil
 }
 
 func (i *PrivateRootIssuer) Issue(ctx context.Context, domains []string, state func(string)) (IssueOutput, error) {
@@ -242,4 +283,45 @@ func publicKeyID(publicKey any) ([]byte, error) {
 	}
 	sum := sha256.Sum256(der)
 	return sum[:], nil
+}
+
+func privateRootMetadata(cert *x509.Certificate) PrivateRootMetadata {
+	fingerprint := sha256.Sum256(cert.Raw)
+	return PrivateRootMetadata{
+		IssuerMode:        "private-ca",
+		Subject:           cert.Subject.String(),
+		Issuer:            cert.Issuer.String(),
+		SerialNumber:      cert.SerialNumber.String(),
+		NotBefore:         cert.NotBefore,
+		NotAfter:          cert.NotAfter,
+		SHA256Fingerprint: fmt.Sprintf("%X", fingerprint[:]),
+		SubjectKeyID:      fmt.Sprintf("%X", cert.SubjectKeyId),
+		AuthorityKeyID:    fmt.Sprintf("%X", cert.AuthorityKeyId),
+		IsCA:              cert.IsCA,
+		KeyUsage:          keyUsageNames(cert.KeyUsage),
+	}
+}
+
+func keyUsageNames(usage x509.KeyUsage) []string {
+	flags := []struct {
+		flag x509.KeyUsage
+		name string
+	}{
+		{x509.KeyUsageDigitalSignature, "digital_signature"},
+		{x509.KeyUsageContentCommitment, "content_commitment"},
+		{x509.KeyUsageKeyEncipherment, "key_encipherment"},
+		{x509.KeyUsageDataEncipherment, "data_encipherment"},
+		{x509.KeyUsageKeyAgreement, "key_agreement"},
+		{x509.KeyUsageCertSign, "cert_sign"},
+		{x509.KeyUsageCRLSign, "crl_sign"},
+		{x509.KeyUsageEncipherOnly, "encipher_only"},
+		{x509.KeyUsageDecipherOnly, "decipher_only"},
+	}
+	names := make([]string, 0, len(flags))
+	for _, item := range flags {
+		if usage&item.flag != 0 {
+			names = append(names, item.name)
+		}
+	}
+	return names
 }

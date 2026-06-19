@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/x509"
+	"encoding/json"
 	"encoding/pem"
 	"os"
 	"path/filepath"
@@ -105,7 +106,46 @@ func TestPrivateRootIssuerReloadsExistingRoot(t *testing.T) {
 	}
 }
 
+func TestPrivateRootMetadataExcludesPEMAndKeyMaterial(t *testing.T) {
+	cfg := config.CertificatesConfig{StorageDir: t.TempDir()}
+	if _, err := NewPrivateRootIssuer(cfg); err != nil {
+		t.Fatal(err)
+	}
+	metadata, err := PrivateRootMetadataForConfig(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if metadata.IssuerMode != "private-ca" || !metadata.IsCA {
+		t.Fatalf("metadata=%+v", metadata)
+	}
+	if metadata.SHA256Fingerprint == "" || metadata.SerialNumber == "" || metadata.SubjectKeyID == "" {
+		t.Fatalf("metadata missing identity fields: %+v", metadata)
+	}
+	if !containsString(metadata.KeyUsage, "cert_sign") || !containsString(metadata.KeyUsage, "crl_sign") {
+		t.Fatalf("metadata key usage=%v", metadata.KeyUsage)
+	}
+	if !metadata.RootKeyPresent || metadata.RootKeyMode != "0600" {
+		t.Fatalf("root key metadata=%+v", metadata)
+	}
+	body, err := json.Marshal(metadata)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bytes.Contains(body, []byte("BEGIN ")) || bytes.Contains(body, []byte("PRIVATE KEY")) {
+		t.Fatalf("metadata leaked PEM/key material: %s", body)
+	}
+}
+
 func containsExtKeyUsage(values []x509.ExtKeyUsage, want x509.ExtKeyUsage) bool {
+	for _, value := range values {
+		if value == want {
+			return true
+		}
+	}
+	return false
+}
+
+func containsString(values []string, want string) bool {
 	for _, value := range values {
 		if value == want {
 			return true
