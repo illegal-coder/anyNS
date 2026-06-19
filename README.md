@@ -1,6 +1,6 @@
 # anyNS
 
-anyNS 是基于 PowerDNS 的去中心化名称解析、DNS 安全和管理平台。当前实现同时覆盖传统 DNS、HNS、DNSSEC/DANE、EIP-3668 CCIP-Read，以及使用 PowerDNS DNS-01 的 ACME 证书生命周期。
+anyNS 是基于 PowerDNS 的去中心化名称解析、DNS 安全和管理平台。当前实现同时覆盖传统 DNS、HNS、DNSSEC/DANE、EIP-3668 CCIP-Read、使用 PowerDNS DNS-01 的 ACME 证书生命周期，以及显式 opt-in 的私有根 CA 签发模式。
 
 ## 快速验证
 
@@ -22,9 +22,10 @@ npm run build
 COMPOSE_PARALLEL_LIMIT=1 bash tests/acceptance/docker-gpgsql-backup-restore.sh
 COMPOSE_PARALLEL_LIMIT=1 bash tests/acceptance/selenium-admin.sh
 COMPOSE_PARALLEL_LIMIT=1 bash tests/acceptance/decentralized-certificates.sh
+COMPOSE_PARALLEL_LIMIT=1 bash tests/acceptance/private-ca-certificates.sh
 ```
 
-证书验收只使用回环端口、独立 Compose project、测试区和 Pebble 测试 CA。生产配置、真实密钥和生产数据不得放入仓库。
+证书验收只使用回环端口、独立 Compose project、测试区、Pebble 测试 CA 或测试私有根 CA。生产配置、真实密钥和生产数据不得放入仓库。
 
 ## 文档
 
