@@ -1,0 +1,20 @@
+incoming:
+  listen:
+    - "0.0.0.0:53"
+  allow_from:
+    - "0.0.0.0/0"
+    - "::/0"
+
+recursor:
+  system_resolver_ttl: 60
+  lua_dns_script: "/etc/powerdns/recursor.lua"
+
+dnssec:
+  validation: validate
+
+recordcache:
+  max_entries: 1000
+
+logging:
+  quiet: false
+  loglevel: 5

@@ -72,6 +72,7 @@
 - [x] `bash tests/acceptance/docker-soa-tld.sh` 使用一次性 gsqlite/Recursor 拓扑验证 2 个单标签 HNS Zone（ASCII/Unicode IDNA）、apex SOA/NS、A/AAAA glue、非法子 Zone 400、Authoritative AA、递归一致性和 serial 递增，并在结束后删除测试卷。
 - [x] `bash tests/acceptance/docker-soa-tld.sh` 现扩展验证 `example.` 单标签 TLD 经 BIND 明文 DNS、DoT 和 DoH 的 SOA 响应，且错误 DoT 证书主机名会被拒绝。
 - [x] `bash tests/acceptance/docker-hnsd-integration.sh` 默认 no-live 模式验证 hnsd/Recursor/BIND DoT/DoH profile model；live hnsd 运行仍需显式 `ANYNS_RUN_DOCKER_HNSD_INTEGRATION=1`。
+- [x] `ANYNS_RUN_DOCKER_HNSD_INTEGRATION=1 bash tests/acceptance/docker-hnsd-integration.sh` 在服务器隔离 Docker 网络中验证 live hnsd -> anyNS Runtime `hns` 路由 -> PowerDNS Recursor -> BIND 明文 DNS/DoT/DoH 链路；新 hnsd 未同步时接受 `SERVFAIL`，并验证不使用 static HNS fixture。
 - [x] GitHub Actions `CI` 验证 Go test/vet/build、前端 unit/ESLint/build、shell 语法及全部隔离 Compose model（含 SOA/TLD），并上传短期构建产物。
 - [ ] 服务器当前仅提供 `go1.18 gccgo`；`go test -race -buildvcs=false ./internal/adminapi` 在生成 `testmain` 时失败为 `package testmain: cannot find package`，尚需使用标准 gc Go 工具链补跑 race gate。
 - [x] `docker compose config --quiet`
@@ -112,9 +113,9 @@
 
 - [ ] 向 GitHub Support 提交旧 SHA 缓存对象清除请求并复核旧对象不可访问。
 - [ ] 增加有效 DNSSEC 链、bogus 链、AD flag 和验证失败自动测试。
-- [ ] 在受控时间窗运行 live hnsd P2P/SPV 集成。
+- [x] 在受控时间窗运行 live hnsd P2P/SPV 集成 smoke gate。
 - [ ] 为选定插件增加真实外部 RPC/API smoke test，凭据只通过 secret 注入。
 - [ ] 增加 NXDOMAIN flood、随机子域、并发、长稳和容量基线测试。
 - [ ] 完成生产管理鉴权、TLS 反向代理、密钥轮换、全栈升级回滚和跨主机灾备演练；gpgsql 本地逻辑备份恢复门禁已完成。
 - [x] 增加独立 PostgreSQL 数据库容器部署模式，并验证 PowerDNS gpgsql 初始化、备份和恢复。
-- [ ] 将 live hnsd/其他轻量去中心化组件并入可选 Compose profile，定义 PowerDNS + 网站 + live 链解析的最低模式门禁。
+- [ ] 使用已同步 hnsd 或可控 live 名称补充正向 `NOERROR` 链上解析证据，并将其他轻量去中心化组件并入可选 Compose profile，定义 PowerDNS + 网站 + live 链解析的最低模式门禁。

@@ -38,6 +38,7 @@ services:
       ANYNS_POLICY_TAGS: hnsd-integration
     volumes:
       - ../../configs/pdns-recursor:/etc/powerdns:ro
+      - ./pdns-recursor-hnsd.yml:/etc/powerdns/recursor.yml:ro
     depends_on:
       - anyns-plugin-runtime
     networks:

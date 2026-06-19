@@ -61,7 +61,8 @@ fi
 
 tools 'curl -fsS -X POST http://anyns-plugin-runtime:8081/api/v1/resolve -H "Content-Type: application/json" -d "{\"qname\":\"'"$TEST_QNAME"'\",\"qtype\":\"A\",\"context\":{\"trace_id\":\"docker-hnsd-live\",\"client_view\":\"default\",\"tenant\":\"default\"}}" | tee /tmp/runtime-hnsd.json'
 tools 'grep -q "\"source_plugin\":\"hns\"" /tmp/runtime-hnsd.json'
-tools 'grep -q "\"backend_query_name\":\"'"$BACKEND_QNAME"'\"" /tmp/runtime-hnsd.json'
+tools 'grep -Eq "\"rcode\":\"(NOERROR|NXDOMAIN|SERVFAIL)\"" /tmp/runtime-hnsd.json'
+tools 'if grep -q "\"backend_query_name\":" /tmp/runtime-hnsd.json; then grep -q "\"backend_query_name\":\"'"$BACKEND_QNAME"'\"" /tmp/runtime-hnsd.json; fi'
 tools '! grep -q "static-hns-fixture" /tmp/runtime-hnsd.json'
 
 tools 'dig +time=3 +tries=1 @pdns-recursor '"$TEST_QNAME"' A | tee /tmp/pdns-hnsd.txt'
