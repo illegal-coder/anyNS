@@ -61,6 +61,13 @@ class AdminUIWorkflowTest(unittest.TestCase):
         )
         button.click()
 
+    def open_mobile_nav(self, label):
+        menu = WebDriverWait(self.driver, 30).until(
+            EC.element_to_be_clickable((By.CSS_SELECTOR, "button[aria-label='打开导航']"))
+        )
+        menu.click()
+        self.nav(label)
+
     def test_capability_aware_admin_workflow(self):
         labels = {
             element.text.strip()
@@ -237,6 +244,73 @@ class AdminUIWorkflowTest(unittest.TestCase):
                         (By.CSS_SELECTOR, "button[aria-label='返回域名列表']")
                     )
                 ).click()
+                WebDriverWait(self.driver, 30).until(
+                    EC.visibility_of_element_located((By.XPATH, "//h3[contains(., '托管域名')]"))
+                )
+            rows = self.driver.find_elements(
+                By.XPATH, f"//tr[td/strong[normalize-space()='{display_name}']]"
+            )
+            if rows:
+                rows[0].find_element(By.CSS_SELECTOR, "button[title='删除 Zone']").click()
+                WebDriverWait(self.driver, 30).until_not(
+                    EC.presence_of_element_located(
+                        (By.XPATH, f"//tr[td/strong[normalize-space()='{display_name}']]")
+                    )
+                )
+
+    def test_mobile_hns_soa_update_workflow(self):
+        self.driver.set_window_size(390, 844)
+        self.driver.get(ADMIN_URL)
+        WebDriverWait(self.driver, 30).until(
+            EC.visibility_of_element_located((By.XPATH, "//h2[contains(., 'DNS 服务运行概览')]"))
+        )
+        self.open_mobile_nav("PowerDNS")
+        WebDriverWait(self.driver, 30).until(
+            EC.visibility_of_element_located((By.XPATH, "//h2[contains(., '权威与递归服务')]"))
+        )
+
+        display_name = f"m{int(time.time()) % 1000000}"
+        zone_input = self.driver.find_element(
+            By.XPATH, "//label[span[normalize-space()='HNS 名称']]//input"
+        )
+        zone_input.send_keys(display_name)
+        glue_ipv4 = self.driver.find_element(
+            By.XPATH, "//label[span[normalize-space()='Glue IPv4']]//input"
+        )
+        glue_ipv4.send_keys("192.0.2.53")
+        add_zone = self.driver.find_element(By.XPATH, "//button[contains(., '添加域名')]")
+        self.assertTrue(add_zone.is_enabled())
+        self.driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", add_zone)
+        self.driver.execute_script("arguments[0].click();", add_zone)
+
+        try:
+            WebDriverWait(self.driver, 30).until(
+                EC.visibility_of_element_located((By.XPATH, f"//h2[contains(., '{display_name}')]"))
+            )
+            refresh_input = WebDriverWait(self.driver, 30).until(
+                EC.visibility_of_element_located((
+                    By.XPATH,
+                    "//article[header//h3[contains(., 'SOA')]]//label[span[normalize-space()='Refresh']]//input",
+                ))
+            )
+            self.driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", refresh_input)
+            refresh_input.clear()
+            refresh_input.send_keys("8100")
+            save_soa = self.driver.find_element(
+                By.XPATH, "//article[header//h3[contains(., 'SOA')]]//button[contains(., '保存 SOA')]"
+            )
+            self.driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", save_soa)
+            self.driver.execute_script("arguments[0].click();", save_soa)
+            WebDriverWait(self.driver, 30).until(
+                EC.visibility_of_element_located((By.XPATH, "//tr[td/span[contains(., 'SOA')] and td[contains(., '8100')]]"))
+            )
+        finally:
+            back_buttons = self.driver.find_elements(By.CSS_SELECTOR, "button[aria-label='返回域名列表']")
+            if back_buttons:
+                self.driver.execute_script(
+                    "arguments[0].scrollIntoView({block: 'center'});", back_buttons[0]
+                )
+                self.driver.execute_script("arguments[0].click();", back_buttons[0])
                 WebDriverWait(self.driver, 30).until(
                     EC.visibility_of_element_located((By.XPATH, "//h3[contains(., '托管域名')]"))
                 )
