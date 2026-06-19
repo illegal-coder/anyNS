@@ -52,6 +52,7 @@
 - [x] 修复 capability 响应额外要求 `management:read`、导致仅持有合法细粒度读取 scope 的用户无法使用对应管理页面的问题；增加 PowerDNS、插件、审计、配置和缓存读取权限矩阵回归测试。
 - [x] 将 PowerDNS capability 拆分为 Authoritative 与 Recursor 后端状态；仅配置单一后端时，管理页面只启用对应的 Zone/记录管理或缓存清理操作。
 - [x] 增加结构化 SOA 编辑 API 与管理页面，支持字段级校验、显式 serial 防回退、空 serial 自动递增、审计事件和桌面端 Selenium 回归覆盖。
+- [x] 增加 `private-ca` 证书 issuer mode，与 ACME DNS-01 显式分离；本地私有根 CA 使用 Go `crypto/x509` clean-room 生成/加载并签发 serverAuth 叶证书链。
 
 ## 测试与验收
 
@@ -65,6 +66,7 @@
 - [x] Capability scope 回归测试验证细粒度读取凭据只显示其可访问功能，并继续隐藏 overview 和无关功能。
 - [x] PowerDNS capability 回归测试覆盖仅 Authoritative、仅 Recursor 和旧版聚合 capability 前端兼容。
 - [x] PowerDNS SOA 回归测试覆盖 serial 自动递增、显式 serial 回退拒绝、字段边界校验和 Admin API 代理写入。
+- [x] Private CA 回归测试覆盖根 CA BasicConstraints/KeyUsage/SKI-AKI、根私钥 `0600`、根加载复用、叶证书 SAN/serverAuth/非 CA 约束，以及 Admin API 证书下载不返回私钥。
 - [x] `bash tests/acceptance/selenium-admin.sh` 验证 capability-aware 管理流程及 Unicode HNS Zone/记录增删交互。
 - [x] `bash tests/acceptance/selenium-admin.sh` 现包含移动端 HNS 单标签 Zone 创建、SOA Refresh 修改、SOA 记录表刷新和测试 Zone 清理恢复。
 - [x] `bash tests/acceptance/docker-soa-tld.sh` 使用一次性 gsqlite/Recursor 拓扑验证 2 个单标签 HNS Zone（ASCII/Unicode IDNA）、apex SOA/NS、A/AAAA glue、非法子 Zone 400、Authoritative AA、递归一致性和 serial 递增，并在结束后删除测试卷。

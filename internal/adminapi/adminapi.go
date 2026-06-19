@@ -57,8 +57,7 @@ func Register(mux *http.ServeMux, application *app.App, cfg *config.Config) {
 		httpClient:  &http.Client{Timeout: 5 * time.Second},
 	}
 	if cfg.Certificates.Enabled {
-		provider := certificates.NewPowerDNSProvider(powerdns.New(cfg.PowerDNS))
-		issuer, err := certificates.NewACMEIssuer(cfg.Certificates, provider)
+		issuer, err := certificateIssuer(*cfg)
 		if err == nil {
 			handler.certificates, err = certificates.NewManager(cfg.Certificates, issuer)
 		}
@@ -77,6 +76,18 @@ func Register(mux *http.ServeMux, application *app.App, cfg *config.Config) {
 	mux.HandleFunc("/api/v1/certificates/orders", handler.certificateOrders)
 	mux.HandleFunc("/api/v1/certificates/orders/", handler.certificateOrder)
 	mux.HandleFunc("/api/v1/certificates/tlsa", handler.certificateTLSA)
+}
+
+func certificateIssuer(cfg config.Config) (certificates.Issuer, error) {
+	switch strings.TrimSpace(cfg.Certificates.IssuerMode) {
+	case "", "acme":
+		provider := certificates.NewPowerDNSProvider(powerdns.New(cfg.PowerDNS))
+		return certificates.NewACMEIssuer(cfg.Certificates, provider)
+	case "private-ca":
+		return certificates.NewPrivateRootIssuer(cfg.Certificates)
+	default:
+		return nil, fmt.Errorf("unsupported certificate issuer mode %q", cfg.Certificates.IssuerMode)
+	}
 }
 
 func (h *Handler) capabilities(w http.ResponseWriter, r *http.Request) {

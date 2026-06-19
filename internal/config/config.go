@@ -85,6 +85,7 @@ type PowerDNSConfig struct {
 
 type CertificatesConfig struct {
 	Enabled                   bool          `json:"enabled"`
+	IssuerMode                string        `json:"issuer_mode"`
 	DirectoryURL              string        `json:"directory_url"`
 	AccountEmail              string        `json:"account_email"`
 	AcceptTOS                 bool          `json:"accept_tos"`
@@ -175,6 +176,7 @@ type filePowerDNSConfig struct {
 
 type fileCertificatesConfig struct {
 	Enabled               bool              `json:"enabled"`
+	IssuerMode            string            `json:"issuer_mode"`
 	DirectoryURL          string            `json:"directory_url"`
 	AccountEmail          string            `json:"account_email"`
 	AcceptTOS             bool              `json:"accept_tos"`
@@ -255,6 +257,7 @@ func Default() Config {
 		},
 		Certificates: CertificatesConfig{
 			Enabled:                   envBool("ANYNS_CERTIFICATES_ENABLED", false),
+			IssuerMode:                env("ANYNS_CERTIFICATE_ISSUER_MODE", "acme"),
 			DirectoryURL:              env("ANYNS_ACME_DIRECTORY_URL", "https://acme-staging-v02.api.letsencrypt.org/directory"),
 			AccountEmail:              env("ANYNS_ACME_ACCOUNT_EMAIL", ""),
 			AcceptTOS:                 envBool("ANYNS_ACME_ACCEPT_TOS", false),
@@ -437,20 +440,26 @@ func (cfg Config) Validate() error {
 		problems = append(problems, "powerdns must not set both recursor_api_key and recursor_api_key_file")
 	}
 	if cfg.Certificates.Enabled {
-		if !validHTTPURL(cfg.Certificates.DirectoryURL) {
-			problems = append(problems, "certificates.directory_url must be an http or https URL with a host")
-		}
-		if strings.TrimSpace(cfg.Certificates.AccountEmail) == "" || !strings.Contains(cfg.Certificates.AccountEmail, "@") {
-			problems = append(problems, "certificates.account_email must be a valid account email")
-		}
-		if !cfg.Certificates.AcceptTOS {
-			problems = append(problems, "certificates.accept_tos must be true when certificate issuance is enabled")
-		}
 		if strings.TrimSpace(cfg.Certificates.StorageDir) == "" {
 			problems = append(problems, "certificates.storage_dir is required")
 		}
-		if strings.TrimSpace(cfg.PowerDNS.AuthoritativeURL) == "" {
-			problems = append(problems, "powerdns.authoritative_url is required for ACME DNS-01")
+		switch strings.TrimSpace(cfg.Certificates.IssuerMode) {
+		case "", "acme":
+			if !validHTTPURL(cfg.Certificates.DirectoryURL) {
+				problems = append(problems, "certificates.directory_url must be an http or https URL with a host")
+			}
+			if strings.TrimSpace(cfg.Certificates.AccountEmail) == "" || !strings.Contains(cfg.Certificates.AccountEmail, "@") {
+				problems = append(problems, "certificates.account_email must be a valid account email")
+			}
+			if !cfg.Certificates.AcceptTOS {
+				problems = append(problems, "certificates.accept_tos must be true when certificate issuance is enabled")
+			}
+			if strings.TrimSpace(cfg.PowerDNS.AuthoritativeURL) == "" {
+				problems = append(problems, "powerdns.authoritative_url is required for ACME DNS-01")
+			}
+		case "private-ca":
+		default:
+			problems = append(problems, "certificates.issuer_mode must be acme or private-ca")
 		}
 	}
 	if cfg.Certificates.RequestTimeout <= 0 {
@@ -900,6 +909,9 @@ func applyCertificates(raw fileCertificatesConfig, cfg *Config) {
 	if raw.Enabled {
 		cfg.Certificates.Enabled = true
 	}
+	if raw.IssuerMode != "" {
+		cfg.Certificates.IssuerMode = raw.IssuerMode
+	}
 	if raw.DirectoryURL != "" {
 		cfg.Certificates.DirectoryURL = raw.DirectoryURL
 	}
@@ -1051,6 +1063,7 @@ func applyEnvOverrides(cfg Config) Config {
 	cfg.PowerDNS.RequestTimeout = envDuration("ANYNS_PDNS_REQUEST_TIMEOUT_SECONDS", cfg.PowerDNS.RequestTimeout)
 	cfg.PowerDNS.RequestTimeoutSeconds = int(cfg.PowerDNS.RequestTimeout.Seconds())
 	cfg.Certificates.Enabled = envBool("ANYNS_CERTIFICATES_ENABLED", cfg.Certificates.Enabled)
+	cfg.Certificates.IssuerMode = env("ANYNS_CERTIFICATE_ISSUER_MODE", cfg.Certificates.IssuerMode)
 	cfg.Certificates.DirectoryURL = env("ANYNS_ACME_DIRECTORY_URL", cfg.Certificates.DirectoryURL)
 	cfg.Certificates.AccountEmail = env("ANYNS_ACME_ACCOUNT_EMAIL", cfg.Certificates.AccountEmail)
 	cfg.Certificates.AcceptTOS = envBool("ANYNS_ACME_ACCEPT_TOS", cfg.Certificates.AcceptTOS)

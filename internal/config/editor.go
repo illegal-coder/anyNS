@@ -42,6 +42,7 @@ type EditablePowerDNS struct {
 
 type EditableCertificates struct {
 	Enabled                      bool   `json:"enabled"`
+	IssuerMode                   string `json:"issuer_mode"`
 	DirectoryURL                 string `json:"directory_url"`
 	AccountEmail                 string `json:"account_email"`
 	AcceptTOS                    bool   `json:"accept_tos"`
@@ -110,6 +111,7 @@ func (cfg Config) Editable() EditableConfig {
 		},
 		Certificates: EditableCertificates{
 			Enabled:                      cfg.Certificates.Enabled,
+			IssuerMode:                   cfg.Certificates.IssuerMode,
 			DirectoryURL:                 cfg.Certificates.DirectoryURL,
 			AccountEmail:                 cfg.Certificates.AccountEmail,
 			AcceptTOS:                    cfg.Certificates.AcceptTOS,
@@ -164,6 +166,7 @@ func ApplyEditable(current Config, edit EditableConfig) Config {
 	next.PowerDNS.RequestTimeout = time.Duration(edit.PowerDNS.RequestTimeoutSeconds) * time.Second
 	next.PowerDNS.RequestTimeoutSeconds = edit.PowerDNS.RequestTimeoutSeconds
 	next.Certificates.Enabled = edit.Certificates.Enabled
+	next.Certificates.IssuerMode = edit.Certificates.IssuerMode
 	next.Certificates.DirectoryURL = edit.Certificates.DirectoryURL
 	next.Certificates.AccountEmail = edit.Certificates.AccountEmail
 	next.Certificates.AcceptTOS = edit.Certificates.AcceptTOS
@@ -224,6 +227,7 @@ func SaveEditableFile(path string, edit EditableConfig) error {
 	}
 	if err := set("certificates", map[string]any{
 		"enabled":                 edit.Certificates.Enabled,
+		"issuer_mode":             edit.Certificates.IssuerMode,
 		"directory_url":           edit.Certificates.DirectoryURL,
 		"account_email":           edit.Certificates.AccountEmail,
 		"accept_tos":              edit.Certificates.AcceptTOS,

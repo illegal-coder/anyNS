@@ -1,0 +1,157 @@
+package certificates
+
+import (
+	"bytes"
+	"context"
+	"crypto/x509"
+	"encoding/pem"
+	"os"
+	"path/filepath"
+	"runtime"
+	"testing"
+	"time"
+
+	"github.com/anyns/anyns/internal/config"
+)
+
+func TestPrivateRootIssuerCreatesRootAndIssuesLeafChain(t *testing.T) {
+	cfg := config.CertificatesConfig{StorageDir: t.TempDir()}
+	issuer, err := NewPrivateRootIssuer(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rootKeyPath := filepath.Join(cfg.StorageDir, "private-ca", privateRootKeyFile)
+	rootCertPath := filepath.Join(cfg.StorageDir, "private-ca", privateRootCertFile)
+	if runtime.GOOS != "windows" {
+		info, err := os.Stat(rootKeyPath)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if info.Mode().Perm() != 0o600 {
+			t.Fatalf("root private key mode=%o", info.Mode().Perm())
+		}
+	}
+	rootPEM, err := os.ReadFile(rootCertPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	root := firstCertificate(t, rootPEM)
+	if !root.IsCA || root.KeyUsage&x509.KeyUsageCertSign == 0 {
+		t.Fatalf("root CA constraints invalid: isCA=%v keyUsage=%v", root.IsCA, root.KeyUsage)
+	}
+	if len(root.SubjectKeyId) == 0 || !bytes.Equal(root.SubjectKeyId, root.AuthorityKeyId) {
+		t.Fatalf("root SKI/AKI invalid: ski=%x aki=%x", root.SubjectKeyId, root.AuthorityKeyId)
+	}
+
+	var status string
+	output, err := issuer.Issue(context.Background(), []string{"example.test", "*.example.test"}, func(next string) {
+		status = next
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if status != StatusFinalizing {
+		t.Fatalf("issuer status=%q", status)
+	}
+	certs := certificateChain(t, output.CertificatePEM)
+	if len(certs) != 2 {
+		t.Fatalf("chain length=%d", len(certs))
+	}
+	leaf := certs[0]
+	if leaf.IsCA {
+		t.Fatal("leaf certificate is a CA")
+	}
+	if !bytes.Equal(leaf.AuthorityKeyId, root.SubjectKeyId) {
+		t.Fatalf("leaf AKI=%x root SKI=%x", leaf.AuthorityKeyId, root.SubjectKeyId)
+	}
+	if !containsExtKeyUsage(leaf.ExtKeyUsage, x509.ExtKeyUsageServerAuth) {
+		t.Fatalf("leaf EKU=%v", leaf.ExtKeyUsage)
+	}
+	if leaf.KeyUsage&x509.KeyUsageDigitalSignature == 0 {
+		t.Fatalf("leaf key usage=%v", leaf.KeyUsage)
+	}
+	if !stringSlicesEqual(leaf.DNSNames, []string{"example.test", "*.example.test"}) {
+		t.Fatalf("leaf DNSNames=%v", leaf.DNSNames)
+	}
+	if leaf.NotAfter.After(root.NotAfter) {
+		t.Fatalf("leaf NotAfter %s exceeds root %s", leaf.NotAfter, root.NotAfter)
+	}
+	if err := leaf.CheckSignatureFrom(root); err != nil {
+		t.Fatalf("leaf signature: %v", err)
+	}
+	if output.NotBefore.IsZero() || output.NotAfter.Before(time.Now().UTC()) {
+		t.Fatalf("invalid output validity: %+v", output)
+	}
+	if len(output.PrivateKeyPEM) == 0 {
+		t.Fatal("leaf private key was not returned to manager storage path")
+	}
+	if block, _ := pem.Decode(output.PrivateKeyPEM); block == nil || block.Type != "PRIVATE KEY" {
+		t.Fatalf("leaf private key PEM block=%v", block)
+	}
+}
+
+func TestPrivateRootIssuerReloadsExistingRoot(t *testing.T) {
+	cfg := config.CertificatesConfig{StorageDir: t.TempDir()}
+	first, err := NewPrivateRootIssuer(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := NewPrivateRootIssuer(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(first.rootCert.Raw, second.rootCert.Raw) {
+		t.Fatal("private root was regenerated instead of reloaded")
+	}
+}
+
+func containsExtKeyUsage(values []x509.ExtKeyUsage, want x509.ExtKeyUsage) bool {
+	for _, value := range values {
+		if value == want {
+			return true
+		}
+	}
+	return false
+}
+
+func stringSlicesEqual(left, right []string) bool {
+	if len(left) != len(right) {
+		return false
+	}
+	for index := range left {
+		if left[index] != right[index] {
+			return false
+		}
+	}
+	return true
+}
+
+func firstCertificate(t *testing.T, body []byte) *x509.Certificate {
+	t.Helper()
+	certs := certificateChain(t, body)
+	if len(certs) == 0 {
+		t.Fatal("no certificate found")
+	}
+	return certs[0]
+}
+
+func certificateChain(t *testing.T, body []byte) []*x509.Certificate {
+	t.Helper()
+	var certs []*x509.Certificate
+	for {
+		block, rest := pem.Decode(body)
+		if block == nil {
+			break
+		}
+		body = rest
+		if block.Type != "CERTIFICATE" {
+			continue
+		}
+		cert, err := x509.ParseCertificate(block.Bytes)
+		if err != nil {
+			t.Fatal(err)
+		}
+		certs = append(certs, cert)
+	}
+	return certs
+}

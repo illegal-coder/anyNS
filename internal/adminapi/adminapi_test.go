@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/anyns/anyns/internal/app"
 	"github.com/anyns/anyns/internal/config"
@@ -220,6 +221,68 @@ func TestCapabilitiesSeparatePowerDNSBackendAvailability(t *testing.T) {
 				t.Fatalf("recursor capability=%+v", got)
 			}
 		})
+	}
+}
+
+func TestPrivateCACertificateOrderUsesLocalIssuer(t *testing.T) {
+	cfg := config.Default()
+	cfg.Certificates.Enabled = true
+	cfg.Certificates.IssuerMode = "private-ca"
+	cfg.Certificates.StorageDir = t.TempDir()
+	cfg.Certificates.MaxAttempts = 1
+	cfg.Certificates.RequestTimeout = 5 * time.Second
+	application, err := app.NewFromConfig(cfg)
+	if err != nil {
+		t.Fatalf("new app: %v", err)
+	}
+	mux := http.NewServeMux()
+	Register(mux, application, &cfg)
+
+	rec := httptest.NewRecorder()
+	body := `{"domains":["example.test"],"idempotency_key":"private-ca-order"}`
+	mux.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/v1/certificates/orders", strings.NewReader(body)))
+	if rec.Code != http.StatusAccepted {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	var job struct {
+		ID string `json:"id"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &job); err != nil {
+		t.Fatalf("decode job: %v", err)
+	}
+	if job.ID == "" {
+		t.Fatal("empty job id")
+	}
+
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		rec = httptest.NewRecorder()
+		mux.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/v1/certificates/orders/"+job.ID, nil))
+		if rec.Code != http.StatusOK {
+			t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+		}
+		var current struct {
+			Status string `json:"status"`
+		}
+		if err := json.Unmarshal(rec.Body.Bytes(), &current); err != nil {
+			t.Fatalf("decode current job: %v", err)
+		}
+		if current.Status == "issued" {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	rec = httptest.NewRecorder()
+	mux.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/v1/certificates/orders/"+job.ID+"/certificate", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if strings.Contains(rec.Body.String(), "PRIVATE KEY") {
+		t.Fatalf("certificate endpoint returned private key material: %s", rec.Body.String())
+	}
+	if count := strings.Count(rec.Body.String(), "BEGIN CERTIFICATE"); count != 2 {
+		t.Fatalf("certificate chain count=%d body=%s", count, rec.Body.String())
 	}
 }
 

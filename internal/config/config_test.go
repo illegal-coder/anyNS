@@ -756,6 +756,7 @@ func TestValidateRequiresRuntimeControlURLWhenProxying(t *testing.T) {
 func TestValidateCertificateIssuanceConfiguration(t *testing.T) {
 	cfg := Default()
 	cfg.Certificates.Enabled = true
+	cfg.Certificates.IssuerMode = "acme"
 	cfg.Certificates.AccountEmail = ""
 	cfg.Certificates.AcceptTOS = false
 	cfg.PowerDNS.AuthoritativeURL = ""
@@ -774,6 +775,22 @@ func TestValidateCertificateIssuanceConfiguration(t *testing.T) {
 	cfg.PowerDNS.AuthoritativeURL = "http://pdns-authoritative:8081"
 	if err := cfg.Validate(); err != nil {
 		t.Fatalf("valid certificate configuration: %v", err)
+	}
+
+	cfg = Default()
+	cfg.Certificates.Enabled = true
+	cfg.Certificates.IssuerMode = "private-ca"
+	cfg.Certificates.StorageDir = t.TempDir()
+	cfg.Certificates.AccountEmail = ""
+	cfg.Certificates.AcceptTOS = false
+	cfg.PowerDNS.AuthoritativeURL = ""
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("private-ca certificate configuration should not require ACME fields: %v", err)
+	}
+
+	cfg.Certificates.IssuerMode = "browser-local"
+	if err := cfg.Validate(); err == nil || !strings.Contains(err.Error(), "issuer_mode") {
+		t.Fatalf("expected issuer_mode validation error, got %v", err)
 	}
 }
 
