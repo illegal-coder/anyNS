@@ -1,0 +1,36 @@
+{
+  "admin_addr": ":8080",
+  "runtime_addr": ":8081",
+  "log_forwarder_addr": ":8082",
+  "request_timeout": "3s",
+  "plugins": [
+    {
+      "name": "hns",
+      "enabled": true
+    }
+  ],
+  "routes": [
+    {
+      "name": "hns-default",
+      "suffixes": [".hns", ".hsd"],
+      "client_views": ["default"],
+      "tenants": ["default"],
+      "plugin": "hns",
+      "priority": 100,
+      "fallback": "nxdomain"
+    }
+  ],
+  "certificates": {
+    "enabled": true,
+    "issuer_mode": "private-ca",
+    "storage_dir": "/var/lib/anyns/certificates",
+    "request_timeout": "30s",
+    "dns_propagation_timeout": "5s",
+    "dns_poll_interval": "1s",
+    "max_attempts": 1,
+    "renew_before_days": 30
+  },
+  "management": {
+    "auth_required": false
+  }
+}

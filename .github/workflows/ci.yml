@@ -90,6 +90,7 @@ jobs:
           docker compose -f docker-compose.gpgsql.yml config --quiet
           docker compose -f tests/docker/compose.dns-integration.yml config --quiet
           docker compose -f tests/docker/compose.decentralized-certificates.yml config --quiet
+          docker compose -f tests/docker/compose.private-ca.yml config --quiet
           docker compose -f tests/docker/compose.hnsd.yml config --quiet
           docker compose -f tests/docker/compose.dns-integration.yml -f tests/docker/compose.selenium.yml config --quiet
           docker compose -f tests/docker/compose.dns-integration.yml -f tests/docker/compose.soa-tld.yml config --quiet

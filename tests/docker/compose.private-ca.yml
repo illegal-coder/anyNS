@@ -1,0 +1,19 @@
+name: anyns-private-ca-certificates
+
+services:
+  admin:
+    build:
+      context: ../..
+    image: anyns/private-ca-certificates:integration
+    entrypoint: ["/usr/local/bin/anyns-admin-api"]
+    environment:
+      ANYNS_CONFIG_FILE: /etc/anyns/config.json
+      ANYNS_ADMIN_UI_DIR: /usr/share/anyns-admin
+    ports:
+      - "127.0.0.1:28090:8080/tcp"
+    volumes:
+      - ./anyns-private-ca-config.json:/etc/anyns/config.json:ro
+      - private-ca-admin-data:/var/lib/anyns
+
+volumes:
+  private-ca-admin-data:
