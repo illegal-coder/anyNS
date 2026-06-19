@@ -90,6 +90,17 @@ class AdminUIWorkflowTest(unittest.TestCase):
         workspace_text = self.driver.find_element(By.CSS_SELECTOR, "main").text
         self.assertIn("权威 DNS 委派", workspace_text)
         self.assertIn("DNS 记录", workspace_text)
+        refresh_input = self.driver.find_element(
+            By.XPATH, "//article[header//h3[contains(., 'SOA')]]//label[span[normalize-space()='Refresh']]//input"
+        )
+        refresh_input.clear()
+        refresh_input.send_keys("7200")
+        self.driver.find_element(
+            By.XPATH, "//article[header//h3[contains(., 'SOA')]]//button[contains(., '保存 SOA')]"
+        ).click()
+        WebDriverWait(self.driver, 30).until(
+            EC.visibility_of_element_located((By.XPATH, "//tr[td/span[contains(., 'SOA')] and td[contains(., '7200')]]"))
+        )
 
         editor = self.driver.find_element(By.CSS_SELECTOR, ".record-editor")
         selects = editor.find_elements(By.CSS_SELECTOR, "select")
@@ -109,7 +120,9 @@ class AdminUIWorkflowTest(unittest.TestCase):
             EC.presence_of_element_located((By.XPATH, "//tr[td/strong[normalize-space()='_selenium']]"))
         )
 
-        self.driver.find_element(By.CSS_SELECTOR, "button[aria-label='返回域名列表']").click()
+        back_button = self.driver.find_element(By.CSS_SELECTOR, "button[aria-label='返回域名列表']")
+        self.driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", back_button)
+        self.driver.execute_script("arguments[0].click();", back_button)
         WebDriverWait(self.driver, 30).until(
             EC.visibility_of_element_located((By.XPATH, "//h3[contains(., '托管域名')]"))
         )

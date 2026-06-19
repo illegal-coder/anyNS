@@ -490,6 +490,69 @@ func TestPowerDNSZoneDetailAndRRSetPatch(t *testing.T) {
 	}
 }
 
+func TestPowerDNSSOAUpdateThroughAdminAPI(t *testing.T) {
+	var patched powerdns.PatchZoneRequest
+	pdns := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("X-API-Key") != "pdns-secret" {
+			t.Fatalf("PowerDNS key not forwarded")
+		}
+		switch r.Method {
+		case http.MethodGet:
+			_ = json.NewEncoder(w).Encode(powerdns.Zone{
+				ID:   "example.",
+				Name: "example.",
+				RRSets: []powerdns.RRSet{{
+					Name: "example.",
+					Type: "SOA",
+					TTL:  300,
+					Records: []powerdns.Record{{
+						Content: "ns1.example. hostmaster.example. 9 3600 600 86400 300",
+					}},
+				}},
+			})
+		case http.MethodPatch:
+			if err := json.NewDecoder(r.Body).Decode(&patched); err != nil {
+				t.Fatalf("decode patch: %v", err)
+			}
+			w.WriteHeader(http.StatusNoContent)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer pdns.Close()
+
+	cfg := config.Default()
+	cfg.PowerDNS.AuthoritativeURL = pdns.URL
+	cfg.PowerDNS.AuthoritativeAPIKey = "pdns-secret"
+	application, err := app.NewFromConfig(cfg)
+	if err != nil {
+		t.Fatalf("new app: %v", err)
+	}
+	mux := http.NewServeMux()
+	Register(mux, application, &cfg)
+
+	body := `{"refresh":7200,"retry":900}`
+	req := httptest.NewRequest(http.MethodPatch, "/api/v1/powerdns/authoritative/zones/example./soa", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	var response powerdns.SOARecord
+	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if response.Serial != 10 || response.Refresh != 7200 || response.Retry != 900 {
+		t.Fatalf("soa response=%#v", response)
+	}
+	if len(patched.RRSets) != 1 ||
+		patched.RRSets[0].Type != "SOA" ||
+		patched.RRSets[0].Records[0].Content != "ns1.example. hostmaster.example. 10 7200 900 86400 300" {
+		t.Fatalf("patched=%#v", patched)
+	}
+}
+
 func TestAuthoritativeZonesListsZones(t *testing.T) {
 	pdns := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet || r.URL.Path != "/api/v1/servers/localhost/zones" {

@@ -51,6 +51,7 @@
 - [x] 修复 Dashboard 仅校验 `management:read` 却返回越权 PowerDNS、插件、缓存、审计和配置数据的问题，按细粒度读取 scope 裁剪响应。
 - [x] 修复 capability 响应额外要求 `management:read`、导致仅持有合法细粒度读取 scope 的用户无法使用对应管理页面的问题；增加 PowerDNS、插件、审计、配置和缓存读取权限矩阵回归测试。
 - [x] 将 PowerDNS capability 拆分为 Authoritative 与 Recursor 后端状态；仅配置单一后端时，管理页面只启用对应的 Zone/记录管理或缓存清理操作。
+- [x] 增加结构化 SOA 编辑 API 与管理页面，支持字段级校验、显式 serial 防回退、空 serial 自动递增、审计事件和桌面端 Selenium 回归覆盖。
 
 ## 测试与验收
 
@@ -63,6 +64,7 @@
 - [x] Dashboard scope 回归测试验证仅有 `management:read` 的凭据无法读取其他功能数据。
 - [x] Capability scope 回归测试验证细粒度读取凭据只显示其可访问功能，并继续隐藏 overview 和无关功能。
 - [x] PowerDNS capability 回归测试覆盖仅 Authoritative、仅 Recursor 和旧版聚合 capability 前端兼容。
+- [x] PowerDNS SOA 回归测试覆盖 serial 自动递增、显式 serial 回退拒绝、字段边界校验和 Admin API 代理写入。
 - [x] `bash tests/acceptance/selenium-admin.sh` 验证 capability-aware 管理流程及 Unicode HNS Zone/记录增删交互。
 - [x] `bash tests/acceptance/docker-soa-tld.sh` 使用一次性 gsqlite/Recursor 拓扑验证 2 个单标签 HNS Zone（ASCII/Unicode IDNA）、apex SOA/NS、A/AAAA glue、非法子 Zone 400、Authoritative AA、递归一致性和 serial 递增，并在结束后删除测试卷。
 - [x] GitHub Actions `CI` 验证 Go test/vet/build、前端 unit/ESLint/build、shell 语法及全部隔离 Compose model（含 SOA/TLD），并上传短期构建产物。

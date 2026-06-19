@@ -38,6 +38,7 @@ import {
   visibleNavigation,
 } from "./capabilities";
 import { domainToASCII, ensureTrailingDot, normalizeZoneInput, trimTrailingDot } from "./dnsname";
+import { parseSOAContent, soaPayloadFromEditor } from "./soa";
 
 const navigation = [
   { id: "overview", capability: "overview", label: "总览", icon: Gauge },
@@ -590,6 +591,13 @@ function PowerDNSPage({ dashboard, mutate, capabilities }) {
           () => api(`/api/v1/powerdns/authoritative/zones/${encodeURIComponent(selectedZoneID)}/cryptokeys/${keyID}`, { method: "DELETE" }),
           "DNSSEC key deleted",
         ).then(() => loadZone(selectedZoneID))}
+        onSaveSOA={(payload) => mutate(
+          () => api(`/api/v1/powerdns/authoritative/zones/${encodeURIComponent(selectedZoneID)}/soa`, {
+            method: "PATCH",
+            body: JSON.stringify(payload),
+          }),
+          "SOA 与 serial 已更新",
+        ).then(() => loadZone(selectedZoneID))}
         onDelete={(rrset) => patchRRSet({
           name: rrset.name,
           type: rrset.type,
@@ -734,6 +742,7 @@ function ZoneWorkspace({
   onSave,
   onCreateCryptoKey,
   onDeleteCryptoKey,
+  onSaveSOA,
   onDelete,
   onBack,
 }) {
@@ -745,6 +754,20 @@ function ZoneWorkspace({
   const glueIPv4 = (zone?.rrsets || [])
     .find((rrset) => rrset.type === "A" && rrset.name === defaultNameserver)
     ?.records?.find((record) => !record.disabled)?.content || "";
+  const soaRRSet = useMemo(
+    () => (zone?.rrsets || []).find((rrset) => rrset.type === "SOA" && rrset.name === zoneName),
+    [zone, zoneName],
+  );
+  const soaContent = soaRRSet?.records?.find((record) => !record.disabled)?.content || "";
+  const parsedSOA = useMemo(() => parseSOAContent(soaContent, soaRRSet?.ttl), [soaContent, soaRRSet?.ttl]);
+  const [soaEditor, setSOAEditor] = useState(null);
+
+  useEffect(() => {
+    setSOAEditor(parsedSOA ? { ...parsedSOA, serial: "" } : null);
+  }, [parsedSOA]);
+
+  const updateSOAField = (name, value) => setSOAEditor((current) => ({ ...current, [name]: value }));
+
   return (
     <div className="page-stack">
       <div className="zone-workspace-head">
@@ -770,6 +793,44 @@ function ZoneWorkspace({
         <DelegationValue label="GLUE4" value={glueIPv4 ? `${defaultNameserver} ${glueIPv4}` : "未找到 ns1 A Glue 记录"} />
         <div className="delegation-test"><code>{hnsZone ? `${trimTrailingDot(displayZoneName)}.hns` : trimTrailingDot(displayZoneName)}</code><span>{hnsZone ? "通过私有 DoH 验证" : "通过权威 DNS 验证"}</span></div>
       </div>
+
+      <Panel title="SOA 与 Serial" subtitle="留空 serial 时自动递增；显式 serial 必须大于当前值">
+        {soaEditor ? (
+          <fieldset className="readonly-fieldset" disabled={!canWrite}>
+            <div className="form-grid">
+              <Field label="Primary NS">
+                <input value={soaEditor.primary_ns} onChange={(event) => updateSOAField("primary_ns", event.target.value)} />
+              </Field>
+              <Field label="Hostmaster">
+                <input value={soaEditor.hostmaster} onChange={(event) => updateSOAField("hostmaster", event.target.value)} />
+              </Field>
+              <Field label={`Serial（当前 ${parsedSOA?.serial || "-"}）`}>
+                <input type="number" min={Number(parsedSOA?.serial || 0) + 1} value={soaEditor.serial} onChange={(event) => updateSOAField("serial", event.target.value)} placeholder="自动递增" />
+              </Field>
+              <Field label="SOA TTL">
+                <input type="number" min="60" value={soaEditor.ttl} onChange={(event) => updateSOAField("ttl", event.target.value)} />
+              </Field>
+              <Field label="Refresh">
+                <input type="number" min="60" value={soaEditor.refresh} onChange={(event) => updateSOAField("refresh", event.target.value)} />
+              </Field>
+              <Field label="Retry">
+                <input type="number" min="60" value={soaEditor.retry} onChange={(event) => updateSOAField("retry", event.target.value)} />
+              </Field>
+              <Field label="Expire">
+                <input type="number" min="300" value={soaEditor.expire} onChange={(event) => updateSOAField("expire", event.target.value)} />
+              </Field>
+              <Field label="Negative TTL">
+                <input type="number" min="60" value={soaEditor.minimum} onChange={(event) => updateSOAField("minimum", event.target.value)} />
+              </Field>
+            </div>
+            <div className="record-editor-actions">
+              <button className="button primary" disabled={!canWrite} onClick={() => onSaveSOA(soaPayloadFromEditor(soaEditor))}><Save size={16} />保存 SOA</button>
+            </div>
+          </fieldset>
+        ) : (
+          <EmptyState text="当前 Zone 未返回可编辑的 SOA 记录" />
+        )}
+      </Panel>
 
       <Panel title="DNSSEC keys" subtitle="PowerDNS native key lifecycle; publish the returned DS at the parent zone">
         <div className="page-actions">

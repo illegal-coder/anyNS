@@ -129,6 +129,17 @@ type SOAConfig struct {
 	Minimum    uint32 `json:"minimum,omitempty"`
 }
 
+type SOARecord struct {
+	PrimaryNS  string `json:"primary_ns"`
+	Hostmaster string `json:"hostmaster"`
+	Serial     uint32 `json:"serial"`
+	TTL        uint32 `json:"ttl"`
+	Refresh    uint32 `json:"refresh"`
+	Retry      uint32 `json:"retry"`
+	Expire     uint32 `json:"expire"`
+	Minimum    uint32 `json:"minimum"`
+}
+
 type powerDNSCreateZoneRequest struct {
 	Name        string   `json:"name"`
 	Kind        string   `json:"kind"`
@@ -326,6 +337,73 @@ func (c *Client) PatchAuthoritativeZone(ctx context.Context, zoneID string, requ
 		request,
 		nil,
 	)
+}
+
+func (c *Client) UpdateAuthoritativeSOA(ctx context.Context, zoneID string, update SOAConfig) (SOARecord, error) {
+	zoneID, err := requiredZoneID(zoneID)
+	if err != nil {
+		return SOARecord{}, err
+	}
+	zone, err := c.AuthoritativeZone(ctx, zoneID)
+	if err != nil {
+		return SOARecord{}, err
+	}
+	current, err := zoneSOA(zone)
+	if err != nil {
+		return SOARecord{}, err
+	}
+	next := current
+	if strings.TrimSpace(update.PrimaryNS) != "" {
+		next.PrimaryNS, err = normalizeZoneName(update.PrimaryNS)
+		if err != nil {
+			return SOARecord{}, validationErrorf("soa.primary_ns is invalid: %v", err)
+		}
+	}
+	if strings.TrimSpace(update.Hostmaster) != "" {
+		next.Hostmaster, err = normalizeZoneName(update.Hostmaster)
+		if err != nil {
+			return SOARecord{}, validationErrorf("soa.hostmaster is invalid: %v", err)
+		}
+	}
+	if update.Serial != 0 {
+		if update.Serial <= current.Serial {
+			return SOARecord{}, validationErrorf("soa.serial must be greater than current serial %d", current.Serial)
+		}
+		next.Serial = update.Serial
+	} else {
+		if current.Serial == ^uint32(0) {
+			return SOARecord{}, validationErrorf("soa.serial cannot be incremented beyond %d", current.Serial)
+		}
+		next.Serial = current.Serial + 1
+	}
+	if update.TTL != 0 {
+		next.TTL = update.TTL
+	}
+	if update.Refresh != 0 {
+		next.Refresh = update.Refresh
+	}
+	if update.Retry != 0 {
+		next.Retry = update.Retry
+	}
+	if update.Expire != 0 {
+		next.Expire = update.Expire
+	}
+	if update.Minimum != 0 {
+		next.Minimum = update.Minimum
+	}
+	if err := validateSOARecord(next); err != nil {
+		return SOARecord{}, err
+	}
+	if err := c.PatchAuthoritativeZone(ctx, zoneID, PatchZoneRequest{RRSets: []RRSet{{
+		Name:       zoneID,
+		Type:       "SOA",
+		TTL:        next.TTL,
+		ChangeType: "REPLACE",
+		Records:    []Record{{Content: next.content()}},
+	}}}); err != nil {
+		return SOARecord{}, err
+	}
+	return next, nil
 }
 
 func (c *Client) AuthoritativeCryptoKeys(ctx context.Context, zoneID string) ([]CryptoKey, error) {
@@ -639,6 +717,91 @@ func initialZoneRRSets(zoneName string, nameservers []string, request CreateZone
 		})
 	}
 	return rrsets, nil
+}
+
+func zoneSOA(zone Zone) (SOARecord, error) {
+	for _, rrset := range zone.RRSets {
+		if strings.ToUpper(strings.TrimSpace(rrset.Type)) != "SOA" {
+			continue
+		}
+		if rrset.Name != zone.Name {
+			return SOARecord{}, validationErrorf("apex SOA name %s does not match zone %s", rrset.Name, zone.Name)
+		}
+		for _, record := range rrset.Records {
+			if record.Disabled {
+				continue
+			}
+			soa, err := parseSOAContent(record.Content)
+			if err != nil {
+				return SOARecord{}, err
+			}
+			soa.TTL = defaultUint32(rrset.TTL, 300)
+			return soa, nil
+		}
+	}
+	return SOARecord{}, validationErrorf("zone %s has no active apex SOA record", zone.Name)
+}
+
+func parseSOAContent(content string) (SOARecord, error) {
+	fields := strings.Fields(content)
+	if len(fields) != 7 {
+		return SOARecord{}, validationErrorf("SOA record requires seven fields")
+	}
+	primaryNS, err := normalizeZoneName(fields[0])
+	if err != nil {
+		return SOARecord{}, validationErrorf("SOA primary nameserver is invalid: %v", err)
+	}
+	hostmaster, err := normalizeZoneName(fields[1])
+	if err != nil {
+		return SOARecord{}, validationErrorf("SOA hostmaster is invalid: %v", err)
+	}
+	values := make([]uint32, 5)
+	for index, field := range fields[2:] {
+		parsed, parseErr := strconv.ParseUint(field, 10, 32)
+		if parseErr != nil {
+			return SOARecord{}, validationErrorf("SOA numeric field %d is invalid", index+3)
+		}
+		values[index] = uint32(parsed)
+	}
+	soa := SOARecord{
+		PrimaryNS:  primaryNS,
+		Hostmaster: hostmaster,
+		Serial:     values[0],
+		Refresh:    values[1],
+		Retry:      values[2],
+		Expire:     values[3],
+		Minimum:    values[4],
+	}
+	if err := validateSOARecord(soa); err != nil {
+		return SOARecord{}, err
+	}
+	return soa, nil
+}
+
+func validateSOARecord(soa SOARecord) error {
+	switch {
+	case strings.TrimSpace(soa.PrimaryNS) == "":
+		return validationErrorf("soa.primary_ns is required")
+	case strings.TrimSpace(soa.Hostmaster) == "":
+		return validationErrorf("soa.hostmaster is required")
+	case soa.Serial == 0:
+		return validationErrorf("soa.serial must be greater than zero")
+	case soa.TTL != 0 && soa.TTL < 60:
+		return validationErrorf("soa.ttl must be at least 60 seconds")
+	case soa.Refresh < 60:
+		return validationErrorf("soa.refresh must be at least 60 seconds")
+	case soa.Retry < 60:
+		return validationErrorf("soa.retry must be at least 60 seconds")
+	case soa.Expire < 300:
+		return validationErrorf("soa.expire must be at least 300 seconds")
+	case soa.Minimum < 60:
+		return validationErrorf("soa.minimum must be at least 60 seconds")
+	}
+	return nil
+}
+
+func (s SOARecord) content() string {
+	return fmt.Sprintf("%s %s %d %d %d %d %d", s.PrimaryNS, s.Hostmaster, s.Serial, s.Refresh, s.Retry, s.Expire, s.Minimum)
 }
 
 func normalizeRecordContent(recordType, content string) (string, error) {

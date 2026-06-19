@@ -136,6 +136,7 @@ func (h *Handler) capabilities(w http.ResponseWriter, r *http.Request) {
 			httpapi.ScopePowerDNSRead, httpapi.ScopePowerDNSWrite, authoritativeConfigured, true,
 			"POST /api/v1/powerdns/authoritative/zones",
 			"GET /api/v1/powerdns/authoritative/zones/{id}",
+			"PATCH /api/v1/powerdns/authoritative/zones/{id}/soa",
 			"PATCH /api/v1/powerdns/authoritative/zones/{id}/rrsets",
 			"GET /api/v1/powerdns/authoritative/zones/{id}/cryptokeys",
 			"POST /api/v1/powerdns/authoritative/zones/{id}/cryptokeys",
@@ -621,6 +622,10 @@ func (h *Handler) authoritativeZone(w http.ResponseWriter, r *http.Request) {
 		h.deriveDS(w, r, current, strings.TrimSuffix(rawID, "/derive-ds"))
 		return
 	}
+	isSOARequest := strings.HasSuffix(rawID, "/soa")
+	if isSOARequest {
+		rawID = strings.TrimSuffix(rawID, "/soa")
+	}
 	isRRSetRequest := strings.HasSuffix(rawID, "/rrsets")
 	if isRRSetRequest {
 		rawID = strings.TrimSuffix(rawID, "/rrsets")
@@ -628,6 +633,33 @@ func (h *Handler) authoritativeZone(w http.ResponseWriter, r *http.Request) {
 	zoneID, err := url.PathUnescape(rawID)
 	if err != nil || strings.TrimSpace(zoneID) == "" {
 		httpapi.Error(w, http.StatusBadRequest, "zone id is required")
+		return
+	}
+
+	if isSOARequest {
+		if r.Method != http.MethodPatch {
+			httpapi.Error(w, http.StatusMethodNotAllowed, "method not allowed")
+			return
+		}
+		principal, ok := httpapi.RequireScopePrincipal(w, r, current, httpapi.ScopePowerDNSWrite)
+		if !ok {
+			return
+		}
+		var request powerdns.SOAConfig
+		if err := httpapi.DecodeJSON(r, &request); err != nil {
+			httpapi.Error(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		soa, err := powerdns.New(current.PowerDNS).UpdateAuthoritativeSOA(r.Context(), zoneID, request)
+		if err != nil {
+			httpapi.Error(w, powerDNSErrorStatus(err), err.Error())
+			return
+		}
+		h.application.AppendManagementAudit("powerdns.soa.update", principal.ID, r.Method, r.URL.Path, "ok", map[string]any{
+			"zone_id": zoneID,
+			"serial":  soa.Serial,
+		})
+		httpapi.WriteJSON(w, http.StatusOK, soa)
 		return
 	}
 

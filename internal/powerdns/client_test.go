@@ -211,6 +211,60 @@ func TestReadAndPatchAuthoritativeZone(t *testing.T) {
 	}
 }
 
+func TestUpdateAuthoritativeSOAIncrementsSerialAndValidates(t *testing.T) {
+	var patched PatchZoneRequest
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case http.MethodGet:
+			_ = json.NewEncoder(w).Encode(Zone{
+				ID:   "example.",
+				Name: "example.",
+				RRSets: []RRSet{{
+					Name: "example.",
+					Type: "SOA",
+					TTL:  300,
+					Records: []Record{{
+						Content: "ns1.example. hostmaster.example. 42 3600 600 86400 300",
+					}},
+				}},
+			})
+		case http.MethodPatch:
+			if err := json.NewDecoder(r.Body).Decode(&patched); err != nil {
+				t.Fatalf("decode patch: %v", err)
+			}
+			w.WriteHeader(http.StatusNoContent)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	cfg := config.Default().PowerDNS
+	cfg.AuthoritativeURL = server.URL
+	client := NewWithHTTPClient(cfg, server.Client())
+
+	soa, err := client.UpdateAuthoritativeSOA(context.Background(), "example.", SOAConfig{Refresh: 7200})
+	if err != nil {
+		t.Fatalf("update SOA: %v", err)
+	}
+	if soa.Serial != 43 || soa.Refresh != 7200 {
+		t.Fatalf("soa=%#v", soa)
+	}
+	if len(patched.RRSets) != 1 ||
+		patched.RRSets[0].Name != "example." ||
+		patched.RRSets[0].Type != "SOA" ||
+		patched.RRSets[0].Records[0].Content != "ns1.example. hostmaster.example. 43 7200 600 86400 300" {
+		t.Fatalf("patched=%#v", patched)
+	}
+
+	if _, err := client.UpdateAuthoritativeSOA(context.Background(), "example.", SOAConfig{Serial: 42}); !IsValidationError(err) {
+		t.Fatalf("expected validation error for serial rollback, got %v", err)
+	}
+	if _, err := client.UpdateAuthoritativeSOA(context.Background(), "example.", SOAConfig{Retry: 1}); !IsValidationError(err) {
+		t.Fatalf("expected validation error for retry boundary, got %v", err)
+	}
+}
+
 func TestPatchAuthoritativeZoneNormalizesUnicodeOwnerAndTarget(t *testing.T) {
 	var patched PatchZoneRequest
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
