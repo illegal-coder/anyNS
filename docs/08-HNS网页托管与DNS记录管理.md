@@ -12,8 +12,9 @@
 
 1. 在 `添加托管域名` 中选择 `HNS 域名`。
 2. 在 `HNS 名称` 中输入链上名称本体，例如 `example`。
-   - 不要输入 `example.hns`。
-   - 网页会创建 PowerDNS Zone `example.`。
+   - 可以粘贴 `example.hns` 或 `example.hsd`，网页和 API 会去掉显示后缀。
+   - PowerDNS Zone 主键始终是真实单标签顶级区，例如 `example.`。
+   - 不要把 `www.example` 这类子域当作 HNS 托管 Zone 创建；子域应作为记录写入 `example.`。
 3. 检查自动生成的 Nameserver，例如 `ns1.example.`。
 4. 检查 Glue IPv4，并填写实际权威 DNS 公网地址；文档示例使用 `192.0.2.53`。
 5. 点击 `添加域名`。
@@ -25,7 +26,9 @@ NS     ns1.example.
 GLUE4  ns1.example. 192.0.2.53
 ```
 
-链上更新确认后，客户端使用 `example.hns` 通过 anyNS 私有 DoH 解析。不要向网页或服务器提交钱包私钥。
+链上更新确认后，客户端可以使用 `example.hns` 或 `example.hsd` 作为面向用户的
+显示/输入别名。anyNS 在写入 PowerDNS 和查询 hnsd 风格后端时会转换为真实顶级
+名称 `example.`；`.hns` 不是公开 DNS 中的父 Zone。不要向网页或服务器提交钱包私钥。
 
 ## 管理 DNS 记录
 
@@ -66,14 +69,30 @@ TXT 输入不需要手工添加最外层引号，网页保存时会按 PowerDNS 
 - SOA 记录由 PowerDNS 维护，网页禁止删除。
 - 未在编辑器支持列表中的原始记录类型保持只读显示，避免错误改写。
 
-## 验证
+## 验证与访问边界
 
 HNS Zone 详情会显示需要发布的 `NS`、`GLUE4` 和对应的 `<name>.hns` 测试名称。
+权威 DNS 查询应直接验证单标签顶级区：
 
-私有 DoH URL 保存在服务器：
+```bash
+AUTH_DNS="192.0.2.53"
+dig @"$AUTH_DNS" example. SOA
+dig @"$AUTH_DNS" example. NS
+dig @"$AUTH_DNS" ns1.example. A
+```
+
+私有 DoH 地址和访问凭据由部署方通过受控渠道交付，必须保存在仓库和公开文档
+之外。本文不记录服务器本地凭据路径、反向代理拓扑或任何密钥位置。
 
 ```text
-/root/anyns-public-dns/doh-credentials
+https://<private-doh-endpoint>/dns-query
 ```
 
 公网权威地址的 `53/udp` 和 `53/tcp` 只提供权威 DNS 并拒绝递归查询。递归 ICANN 和 HNS 查询必须使用受控递归服务或私有 DoH。
+
+自动化证据：
+
+- `bash tests/acceptance/docker-soa-tld.sh` 验证 `example.hns` 创建后实际
+  PowerDNS Zone 为 `example.`，Unicode `灵.hns` 存储为 `xn--5nx.` 并保留
+  `unicode_name`，非法子 Zone `www.example` 返回 `400`，Authoritative 和
+  Recursor 均能返回一致的 SOA/NS/glue，SOA serial 在记录更新后递增。
