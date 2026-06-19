@@ -10,6 +10,7 @@ import (
 	"crypto/sha256"
 	"crypto/x509"
 	"crypto/x509/pkix"
+	"encoding/json"
 	"encoding/pem"
 	"errors"
 	"fmt"
@@ -22,8 +23,9 @@ import (
 )
 
 const (
-	privateRootKeyFile  = "root-key.pem"
-	privateRootCertFile = "root-cert.pem"
+	privateRootKeyFile   = "root-key.pem"
+	privateRootCertFile  = "root-cert.pem"
+	privateRootStateFile = "root-state.json"
 )
 
 type PrivateRootIssuer struct {
@@ -34,23 +36,32 @@ type PrivateRootIssuer struct {
 }
 
 type PrivateRootMetadata struct {
-	IssuerMode        string    `json:"issuer_mode"`
-	Subject           string    `json:"subject"`
-	Issuer            string    `json:"issuer"`
-	SerialNumber      string    `json:"serial_number"`
-	NotBefore         time.Time `json:"not_before"`
-	NotAfter          time.Time `json:"not_after"`
-	SHA256Fingerprint string    `json:"sha256_fingerprint"`
-	SubjectKeyID      string    `json:"subject_key_id,omitempty"`
-	AuthorityKeyID    string    `json:"authority_key_id,omitempty"`
-	IsCA              bool      `json:"is_ca"`
-	KeyUsage          []string  `json:"key_usage"`
-	RootKeyPresent    bool      `json:"root_key_present"`
-	RootKeyMode       string    `json:"root_key_mode,omitempty"`
+	IssuerMode        string     `json:"issuer_mode"`
+	Subject           string     `json:"subject"`
+	Issuer            string     `json:"issuer"`
+	SerialNumber      string     `json:"serial_number"`
+	NotBefore         time.Time  `json:"not_before"`
+	NotAfter          time.Time  `json:"not_after"`
+	SHA256Fingerprint string     `json:"sha256_fingerprint"`
+	SubjectKeyID      string     `json:"subject_key_id,omitempty"`
+	AuthorityKeyID    string     `json:"authority_key_id,omitempty"`
+	IsCA              bool       `json:"is_ca"`
+	KeyUsage          []string   `json:"key_usage"`
+	RootKeyPresent    bool       `json:"root_key_present"`
+	RootKeyMode       string     `json:"root_key_mode,omitempty"`
+	Disabled          bool       `json:"disabled"`
+	DisabledAt        *time.Time `json:"disabled_at,omitempty"`
+	UpdatedAt         *time.Time `json:"updated_at,omitempty"`
+}
+
+type privateRootState struct {
+	Disabled   bool       `json:"disabled"`
+	DisabledAt *time.Time `json:"disabled_at,omitempty"`
+	UpdatedAt  time.Time  `json:"updated_at"`
 }
 
 func NewPrivateRootIssuer(cfg config.CertificatesConfig) (*PrivateRootIssuer, error) {
-	rootDir := filepath.Join(cfg.StorageDir, "private-ca")
+	rootDir := privateRootDir(cfg)
 	if err := os.MkdirAll(rootDir, 0o700); err != nil {
 		return nil, fmt.Errorf("create private CA storage: %w", err)
 	}
@@ -71,7 +82,7 @@ func NewPrivateRootIssuer(cfg config.CertificatesConfig) (*PrivateRootIssuer, er
 }
 
 func PrivateRootMetadataForConfig(cfg config.CertificatesConfig) (PrivateRootMetadata, error) {
-	rootDir := filepath.Join(cfg.StorageDir, "private-ca")
+	rootDir := privateRootDir(cfg)
 	rootKeyPath := filepath.Join(rootDir, privateRootKeyFile)
 	rootCertPath := filepath.Join(rootDir, privateRootCertFile)
 	certBody, err := os.ReadFile(rootCertPath)
@@ -92,7 +103,36 @@ func PrivateRootMetadataForConfig(cfg config.CertificatesConfig) (PrivateRootMet
 	} else if !errors.Is(statErr, os.ErrNotExist) {
 		return PrivateRootMetadata{}, errors.New("private CA root key status cannot be read")
 	}
+	state, err := loadPrivateRootState(cfg)
+	if err != nil {
+		return PrivateRootMetadata{}, err
+	}
+	metadata.Disabled = state.Disabled
+	metadata.DisabledAt = state.DisabledAt
+	if !state.UpdatedAt.IsZero() {
+		updatedAt := state.UpdatedAt
+		metadata.UpdatedAt = &updatedAt
+	}
 	return metadata, nil
+}
+
+func SetPrivateRootDisabled(cfg config.CertificatesConfig, disabled bool) (PrivateRootMetadata, error) {
+	if _, err := PrivateRootMetadataForConfig(cfg); err != nil {
+		return PrivateRootMetadata{}, err
+	}
+	now := time.Now().UTC()
+	state := privateRootState{Disabled: disabled, UpdatedAt: now}
+	if disabled {
+		state.DisabledAt = &now
+	}
+	body, err := json.MarshalIndent(state, "", "  ")
+	if err != nil {
+		return PrivateRootMetadata{}, err
+	}
+	if err := atomicWrite(filepath.Join(privateRootDir(cfg), privateRootStateFile), append(body, '\n'), 0o600); err != nil {
+		return PrivateRootMetadata{}, errors.New("private CA root state cannot be written")
+	}
+	return PrivateRootMetadataForConfig(cfg)
 }
 
 func (i *PrivateRootIssuer) Issue(ctx context.Context, domains []string, state func(string)) (IssueOutput, error) {
@@ -103,6 +143,13 @@ func (i *PrivateRootIssuer) Issue(ctx context.Context, domains []string, state f
 	}
 	if len(domains) == 0 {
 		return IssueOutput{}, errors.New("at least one DNS name is required")
+	}
+	rootState, err := loadPrivateRootState(i.cfg)
+	if err != nil {
+		return IssueOutput{}, err
+	}
+	if rootState.Disabled {
+		return IssueOutput{}, errors.New("private CA root is disabled")
 	}
 	if state != nil {
 		state(StatusFinalizing)
@@ -154,6 +201,25 @@ func (i *PrivateRootIssuer) Issue(ctx context.Context, domains []string, state f
 		NotBefore:      notBefore,
 		NotAfter:       notAfter,
 	}, nil
+}
+
+func privateRootDir(cfg config.CertificatesConfig) string {
+	return filepath.Join(cfg.StorageDir, "private-ca")
+}
+
+func loadPrivateRootState(cfg config.CertificatesConfig) (privateRootState, error) {
+	body, err := os.ReadFile(filepath.Join(privateRootDir(cfg), privateRootStateFile))
+	if errors.Is(err, os.ErrNotExist) {
+		return privateRootState{}, nil
+	}
+	if err != nil {
+		return privateRootState{}, errors.New("private CA root state cannot be read")
+	}
+	var state privateRootState
+	if err := json.Unmarshal(body, &state); err != nil {
+		return privateRootState{}, errors.New("private CA root state is invalid")
+	}
+	return state, nil
 }
 
 func (i *PrivateRootIssuer) Revoke(context.Context, []byte) error {

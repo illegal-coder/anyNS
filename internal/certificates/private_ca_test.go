@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 	"time"
 
@@ -133,6 +134,41 @@ func TestPrivateRootMetadataExcludesPEMAndKeyMaterial(t *testing.T) {
 	}
 	if bytes.Contains(body, []byte("BEGIN ")) || bytes.Contains(body, []byte("PRIVATE KEY")) {
 		t.Fatalf("metadata leaked PEM/key material: %s", body)
+	}
+}
+
+func TestPrivateRootDisableBlocksIssuanceAndPersists(t *testing.T) {
+	cfg := config.CertificatesConfig{StorageDir: t.TempDir()}
+	issuer, err := NewPrivateRootIssuer(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	metadata, err := SetPrivateRootDisabled(cfg, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !metadata.Disabled || metadata.DisabledAt == nil || metadata.UpdatedAt == nil {
+		t.Fatalf("disabled metadata=%+v", metadata)
+	}
+	if _, err := issuer.Issue(context.Background(), []string{"blocked.example"}, nil); err == nil || !strings.Contains(err.Error(), "disabled") {
+		t.Fatalf("disabled issue err=%v", err)
+	}
+	reloaded, err := NewPrivateRootIssuer(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := reloaded.Issue(context.Background(), []string{"still-blocked.example"}, nil); err == nil || !strings.Contains(err.Error(), "disabled") {
+		t.Fatalf("reloaded disabled issue err=%v", err)
+	}
+	metadata, err = SetPrivateRootDisabled(cfg, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if metadata.Disabled || metadata.DisabledAt != nil {
+		t.Fatalf("enabled metadata=%+v", metadata)
+	}
+	if _, err := reloaded.Issue(context.Background(), []string{"allowed.example"}, nil); err != nil {
+		t.Fatalf("enabled issue: %v", err)
 	}
 }
 

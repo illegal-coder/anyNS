@@ -296,15 +296,87 @@ func TestPrivateCACertificateOrderUsesLocalIssuer(t *testing.T) {
 		RootKeyPresent    bool     `json:"root_key_present"`
 		RootKeyMode       string   `json:"root_key_mode"`
 		KeyUsage          []string `json:"key_usage"`
+		Disabled          bool     `json:"disabled"`
 	}
 	if err := json.Unmarshal(rec.Body.Bytes(), &metadata); err != nil {
 		t.Fatalf("decode root metadata: %v", err)
 	}
-	if metadata.IssuerMode != "private-ca" || metadata.SHA256Fingerprint == "" || !metadata.RootKeyPresent || metadata.RootKeyMode != "0600" {
+	if metadata.IssuerMode != "private-ca" || metadata.SHA256Fingerprint == "" || !metadata.RootKeyPresent || metadata.RootKeyMode != "0600" || metadata.Disabled {
 		t.Fatalf("metadata=%+v", metadata)
 	}
 	if strings.Contains(rec.Body.String(), "PRIVATE KEY") || strings.Contains(rec.Body.String(), "BEGIN ") {
 		t.Fatalf("root metadata leaked key or PEM material: %s", rec.Body.String())
+	}
+
+	rec = httptest.NewRecorder()
+	mux.ServeHTTP(rec, httptest.NewRequest(http.MethodPatch, "/api/v1/certificates/private-ca/root", strings.NewReader(`{"disabled":true}`)))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("disable root status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &metadata); err != nil {
+		t.Fatalf("decode disabled metadata: %v", err)
+	}
+	if !metadata.Disabled {
+		t.Fatalf("disabled metadata=%+v", metadata)
+	}
+
+	rec = httptest.NewRecorder()
+	body = `{"domains":["blocked.example"],"idempotency_key":"private-ca-disabled"}`
+	mux.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/v1/certificates/orders", strings.NewReader(body)))
+	if rec.Code != http.StatusAccepted {
+		t.Fatalf("disabled order status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	var disabledJob struct {
+		ID string `json:"id"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &disabledJob); err != nil {
+		t.Fatalf("decode disabled job: %v", err)
+	}
+	deadline = time.Now().Add(5 * time.Second)
+	var disabledStatus struct {
+		Status string `json:"status"`
+		Error  string `json:"error"`
+	}
+	for time.Now().Before(deadline) {
+		rec = httptest.NewRecorder()
+		mux.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/v1/certificates/orders/"+disabledJob.ID, nil))
+		if rec.Code != http.StatusOK {
+			t.Fatalf("disabled job status=%d body=%s", rec.Code, rec.Body.String())
+		}
+		if err := json.Unmarshal(rec.Body.Bytes(), &disabledStatus); err != nil {
+			t.Fatalf("decode disabled current job: %v", err)
+		}
+		if disabledStatus.Status == "failed" {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if disabledStatus.Status != "failed" || !strings.Contains(disabledStatus.Error, "disabled") {
+		t.Fatalf("disabled job=%+v", disabledStatus)
+	}
+
+	rec = httptest.NewRecorder()
+	mux.ServeHTTP(rec, httptest.NewRequest(http.MethodPatch, "/api/v1/certificates/private-ca/root", strings.NewReader(`{"disabled":false}`)))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("enable root status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &metadata); err != nil {
+		t.Fatalf("decode enabled metadata: %v", err)
+	}
+	if metadata.Disabled {
+		t.Fatalf("enabled metadata=%+v", metadata)
+	}
+
+	events := application.DNSLog.List(10)
+	auditBody, err := json.Marshal(events)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(auditBody), "certificate.private_ca.root.update") {
+		t.Fatalf("audit event missing: %s", auditBody)
+	}
+	if strings.Contains(string(auditBody), "PRIVATE KEY") || strings.Contains(string(auditBody), "BEGIN ") {
+		t.Fatalf("audit leaked key material: %s", auditBody)
 	}
 }
 

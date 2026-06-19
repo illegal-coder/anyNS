@@ -169,6 +169,7 @@ func (h *Handler) capabilities(w http.ResponseWriter, r *http.Request) {
 			"POST /api/v1/certificates/orders/{id}/renew",
 			"POST /api/v1/certificates/orders/{id}/revoke",
 			"GET /api/v1/certificates/private-ca/root",
+			"PATCH /api/v1/certificates/private-ca/root",
 			"POST /api/v1/certificates/tlsa",
 		),
 		"plugins": feature(
@@ -398,13 +399,6 @@ func (h *Handler) certificateOrder(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) certificatePrivateCARoot(w http.ResponseWriter, r *http.Request) {
 	current := *h.cfg
-	if r.Method != http.MethodGet {
-		httpapi.Error(w, http.StatusMethodNotAllowed, "method not allowed")
-		return
-	}
-	if !httpapi.RequireScope(w, r, current, httpapi.ScopeCertificatesRead) {
-		return
-	}
 	if strings.TrimSpace(current.Certificates.IssuerMode) != "private-ca" {
 		httpapi.Error(w, http.StatusNotFound, "private CA root is not configured")
 		return
@@ -413,12 +407,46 @@ func (h *Handler) certificatePrivateCARoot(w http.ResponseWriter, r *http.Reques
 		httpapi.Error(w, http.StatusServiceUnavailable, h.certificateUnavailable())
 		return
 	}
-	metadata, err := certificates.PrivateRootMetadataForConfig(current.Certificates)
-	if err != nil {
-		httpapi.Error(w, http.StatusServiceUnavailable, err.Error())
-		return
+	switch r.Method {
+	case http.MethodGet:
+		if !httpapi.RequireScope(w, r, current, httpapi.ScopeCertificatesRead) {
+			return
+		}
+		metadata, err := certificates.PrivateRootMetadataForConfig(current.Certificates)
+		if err != nil {
+			httpapi.Error(w, http.StatusServiceUnavailable, err.Error())
+			return
+		}
+		httpapi.WriteJSON(w, http.StatusOK, metadata)
+	case http.MethodPatch:
+		principal, ok := httpapi.RequireScopePrincipal(w, r, current, httpapi.ScopeCertificatesWrite)
+		if !ok {
+			return
+		}
+		var request struct {
+			Disabled *bool `json:"disabled"`
+		}
+		if err := httpapi.DecodeJSON(r, &request); err != nil {
+			httpapi.Error(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		if request.Disabled == nil {
+			httpapi.Error(w, http.StatusBadRequest, "disabled is required")
+			return
+		}
+		metadata, err := certificates.SetPrivateRootDisabled(current.Certificates, *request.Disabled)
+		if err != nil {
+			httpapi.Error(w, http.StatusServiceUnavailable, err.Error())
+			return
+		}
+		h.application.AppendManagementAudit("certificate.private_ca.root.update", principal.ID, r.Method, r.URL.Path, "ok", map[string]any{
+			"disabled":           metadata.Disabled,
+			"sha256_fingerprint": metadata.SHA256Fingerprint,
+		})
+		httpapi.WriteJSON(w, http.StatusOK, metadata)
+	default:
+		httpapi.Error(w, http.StatusMethodNotAllowed, "method not allowed")
 	}
-	httpapi.WriteJSON(w, http.StatusOK, metadata)
 }
 
 func (h *Handler) certificateTLSA(w http.ResponseWriter, r *http.Request) {

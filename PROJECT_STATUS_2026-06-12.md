@@ -54,6 +54,7 @@
 - [x] 增加结构化 SOA 编辑 API 与管理页面，支持字段级校验、显式 serial 防回退、空 serial 自动递增、审计事件和桌面端 Selenium 回归覆盖。
 - [x] 增加 `private-ca` 证书 issuer mode，与 ACME DNS-01 显式分离；本地私有根 CA 使用 Go `crypto/x509` clean-room 生成/加载并签发 serverAuth 叶证书链。
 - [x] 增加 `GET /api/v1/certificates/private-ca/root` 元数据 API，仅返回私有根 CA subject、serial、有效期、SHA-256 指纹、SKI/AKI、KeyUsage 和根私钥权限状态，不返回 PEM 或私钥。
+- [x] 增加 `PATCH /api/v1/certificates/private-ca/root` 生命周期控制，支持禁用/启用私有根 CA；禁用状态持久化并阻止新的 private-ca 叶证书签发。
 
 ## 测试与验收
 
@@ -69,6 +70,7 @@
 - [x] PowerDNS SOA 回归测试覆盖 serial 自动递增、显式 serial 回退拒绝、字段边界校验和 Admin API 代理写入。
 - [x] Private CA 回归测试覆盖根 CA BasicConstraints/KeyUsage/SKI-AKI、根私钥 `0600`、根加载复用、叶证书 SAN/serverAuth/非 CA 约束，以及 Admin API 证书下载不返回私钥。
 - [x] Private CA root metadata 回归测试覆盖 package/API 两层输出，验证指纹、KeyUsage、根私钥权限状态，并断言不含 PEM 或 private key material。
+- [x] Private CA root disable 回归测试覆盖禁用状态持久化、禁用后签发失败、重新启用后恢复签发，以及管理审计不包含 PEM 或私钥。
 - [x] `bash tests/acceptance/private-ca-certificates.sh` 使用隔离 Compose profile 验证 private CA Admin 镜像构建、叶证书签发、证书链校验、证书下载私钥非披露、根/叶私钥权限、重启持久化和容器内备份恢复。
 - [x] `bash tests/acceptance/private-ca-certificates.sh` 现扩展验证 private CA 证书清单、有效期窗口、TLSA 生成不发布、强制续期与 `renewal_of`、原证书吊销、吊销后禁止续期、吊销证书下载私钥非披露，以及重启和备份恢复后的状态持久化。
 - [x] `bash tests/acceptance/selenium-admin.sh` 验证 capability-aware 管理流程及 Unicode HNS Zone/记录增删交互。
