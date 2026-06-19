@@ -9,6 +9,7 @@
 - [x] 采用 clean-room 方式重写 certy 类功能，不复制 `eskimo/certy` 源码或 PKI.js。
 - [x] 将 Cloudflare 风格的 Zone/DNS/SOA/DNSSEC/SSL-TLS 工作流列为 P1。
 - [x] 增加 GitHub Actions 快速门禁规划，覆盖 Go、前端、shell 与 Compose model。
+- [x] GitHub Actions 快速门禁已在 `main` 连续通过，并固定第三方 Action SHA、显式缓存依赖和 7 天构建产物保留期。
 - [ ] 完成 SOA/TLD 全链路测试矩阵。
 - [ ] 完成 private-ca 根证书生命周期、叶证书签发和安全测试。
 - [ ] 完成 DNS/SSL 控制面组件拆分和浏览器验收。
@@ -64,6 +65,7 @@
 - [x] PowerDNS capability 回归测试覆盖仅 Authoritative、仅 Recursor 和旧版聚合 capability 前端兼容。
 - [x] `bash tests/acceptance/selenium-admin.sh` 验证 capability-aware 管理流程及 Unicode HNS Zone/记录增删交互。
 - [x] `bash tests/acceptance/docker-soa-tld.sh` 使用一次性 gsqlite/Recursor 拓扑验证 2 个单标签 HNS Zone（ASCII/Unicode IDNA）、apex SOA/NS、A/AAAA glue、非法子 Zone 400、Authoritative AA、递归一致性和 serial 递增，并在结束后删除测试卷。
+- [x] GitHub Actions `CI` 验证 Go test/vet/build、前端 unit/ESLint/build、shell 语法及全部隔离 Compose model（含 SOA/TLD），并上传短期构建产物。
 - [ ] 服务器当前仅提供 `go1.18 gccgo`；`go test -race -buildvcs=false ./internal/adminapi` 在生成 `testmain` 时失败为 `package testmain: cannot find package`，尚需使用标准 gc Go 工具链补跑 race gate。
 - [x] `docker compose config --quiet`
 - [x] `bash tests/acceptance/docker-gpgsql-backup-restore.sh` 验证 gpgsql 空库初始化、健康检查、DNS 查询、逻辑备份、数据变更和恢复。

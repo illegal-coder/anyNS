@@ -18,11 +18,12 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
         with:
           go-version-file: go.mod
           cache: true
+          cache-dependency-path: go.sum
       - name: Test
         run: go test -buildvcs=false ./...
       - name: Vet
@@ -37,11 +38,12 @@ jobs:
           go build -buildvcs=false -trimpath -o artifacts/anyns-log-forwarder ./cmd/anyns-log-forwarder
           go build -buildvcs=false -trimpath -o artifacts/anyns-config-check ./cmd/anyns-config-check
           go build -buildvcs=false -trimpath -o artifacts/anyns-management-key ./cmd/anyns-management-key
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: anyns-linux-amd64
           path: artifacts/
           if-no-files-found: error
+          retention-days: 7
 
   frontend:
     name: Frontend test, lint, and build
@@ -51,8 +53,8 @@ jobs:
       run:
         working-directory: web/admin
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: "22"
           cache: npm
@@ -61,18 +63,19 @@ jobs:
       - run: npm test
       - run: npm run check
       - run: npm run build
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: anyns-admin-web
           path: internal/adminui/dist/
           if-no-files-found: error
+          retention-days: 7
 
   configuration:
     name: Configuration and shell validation
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
       - name: Validate tracked shell scripts
         run: git ls-files '*.sh' -z | xargs -0 -r -n1 bash -n
       - name: Validate Compose models
@@ -89,3 +92,4 @@ jobs:
           docker compose -f tests/docker/compose.decentralized-certificates.yml config --quiet
           docker compose -f tests/docker/compose.hnsd.yml config --quiet
           docker compose -f tests/docker/compose.dns-integration.yml -f tests/docker/compose.selenium.yml config --quiet
+          docker compose -f tests/docker/compose.dns-integration.yml -f tests/docker/compose.soa-tld.yml config --quiet
