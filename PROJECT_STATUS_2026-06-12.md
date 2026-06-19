@@ -68,6 +68,8 @@
 - [x] `bash tests/acceptance/selenium-admin.sh` 验证 capability-aware 管理流程及 Unicode HNS Zone/记录增删交互。
 - [x] `bash tests/acceptance/selenium-admin.sh` 现包含移动端 HNS 单标签 Zone 创建、SOA Refresh 修改、SOA 记录表刷新和测试 Zone 清理恢复。
 - [x] `bash tests/acceptance/docker-soa-tld.sh` 使用一次性 gsqlite/Recursor 拓扑验证 2 个单标签 HNS Zone（ASCII/Unicode IDNA）、apex SOA/NS、A/AAAA glue、非法子 Zone 400、Authoritative AA、递归一致性和 serial 递增，并在结束后删除测试卷。
+- [x] `bash tests/acceptance/docker-soa-tld.sh` 现扩展验证 `example.` 单标签 TLD 经 BIND 明文 DNS、DoT 和 DoH 的 SOA 响应，且错误 DoT 证书主机名会被拒绝。
+- [x] `bash tests/acceptance/docker-hnsd-integration.sh` 默认 no-live 模式验证 hnsd/Recursor/BIND DoT/DoH profile model；live hnsd 运行仍需显式 `ANYNS_RUN_DOCKER_HNSD_INTEGRATION=1`。
 - [x] GitHub Actions `CI` 验证 Go test/vet/build、前端 unit/ESLint/build、shell 语法及全部隔离 Compose model（含 SOA/TLD），并上传短期构建产物。
 - [ ] 服务器当前仅提供 `go1.18 gccgo`；`go test -race -buildvcs=false ./internal/adminapi` 在生成 `testmain` 时失败为 `package testmain: cannot find package`，尚需使用标准 gc Go 工具链补跑 race gate。
 - [x] `docker compose config --quiet`

@@ -6,6 +6,7 @@ COMPOSE_FILE="$ROOT/tests/docker/compose.hnsd.yml"
 INTEGRATION_CONFIG="$ROOT/tests/docker/anyns-hnsd-config.json"
 PROJECT="${ANYNS_DOCKER_HNSD_PROJECT:-anyns-hnsd-integration}"
 TEST_QNAME="${ANYNS_HNSD_TEST_QNAME:-example.hns}"
+BACKEND_QNAME="${ANYNS_HNSD_BACKEND_QNAME:-example.}"
 
 cd "$ROOT"
 
@@ -45,16 +46,14 @@ tools() {
   docker compose -p "$PROJECT" -f "$COMPOSE_FILE" exec -T dns-tools sh -lc "$*"
 }
 
-tools 'apk add --no-cache bind-tools curl >/dev/null'
-
 for _ in $(seq 1 90); do
-  if tools 'curl -fsS http://anyns-plugin-runtime:8081/healthz >/dev/null' >/dev/null 2>&1; then
+  if tools 'curl -fsS http://anyns-plugin-runtime:8081/healthz >/dev/null && dig +time=1 +tries=1 @bind-latest version.bind TXT CH >/dev/null' >/dev/null 2>&1; then
     break
   fi
   sleep 1
 done
 
-if ! tools 'curl -fsS http://anyns-plugin-runtime:8081/healthz >/dev/null'; then
+if ! tools 'curl -fsS http://anyns-plugin-runtime:8081/healthz >/dev/null && dig +time=1 +tries=1 @bind-latest version.bind TXT CH >/dev/null'; then
   echo "FAIL: anyns runtime did not become healthy"
   docker compose -p "$PROJECT" -f "$COMPOSE_FILE" logs --no-color anyns-plugin-runtime hnsd pdns-recursor bind-latest || true
   exit 1
@@ -62,10 +61,16 @@ fi
 
 tools 'curl -fsS -X POST http://anyns-plugin-runtime:8081/api/v1/resolve -H "Content-Type: application/json" -d "{\"qname\":\"'"$TEST_QNAME"'\",\"qtype\":\"A\",\"context\":{\"trace_id\":\"docker-hnsd-live\",\"client_view\":\"default\",\"tenant\":\"default\"}}" | tee /tmp/runtime-hnsd.json'
 tools 'grep -q "\"source_plugin\":\"hns\"" /tmp/runtime-hnsd.json'
-tools 'grep -q "\"backend_query_name\"" /tmp/runtime-hnsd.json'
+tools 'grep -q "\"backend_query_name\":\"'"$BACKEND_QNAME"'\"" /tmp/runtime-hnsd.json'
 tools '! grep -q "static-hns-fixture" /tmp/runtime-hnsd.json'
 
 tools 'dig +time=3 +tries=1 @pdns-recursor '"$TEST_QNAME"' A | tee /tmp/pdns-hnsd.txt'
 tools 'grep -Eq "status: NOERROR|status: NXDOMAIN|status: SERVFAIL" /tmp/pdns-hnsd.txt'
+tools 'dig +time=3 +tries=1 @bind-latest '"$TEST_QNAME"' A | tee /tmp/bind-hnsd.txt'
+tools 'grep -Eq "status: NOERROR|status: NXDOMAIN|status: SERVFAIL" /tmp/bind-hnsd.txt'
+tools 'kdig -p 853 +tls-ca=/certs/ca.crt +tls-hostname=bind-latest @bind-latest '"$TEST_QNAME"' A | tee /tmp/bind-dot-hnsd.txt'
+tools 'grep -Eq "status: NOERROR|status: NXDOMAIN|status: SERVFAIL" /tmp/bind-dot-hnsd.txt'
+tools 'kdig +https=/dns-query +tls-ca=/certs/ca.crt +tls-hostname=bind-latest @bind-latest '"$TEST_QNAME"' A | tee /tmp/bind-doh-hnsd.txt'
+tools 'grep -Eq "status: NOERROR|status: NXDOMAIN|status: SERVFAIL" /tmp/bind-doh-hnsd.txt'
 
 echo "docker hnsd integration passed"

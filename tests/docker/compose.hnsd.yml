@@ -1,6 +1,15 @@
 name: anyns-hnsd-integration
 
 services:
+  bind-certgen:
+    build:
+      context: ./certgen
+    image: anyns/bind-certgen:hnsd-integration
+    volumes:
+      - bind-test-certs:/certs
+    networks:
+      - dnsnet
+
   anyns-plugin-runtime:
     build:
       context: ../..
@@ -18,7 +27,9 @@ services:
           - anyns-plugin-runtime
 
   pdns-recursor:
-    image: powerdns/pdns-recursor-51:5.1.3
+    build:
+      context: ../../configs/pdns-recursor
+    image: anyns/pdns-recursor:5.4.2
     command: ["--config-dir=/etc/powerdns"]
     environment:
       ANYNS_RUNTIME_ENDPOINT: http://anyns-plugin-runtime:8081/api/v1/resolve
@@ -36,11 +47,17 @@ services:
 
   bind-latest:
     image: ${BIND_IMAGE:-internetsystemsconsortium/bind9:9.20}
-    command: ["-g", "-c", "/etc/bind/named.conf"]
+    entrypoint: ["/bin/sh", "/etc/bind/entrypoint.sh"]
+    command: ["-g"]
     volumes:
-      - ./bind/named.conf:/etc/bind/named.conf:ro
+      - ./bind/entrypoint.sh:/etc/bind/entrypoint.sh:ro
+      - ./bind/named.conf:/etc/bind/named.conf.template:ro
+      - bind-test-certs:/etc/bind/certs:ro
     depends_on:
-      - pdns-recursor
+      bind-certgen:
+        condition: service_completed_successfully
+      pdns-recursor:
+        condition: service_started
     networks:
       dnsnet:
         aliases:
@@ -54,13 +71,21 @@ services:
           - hnsd
 
   dns-tools:
-    image: alpine:3.20
+    build:
+      context: ./dns-tools
+    image: anyns/dns-tools:hnsd-integration
     command: ["sleep", "infinity"]
+    volumes:
+      - bind-test-certs:/certs:ro
     depends_on:
-      - bind-latest
+      bind-latest:
+        condition: service_started
     networks:
       - dnsnet
 
 networks:
   dnsnet:
     driver: bridge
+
+volumes:
+  bind-test-certs:

@@ -22,13 +22,14 @@ fi
 
 cleanup
 "${COMPOSE[@]}" config --quiet
-"${COMPOSE[@]}" build anyns-plugin-runtime dns-tools
-"${COMPOSE[@]}" up -d --no-build --no-deps \
+"${COMPOSE[@]}" build --pull bind-certgen anyns-plugin-runtime pdns-recursor dns-tools
+"${COMPOSE[@]}" up -d --no-build \
   backend-fixtures \
   pdns-authoritative \
   pdns-recursor \
   anyns-plugin-runtime \
   anyns-admin-api \
+  bind-latest \
   dns-tools
 
 tools() {
@@ -40,6 +41,7 @@ for _ in $(seq 1 60); do
     curl -fsS http://anyns-admin-api:8080/healthz >/dev/null
     dig +time=1 +tries=1 @pdns-authoritative -p 5300 version.bind TXT CH >/dev/null
     dig +time=1 +tries=1 @pdns-recursor version.bind TXT CH >/dev/null
+    dig +time=1 +tries=1 @bind-latest version.bind TXT CH >/dev/null
   ' >/dev/null 2>&1; then
     break
   fi
@@ -50,6 +52,7 @@ tools '
   curl -fsS http://anyns-admin-api:8080/healthz >/dev/null
   dig +time=1 +tries=1 @pdns-authoritative -p 5300 version.bind TXT CH >/dev/null
   dig +time=1 +tries=1 @pdns-recursor version.bind TXT CH >/dev/null
+  dig +time=1 +tries=1 @bind-latest version.bind TXT CH >/dev/null
 '
 
 tools '
@@ -183,4 +186,26 @@ tools '
   test "$recursive_serial" = "$updated_serial"
 '
 
-echo "SOA/TLD Docker acceptance passed: 2 zones, 2 wire paths, serial increased after mutation"
+tools '
+  updated_serial=$(cat /tmp/updated-serial)
+  openssl verify -CAfile /certs/ca.crt /certs/server.crt
+
+  dig +time=2 +tries=1 @bind-latest example. SOA |
+    tee /tmp/bind-example-soa.txt
+  grep -Eq "example\\..*SOA.*ns1\\.example\\. hostmaster\\.example\\. $updated_serial 7200 900 172800 600" /tmp/bind-example-soa.txt
+
+  kdig -p 853 +tls-ca=/certs/ca.crt +tls-hostname=bind-latest @bind-latest example. SOA |
+    tee /tmp/bind-dot-example-soa.txt
+  grep -Eq "example\\..*[[:space:]]SOA[[:space:]]+ns1\\.example\\. hostmaster\\.example\\. $updated_serial 7200 900 172800 600" /tmp/bind-dot-example-soa.txt
+
+  kdig +https=/dns-query +tls-ca=/certs/ca.crt +tls-hostname=bind-latest @bind-latest example. SOA |
+    tee /tmp/bind-doh-example-soa.txt
+  grep -Eq "example\\..*[[:space:]]SOA[[:space:]]+ns1\\.example\\. hostmaster\\.example\\. $updated_serial 7200 900 172800 600" /tmp/bind-doh-example-soa.txt
+
+  if kdig -p 853 +tls-ca=/certs/ca.crt +tls-hostname=wrong.invalid @bind-latest example. SOA >/tmp/bind-dot-wrong-host.txt 2>&1; then
+    echo "FAIL: DoT accepted the wrong certificate hostname"
+    exit 1
+  fi
+'
+
+echo "SOA/TLD Docker acceptance passed: 2 zones, Authoritative/Recursor/BIND plaintext/DoT/DoH paths, serial increased after mutation"
