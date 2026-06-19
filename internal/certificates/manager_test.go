@@ -50,6 +50,49 @@ func (f *fakeIssuer) Revoke(_ context.Context, _ []byte) error {
 	return nil
 }
 
+type serialTrackingIssuer struct {
+	mu          sync.Mutex
+	output      IssueOutput
+	issues      int
+	inFlight    int
+	maxInFlight int
+}
+
+func (s *serialTrackingIssuer) Issue(ctx context.Context, _ []string, state func(string)) (IssueOutput, error) {
+	select {
+	case <-ctx.Done():
+		return IssueOutput{}, ctx.Err()
+	default:
+	}
+	if state != nil {
+		state(StatusFinalizing)
+	}
+	s.mu.Lock()
+	s.issues++
+	s.inFlight++
+	if s.inFlight > s.maxInFlight {
+		s.maxInFlight = s.inFlight
+	}
+	s.mu.Unlock()
+	defer func() {
+		s.mu.Lock()
+		s.inFlight--
+		s.mu.Unlock()
+	}()
+	time.Sleep(20 * time.Millisecond)
+	return s.output, nil
+}
+
+func (s *serialTrackingIssuer) Revoke(context.Context, []byte) error {
+	return nil
+}
+
+func (s *serialTrackingIssuer) stats() (issues, maxInFlight int) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.issues, s.maxInFlight
+}
+
 func TestManagerIssueIsIdempotentAndPersistsPrivateKey(t *testing.T) {
 	cfg := testConfig(t)
 	issuer := &fakeIssuer{output: testCertificate(t)}
@@ -82,6 +125,79 @@ func TestManagerIssueIsIdempotentAndPersistsPrivateKey(t *testing.T) {
 	}
 	if body, err := os.ReadFile(filepath.Join(cfg.StorageDir, "state.json")); err != nil || string(body) == "" {
 		t.Fatalf("state body=%q err=%v", body, err)
+	}
+}
+
+func TestManagerConcurrentStartsIssueSerially(t *testing.T) {
+	cfg := testConfig(t)
+	cfg.MaxAttempts = 1
+	issuer := &serialTrackingIssuer{output: testCertificate(t)}
+	manager, err := NewManager(cfg, issuer)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(manager.Close)
+
+	const count = 6
+	type startResult struct {
+		job     Job
+		created bool
+		err     error
+	}
+	start := make(chan struct{})
+	results := make(chan startResult, count)
+	var wg sync.WaitGroup
+	for i := 0; i < count; i++ {
+		i := i
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			<-start
+			job, created, err := manager.Start(IssueRequest{
+				Domains:        []string{"example.test"},
+				IdempotencyKey: "concurrent-issue-" + string(rune('a'+i)),
+			})
+			results <- startResult{job: job, created: created, err: err}
+		}()
+	}
+	close(start)
+	wg.Wait()
+	close(results)
+
+	ids := map[string]bool{}
+	for result := range results {
+		if result.err != nil || !result.created {
+			t.Fatalf("Start created=%v err=%v job=%+v", result.created, result.err, result.job)
+		}
+		if result.job.ID == "" {
+			t.Fatalf("empty job id: %+v", result.job)
+		}
+		if ids[result.job.ID] {
+			t.Fatalf("duplicate job id %q", result.job.ID)
+		}
+		ids[result.job.ID] = true
+	}
+	if len(ids) != count {
+		t.Fatalf("ids=%d want=%d", len(ids), count)
+	}
+	for id := range ids {
+		issued := waitForStatus(t, manager, id, StatusIssued)
+		if issued.NotBefore == nil || issued.NotAfter == nil {
+			t.Fatalf("issued job missing validity window: %+v", issued)
+		}
+	}
+	issues, maxInFlight := issuer.stats()
+	if issues != count || maxInFlight != 1 {
+		t.Fatalf("issuer issues=%d maxInFlight=%d, want issues=%d maxInFlight=1", issues, maxInFlight, count)
+	}
+	listed := manager.List()
+	if len(listed) != count {
+		t.Fatalf("inventory count=%d want=%d: %+v", len(listed), count, listed)
+	}
+	for _, job := range listed {
+		if job.Status != StatusIssued || job.IdempotencyKey != "" {
+			t.Fatalf("public inventory job=%+v", job)
+		}
 	}
 }
 

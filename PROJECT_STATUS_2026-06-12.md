@@ -71,6 +71,7 @@
 - [x] Private CA 回归测试覆盖根 CA BasicConstraints/KeyUsage/SKI-AKI、根私钥 `0600`、根加载复用、叶证书 SAN/serverAuth/非 CA 约束，以及 Admin API 证书下载不返回私钥。
 - [x] Private CA root metadata 回归测试覆盖 package/API 两层输出，验证指纹、KeyUsage、根私钥权限状态，并断言不含 PEM 或 private key material。
 - [x] Private CA root disable 回归测试覆盖禁用状态持久化、禁用后签发失败、重新启用后恢复签发，以及管理审计不包含 PEM 或私钥。
+- [x] Private CA 并发签发回归测试覆盖多个同时提交的签发任务全部进入 issued 清单、有效期窗口存在、公开清单不泄露 idempotency key，并验证底层 issuer 最大并发为 1。
 - [x] `bash tests/acceptance/private-ca-certificates.sh` 使用隔离 Compose profile 验证 private CA Admin 镜像构建、叶证书签发、证书链校验、证书下载私钥非披露、根/叶私钥权限、重启持久化和容器内备份恢复。
 - [x] `bash tests/acceptance/private-ca-certificates.sh` 现扩展验证 private CA 证书清单、有效期窗口、TLSA 生成不发布、强制续期与 `renewal_of`、原证书吊销、吊销后禁止续期、吊销证书下载私钥非披露，以及重启和备份恢复后的状态持久化。
 - [x] `bash tests/acceptance/selenium-admin.sh` 验证 capability-aware 管理流程及 Unicode HNS Zone/记录增删交互。
