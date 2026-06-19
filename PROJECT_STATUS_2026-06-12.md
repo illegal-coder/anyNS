@@ -81,6 +81,7 @@
 - [ ] 服务器当前仅提供 `go1.18 gccgo`；`go test -race -buildvcs=false ./internal/adminapi` 在生成 `testmain` 时失败为 `package testmain: cannot find package`，尚需使用标准 gc Go 工具链补跑 race gate。
 - [x] `docker compose config --quiet`
 - [x] `bash tests/acceptance/docker-gpgsql-backup-restore.sh` 验证 gpgsql 空库初始化、健康检查、DNS 查询、逻辑备份、数据变更和恢复。
+- [x] `bash tests/acceptance/docker-gpgsql-upgrade-rollback.sh` 使用临时 PostgreSQL 数据目录验证固定镜像摘要、预升级备份、失败升级数据变更、SQL 回滚、权威 DNS 答案恢复和 PowerDNS API 健康恢复。
 - [x] `docker compose build --pull --no-cache`
 - [x] 主 Compose 从空 PowerDNS 数据卷初始化并全部健康。
 - [x] PowerDNS `anyns.test.` 区域校验 0 errors，Authoritative/Recursor 查询一致。
@@ -100,7 +101,7 @@
 - [x] **P1 HNS，约 86%**：主链路、NXDOMAIN、缓存、审计、失败边界和 fixture 已完成；live hnsd P2P/SPV 仍为 opt-in。
 - [x] **P2 插件并联，约 83%**：19 个插件、统一路由、冲突优先级、缓存隔离和契约测试已完成；真实公网链节点/API 尚未形成生产门禁。
 - [x] **P3 安全防护，约 84%**：主要检测、阻断、审计、蜜罐失败队列和指标已完成；持续流量、压力和容量基线仍待补充。
-- [x] **P4 文档交付，约 84%**：需求、架构、接口、安全、部署、验收和当前状态文档已齐；gpgsql 备份恢复已有可执行流程和自动化证据，生产全栈升级、回滚、跨主机灾备和密钥轮换演练仍待记录。
+- [x] **P4 文档交付，约 85%**：需求、架构、接口、安全、部署、验收和当前状态文档已齐；gpgsql 备份恢复和隔离升级回滚已有可执行流程和自动化证据，生产全栈升级、跨主机灾备和密钥轮换演练仍待记录。
 - [ ] **总体生产验收约 88%**：确定性开发和测试环境成熟，但 fixture 通过不能替代真实链后端、生产流量和灾备验收。
 
 ## 与最早计划的偏差
@@ -120,6 +121,6 @@
 - [x] 在受控时间窗运行 live hnsd P2P/SPV 集成 smoke gate。
 - [ ] 为选定插件增加真实外部 RPC/API smoke test，凭据只通过 secret 注入。
 - [ ] 增加 NXDOMAIN flood、随机子域、并发、长稳和容量基线测试。
-- [ ] 完成生产管理鉴权、TLS 反向代理、密钥轮换、全栈升级回滚和跨主机灾备演练；gpgsql 本地逻辑备份恢复门禁已完成。
+- [ ] 完成生产管理鉴权、TLS 反向代理、密钥轮换、全栈升级和跨主机灾备演练；gpgsql 本地逻辑备份恢复与隔离升级回滚门禁已完成。
 - [x] 增加独立 PostgreSQL 数据库容器部署模式，并验证 PowerDNS gpgsql 初始化、备份和恢复。
 - [ ] 使用已同步 hnsd 或可控 live 名称补充正向 `NOERROR` 链上解析证据，并将其他轻量去中心化组件并入可选 Compose profile，定义 PowerDNS + 网站 + live 链解析的最低模式门禁。
