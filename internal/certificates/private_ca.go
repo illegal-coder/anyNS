@@ -17,15 +17,17 @@ import (
 	"math/big"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/anyns/anyns/internal/config"
 )
 
 const (
-	privateRootKeyFile   = "root-key.pem"
-	privateRootCertFile  = "root-cert.pem"
-	privateRootStateFile = "root-state.json"
+	privateRootKeyFile    = "root-key.pem"
+	privateRootCertFile   = "root-cert.pem"
+	privateRootStateFile  = "root-state.json"
+	privateRootBackupFile = "root-backup.json"
 )
 
 type PrivateRootIssuer struct {
@@ -36,28 +38,40 @@ type PrivateRootIssuer struct {
 }
 
 type PrivateRootMetadata struct {
-	IssuerMode        string     `json:"issuer_mode"`
-	Subject           string     `json:"subject"`
-	Issuer            string     `json:"issuer"`
-	SerialNumber      string     `json:"serial_number"`
-	NotBefore         time.Time  `json:"not_before"`
-	NotAfter          time.Time  `json:"not_after"`
-	SHA256Fingerprint string     `json:"sha256_fingerprint"`
-	SubjectKeyID      string     `json:"subject_key_id,omitempty"`
-	AuthorityKeyID    string     `json:"authority_key_id,omitempty"`
-	IsCA              bool       `json:"is_ca"`
-	KeyUsage          []string   `json:"key_usage"`
-	RootKeyPresent    bool       `json:"root_key_present"`
-	RootKeyMode       string     `json:"root_key_mode,omitempty"`
-	Disabled          bool       `json:"disabled"`
-	DisabledAt        *time.Time `json:"disabled_at,omitempty"`
-	UpdatedAt         *time.Time `json:"updated_at,omitempty"`
+	IssuerMode        string       `json:"issuer_mode"`
+	Subject           string       `json:"subject"`
+	Issuer            string       `json:"issuer"`
+	SerialNumber      string       `json:"serial_number"`
+	NotBefore         time.Time    `json:"not_before"`
+	NotAfter          time.Time    `json:"not_after"`
+	SHA256Fingerprint string       `json:"sha256_fingerprint"`
+	SubjectKeyID      string       `json:"subject_key_id,omitempty"`
+	AuthorityKeyID    string       `json:"authority_key_id,omitempty"`
+	IsCA              bool         `json:"is_ca"`
+	KeyUsage          []string     `json:"key_usage"`
+	RootKeyPresent    bool         `json:"root_key_present"`
+	RootKeyMode       string       `json:"root_key_mode,omitempty"`
+	Disabled          bool         `json:"disabled"`
+	DisabledAt        *time.Time   `json:"disabled_at,omitempty"`
+	UpdatedAt         *time.Time   `json:"updated_at,omitempty"`
+	BackupStatus      BackupStatus `json:"backup_status"`
 }
 
 type privateRootState struct {
 	Disabled   bool       `json:"disabled"`
 	DisabledAt *time.Time `json:"disabled_at,omitempty"`
 	UpdatedAt  time.Time  `json:"updated_at"`
+}
+
+type BackupStatus struct {
+	Status            string     `json:"status"`
+	RecordedAt        *time.Time `json:"recorded_at,omitempty"`
+	SHA256Fingerprint string     `json:"sha256_fingerprint,omitempty"`
+}
+
+type privateRootBackupState struct {
+	SHA256Fingerprint string    `json:"sha256_fingerprint"`
+	RecordedAt        time.Time `json:"recorded_at"`
 }
 
 func NewPrivateRootIssuer(cfg config.CertificatesConfig) (*PrivateRootIssuer, error) {
@@ -113,6 +127,11 @@ func PrivateRootMetadataForConfig(cfg config.CertificatesConfig) (PrivateRootMet
 		updatedAt := state.UpdatedAt
 		metadata.UpdatedAt = &updatedAt
 	}
+	backupStatus, err := privateRootBackupStatus(cfg, metadata.SHA256Fingerprint)
+	if err != nil {
+		return PrivateRootMetadata{}, err
+	}
+	metadata.BackupStatus = backupStatus
 	return metadata, nil
 }
 
@@ -131,6 +150,28 @@ func SetPrivateRootDisabled(cfg config.CertificatesConfig, disabled bool) (Priva
 	}
 	if err := atomicWrite(filepath.Join(privateRootDir(cfg), privateRootStateFile), append(body, '\n'), 0o600); err != nil {
 		return PrivateRootMetadata{}, errors.New("private CA root state cannot be written")
+	}
+	return PrivateRootMetadataForConfig(cfg)
+}
+
+func RecordPrivateRootBackup(cfg config.CertificatesConfig, sha256Fingerprint string) (PrivateRootMetadata, error) {
+	metadata, err := PrivateRootMetadataForConfig(cfg)
+	if err != nil {
+		return PrivateRootMetadata{}, err
+	}
+	if !strings.EqualFold(strings.TrimSpace(sha256Fingerprint), metadata.SHA256Fingerprint) {
+		return PrivateRootMetadata{}, errors.New("backup fingerprint does not match current private CA root")
+	}
+	state := privateRootBackupState{
+		SHA256Fingerprint: metadata.SHA256Fingerprint,
+		RecordedAt:        time.Now().UTC(),
+	}
+	body, err := json.MarshalIndent(state, "", "  ")
+	if err != nil {
+		return PrivateRootMetadata{}, err
+	}
+	if err := atomicWrite(filepath.Join(privateRootDir(cfg), privateRootBackupFile), append(body, '\n'), 0o600); err != nil {
+		return PrivateRootMetadata{}, errors.New("private CA root backup status cannot be written")
 	}
 	return PrivateRootMetadataForConfig(cfg)
 }
@@ -220,6 +261,41 @@ func loadPrivateRootState(cfg config.CertificatesConfig) (privateRootState, erro
 		return privateRootState{}, errors.New("private CA root state is invalid")
 	}
 	return state, nil
+}
+
+func loadPrivateRootBackupState(cfg config.CertificatesConfig) (privateRootBackupState, error) {
+	body, err := os.ReadFile(filepath.Join(privateRootDir(cfg), privateRootBackupFile))
+	if errors.Is(err, os.ErrNotExist) {
+		return privateRootBackupState{}, nil
+	}
+	if err != nil {
+		return privateRootBackupState{}, errors.New("private CA root backup status cannot be read")
+	}
+	var state privateRootBackupState
+	if err := json.Unmarshal(body, &state); err != nil {
+		return privateRootBackupState{}, errors.New("private CA root backup status is invalid")
+	}
+	return state, nil
+}
+
+func privateRootBackupStatus(cfg config.CertificatesConfig, currentFingerprint string) (BackupStatus, error) {
+	state, err := loadPrivateRootBackupState(cfg)
+	if err != nil {
+		return BackupStatus{}, err
+	}
+	if state.SHA256Fingerprint == "" || state.RecordedAt.IsZero() {
+		return BackupStatus{Status: "missing"}, nil
+	}
+	recordedAt := state.RecordedAt
+	status := "stale"
+	if state.SHA256Fingerprint == currentFingerprint {
+		status = "current"
+	}
+	return BackupStatus{
+		Status:            status,
+		RecordedAt:        &recordedAt,
+		SHA256Fingerprint: state.SHA256Fingerprint,
+	}, nil
 }
 
 func (i *PrivateRootIssuer) Revoke(context.Context, []byte) error {

@@ -172,6 +172,45 @@ func TestPrivateRootDisableBlocksIssuanceAndPersists(t *testing.T) {
 	}
 }
 
+func TestPrivateRootBackupStatusRequiresCurrentFingerprint(t *testing.T) {
+	cfg := config.CertificatesConfig{StorageDir: t.TempDir()}
+	if _, err := NewPrivateRootIssuer(cfg); err != nil {
+		t.Fatal(err)
+	}
+	metadata, err := PrivateRootMetadataForConfig(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if metadata.BackupStatus.Status != "missing" {
+		t.Fatalf("initial backup status=%+v", metadata.BackupStatus)
+	}
+	if _, err := RecordPrivateRootBackup(cfg, "BADF00D"); err == nil || !strings.Contains(err.Error(), "does not match") {
+		t.Fatalf("mismatched backup err=%v", err)
+	}
+	metadata, err = RecordPrivateRootBackup(cfg, strings.ToLower(metadata.SHA256Fingerprint))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if metadata.BackupStatus.Status != "current" || metadata.BackupStatus.RecordedAt == nil || metadata.BackupStatus.SHA256Fingerprint != metadata.SHA256Fingerprint {
+		t.Fatalf("current backup status=%+v metadata=%+v", metadata.BackupStatus, metadata)
+	}
+	stale := privateRootBackupState{SHA256Fingerprint: "00", RecordedAt: time.Now().UTC()}
+	body, err := json.Marshal(stale)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := atomicWrite(filepath.Join(privateRootDir(cfg), privateRootBackupFile), body, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	metadata, err = PrivateRootMetadataForConfig(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if metadata.BackupStatus.Status != "stale" {
+		t.Fatalf("stale backup status=%+v", metadata.BackupStatus)
+	}
+}
+
 func containsExtKeyUsage(values []x509.ExtKeyUsage, want x509.ExtKeyUsage) bool {
 	for _, value := range values {
 		if value == want {

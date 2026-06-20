@@ -297,6 +297,10 @@ func TestPrivateCACertificateOrderUsesLocalIssuer(t *testing.T) {
 		RootKeyMode       string   `json:"root_key_mode"`
 		KeyUsage          []string `json:"key_usage"`
 		Disabled          bool     `json:"disabled"`
+		BackupStatus      struct {
+			Status            string `json:"status"`
+			SHA256Fingerprint string `json:"sha256_fingerprint"`
+		} `json:"backup_status"`
 	}
 	if err := json.Unmarshal(rec.Body.Bytes(), &metadata); err != nil {
 		t.Fatalf("decode root metadata: %v", err)
@@ -304,8 +308,29 @@ func TestPrivateCACertificateOrderUsesLocalIssuer(t *testing.T) {
 	if metadata.IssuerMode != "private-ca" || metadata.SHA256Fingerprint == "" || !metadata.RootKeyPresent || metadata.RootKeyMode != "0600" || metadata.Disabled {
 		t.Fatalf("metadata=%+v", metadata)
 	}
+	if metadata.BackupStatus.Status != "missing" {
+		t.Fatalf("initial backup status=%+v", metadata.BackupStatus)
+	}
 	if strings.Contains(rec.Body.String(), "PRIVATE KEY") || strings.Contains(rec.Body.String(), "BEGIN ") {
 		t.Fatalf("root metadata leaked key or PEM material: %s", rec.Body.String())
+	}
+
+	rec = httptest.NewRecorder()
+	mux.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/v1/certificates/private-ca/root/backup-status", strings.NewReader(`{"sha256_fingerprint":"BADF00D"}`)))
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("mismatch backup status=%d body=%s", rec.Code, rec.Body.String())
+	}
+
+	rec = httptest.NewRecorder()
+	mux.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/v1/certificates/private-ca/root/backup-status", strings.NewReader(`{"sha256_fingerprint":"`+metadata.SHA256Fingerprint+`"}`)))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("record backup status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &metadata); err != nil {
+		t.Fatalf("decode backup metadata: %v", err)
+	}
+	if metadata.BackupStatus.Status != "current" || metadata.BackupStatus.SHA256Fingerprint != metadata.SHA256Fingerprint {
+		t.Fatalf("backup metadata=%+v", metadata.BackupStatus)
 	}
 
 	rec = httptest.NewRecorder()
@@ -372,7 +397,7 @@ func TestPrivateCACertificateOrderUsesLocalIssuer(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(auditBody), "certificate.private_ca.root.update") {
+	if !strings.Contains(string(auditBody), "certificate.private_ca.root.update") || !strings.Contains(string(auditBody), "certificate.private_ca.root.backup_status") {
 		t.Fatalf("audit event missing: %s", auditBody)
 	}
 	if strings.Contains(string(auditBody), "PRIVATE KEY") || strings.Contains(string(auditBody), "BEGIN ") {

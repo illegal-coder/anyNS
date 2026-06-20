@@ -76,6 +76,7 @@ func Register(mux *http.ServeMux, application *app.App, cfg *config.Config) {
 	mux.HandleFunc("/api/v1/certificates/orders", handler.certificateOrders)
 	mux.HandleFunc("/api/v1/certificates/orders/", handler.certificateOrder)
 	mux.HandleFunc("/api/v1/certificates/private-ca/root", handler.certificatePrivateCARoot)
+	mux.HandleFunc("/api/v1/certificates/private-ca/root/backup-status", handler.certificatePrivateCARootBackupStatus)
 	mux.HandleFunc("/api/v1/certificates/tlsa", handler.certificateTLSA)
 }
 
@@ -170,6 +171,7 @@ func (h *Handler) capabilities(w http.ResponseWriter, r *http.Request) {
 			"POST /api/v1/certificates/orders/{id}/revoke",
 			"GET /api/v1/certificates/private-ca/root",
 			"PATCH /api/v1/certificates/private-ca/root",
+			"POST /api/v1/certificates/private-ca/root/backup-status",
 			"POST /api/v1/certificates/tlsa",
 		),
 		"plugins": feature(
@@ -447,6 +449,51 @@ func (h *Handler) certificatePrivateCARoot(w http.ResponseWriter, r *http.Reques
 	default:
 		httpapi.Error(w, http.StatusMethodNotAllowed, "method not allowed")
 	}
+}
+
+func (h *Handler) certificatePrivateCARootBackupStatus(w http.ResponseWriter, r *http.Request) {
+	current := *h.cfg
+	if r.Method != http.MethodPost {
+		httpapi.Error(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	principal, ok := httpapi.RequireScopePrincipal(w, r, current, httpapi.ScopeCertificatesWrite)
+	if !ok {
+		return
+	}
+	if strings.TrimSpace(current.Certificates.IssuerMode) != "private-ca" {
+		httpapi.Error(w, http.StatusNotFound, "private CA root is not configured")
+		return
+	}
+	if h.certificates == nil {
+		httpapi.Error(w, http.StatusServiceUnavailable, h.certificateUnavailable())
+		return
+	}
+	var request struct {
+		SHA256Fingerprint string `json:"sha256_fingerprint"`
+	}
+	if err := httpapi.DecodeJSON(r, &request); err != nil {
+		httpapi.Error(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if strings.TrimSpace(request.SHA256Fingerprint) == "" {
+		httpapi.Error(w, http.StatusBadRequest, "sha256_fingerprint is required")
+		return
+	}
+	metadata, err := certificates.RecordPrivateRootBackup(current.Certificates, strings.TrimSpace(request.SHA256Fingerprint))
+	if err != nil {
+		status := http.StatusServiceUnavailable
+		if strings.Contains(err.Error(), "does not match") {
+			status = http.StatusBadRequest
+		}
+		httpapi.Error(w, status, err.Error())
+		return
+	}
+	h.application.AppendManagementAudit("certificate.private_ca.root.backup_status", principal.ID, r.Method, r.URL.Path, "ok", map[string]any{
+		"backup_status":      metadata.BackupStatus.Status,
+		"sha256_fingerprint": metadata.SHA256Fingerprint,
+	})
+	httpapi.WriteJSON(w, http.StatusOK, metadata)
 }
 
 func (h *Handler) certificateTLSA(w http.ResponseWriter, r *http.Request) {
