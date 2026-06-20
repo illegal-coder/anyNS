@@ -168,6 +168,15 @@ class AdminUIWorkflowTest(unittest.TestCase):
                 (By.XPATH, "//*[contains(., 'Certificate issuance is not configured.')]")
             )
         )
+        WebDriverWait(self.driver, 30).until(
+            EC.visibility_of_element_located((By.XPATH, "//h3[contains(., 'Trust root')]"))
+        )
+        certificate_text = self.driver.find_element(By.CSS_SELECTOR, "main").text
+        self.assertIn("ACME / PUBLIC WEBPKI", certificate_text)
+        self.assertIn("persisted jobs:", certificate_text)
+        self.assertIn("Key material and storage paths are never displayed.", certificate_text)
+        self.assertNotIn("/var/lib", certificate_text)
+        self.assertNotIn("-----BEGIN", certificate_text)
         time.sleep(6)
 
         self.nav("配置")
@@ -264,6 +273,15 @@ class AdminUIWorkflowTest(unittest.TestCase):
         WebDriverWait(self.driver, 30).until(
             EC.visibility_of_element_located((By.XPATH, "//h2[contains(., 'DNS 服务运行概览')]"))
         )
+        self.open_mobile_nav("Certificates")
+        WebDriverWait(self.driver, 30).until(
+            EC.visibility_of_element_located((By.XPATH, "//h3[contains(., 'Trust root')]"))
+        )
+        certificate_text = self.driver.find_element(By.CSS_SELECTOR, "main").text
+        self.assertIn("ACME / PUBLIC WEBPKI", certificate_text)
+        self.assertIn("Key material and storage paths are never displayed.", certificate_text)
+        self.assertNotIn("/var/lib", certificate_text)
+        self.assertNotIn("-----BEGIN", certificate_text)
         self.open_mobile_nav("PowerDNS")
         WebDriverWait(self.driver, 30).until(
             EC.visibility_of_element_located((By.XPATH, "//h2[contains(., '权威与递归服务')]"))

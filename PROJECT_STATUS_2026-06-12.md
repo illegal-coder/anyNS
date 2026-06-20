@@ -56,6 +56,7 @@
 - [x] 增加 `GET /api/v1/certificates/private-ca/root` 元数据 API，仅返回私有根 CA subject、serial、有效期、SHA-256 指纹、SKI/AKI、KeyUsage 和根私钥权限状态，不返回 PEM 或私钥。
 - [x] 增加 `PATCH /api/v1/certificates/private-ca/root` 生命周期控制，支持禁用/启用私有根 CA；禁用状态持久化并阻止新的 private-ca 叶证书签发。
 - [x] 增加 `POST /api/v1/certificates/private-ca/root/backup-status`，用当前根 CA SHA-256 指纹记录操作员备份证据；根元数据返回 `missing`、`current` 或 `stale`，不返回备份路径、PEM 或私钥。
+- [x] Certificates 管理页面显示 ACME/private-root 信任模式、私有根指纹、备份状态、根密钥状态和证书清单计数，并继续避免显示私钥或存储路径。
 
 ## 测试与验收
 
@@ -76,6 +77,7 @@
 - [x] Private CA 并发签发回归测试覆盖多个同时提交的签发任务全部进入 issued 清单、有效期窗口存在、公开清单不泄露 idempotency key，并验证底层 issuer 最大并发为 1。
 - [x] `bash tests/acceptance/private-ca-certificates.sh` 使用隔离 Compose profile 验证 private CA Admin 镜像构建、叶证书签发、证书链校验、证书下载私钥非披露、根/叶私钥权限、重启持久化和容器内备份恢复。
 - [x] `bash tests/acceptance/private-ca-certificates.sh` 现扩展验证 private CA 证书清单、有效期窗口、TLSA 生成不发布、强制续期与 `renewal_of`、原证书吊销、吊销后禁止续期、吊销证书下载私钥非披露，以及重启和备份恢复后的状态持久化。
+- [x] 前端回归测试覆盖证书清单计数、ACME/private-root 信任模式摘要、指纹缩写和私钥/路径非披露；`bash tests/acceptance/selenium-admin.sh` 覆盖 Certificates 页面桌面与移动端渲染。
 - [x] `bash tests/acceptance/selenium-admin.sh` 验证 capability-aware 管理流程及 Unicode HNS Zone/记录增删交互。
 - [x] `bash tests/acceptance/selenium-admin.sh` 现包含移动端 HNS 单标签 Zone 创建、SOA Refresh 修改、SOA 记录表刷新和测试 Zone 清理恢复。
 - [x] `bash tests/acceptance/docker-soa-tld.sh` 使用一次性 gsqlite/Recursor 拓扑验证 2 个单标签 HNS Zone（ASCII/Unicode IDNA）、apex SOA/NS、A/AAAA glue、非法子 Zone 400、Authoritative AA、递归一致性和 serial 递增，并在结束后删除测试卷。

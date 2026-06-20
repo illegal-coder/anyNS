@@ -32,6 +32,11 @@ import {
 } from "lucide-react";
 import { api, getToken, setToken } from "./api";
 import {
+  certificateInventorySummary,
+  privateRootTrustSummary,
+  shortFingerprint,
+} from "./certificates";
+import {
   featureAccess,
   featureAccessWithFallback,
   normalizeCapabilities,
@@ -350,9 +355,12 @@ function ServiceStrip({ dashboard }) {
 function CertificatesPage({ mutate, capabilities }) {
   const access = featureAccess(capabilities, "certificates");
   const [jobs, setJobs] = useState([]);
+  const [privateRoot, setPrivateRoot] = useState(null);
   const [domains, setDomains] = useState("");
   const [loadingJobs, setLoadingJobs] = useState(true);
+  const [loadingRoot, setLoadingRoot] = useState(true);
   const [jobsError, setJobsError] = useState("");
+  const [rootError, setRootError] = useState("");
 
   const loadJobs = useCallback(async () => {
     setLoadingJobs(true);
@@ -366,15 +374,37 @@ function CertificatesPage({ mutate, capabilities }) {
     }
   }, []);
 
+  const loadPrivateRoot = useCallback(async () => {
+    setLoadingRoot(true);
+    try {
+      setPrivateRoot(await api("/api/v1/certificates/private-ca/root"));
+      setRootError("");
+    } catch (loadError) {
+      if (loadError.status === 404) {
+        setPrivateRoot(null);
+        setRootError("");
+      } else {
+        setRootError(loadError.message);
+      }
+    } finally {
+      setLoadingRoot(false);
+    }
+  }, []);
+
   useEffect(() => {
     if (!access.available || !access.read) {
       setLoadingJobs(false);
+      setLoadingRoot(false);
       return undefined;
     }
     void loadJobs();
-    const timer = window.setInterval(() => void loadJobs(), 5000);
+    void loadPrivateRoot();
+    const timer = window.setInterval(() => {
+      void loadJobs();
+      void loadPrivateRoot();
+    }, 5000);
     return () => window.clearInterval(timer);
-  }, [access.available, access.read, loadJobs]);
+  }, [access.available, access.read, loadJobs, loadPrivateRoot]);
 
   const issue = async () => {
     const requestedDomains = domains.split(/[\s,]+/).map((value) => value.trim()).filter(Boolean);
@@ -392,13 +422,43 @@ function CertificatesPage({ mutate, capabilities }) {
     await loadJobs();
   };
 
+  const inventory = certificateInventorySummary(jobs);
+  const trust = privateRootTrustSummary(privateRoot);
+
   return (
     <div className="page-stack">
       <div className="page-actions">
-        <div><p className="section-kicker">ACME / DNS-01</p><h2>Certificate issuance</h2><p>Private keys remain in server-side storage and are never returned by this console.</p></div>
+        <div><p className="section-kicker">ACME / Private CA</p><h2>Certificate issuance</h2><p>Private keys remain in server-side storage and are never returned by this console.</p></div>
       </div>
       {access.mode !== "readwrite" && <InlineWarning text={access.available ? "Current credentials are read-only." : "Certificate issuance is not configured."} />}
       {jobsError && <InlineWarning text={`Certificate orders could not be loaded: ${jobsError}`} />}
+      {rootError && <InlineWarning text={`Private root metadata could not be loaded: ${rootError}`} />}
+      <Panel title="Trust root" subtitle="ACME and private-root trust are shown as separate modes">
+        {loadingRoot ? <LoadingState /> : (
+          <div className="certificate-summary">
+            <div>
+              <span>Mode</span>
+              <strong><span className={`tag ${trust.tone}`}>{trust.label}</span></strong>
+              <small>{trust.description}</small>
+            </div>
+            <div>
+              <span>Root fingerprint</span>
+              <strong className="mono">{trust.fingerprint}</strong>
+              <small>{privateRoot?.serial_number ? `Serial ${privateRoot.serial_number}` : "No private root fingerprint in ACME mode"}</small>
+            </div>
+            <div>
+              <span>Backup status</span>
+              <strong>{trust.backupStatus}</strong>
+              <small>{privateRoot?.backup_status?.recorded_at ? new Date(privateRoot.backup_status.recorded_at).toLocaleString() : "No backup timestamp"}</small>
+            </div>
+            <div>
+              <span>Root key</span>
+              <strong>{trust.keyStatus}</strong>
+              <small>Key material and storage paths are never displayed.</small>
+            </div>
+          </div>
+        )}
+      </Panel>
       <Panel title="New certificate order" subtitle="Use public DNS names delegated to the configured PowerDNS authoritative service">
         <fieldset className="readonly-fieldset" disabled={!access.write}>
           <div className="form-grid single">
@@ -409,11 +469,11 @@ function CertificatesPage({ mutate, capabilities }) {
           </div>
         </fieldset>
       </Panel>
-      <Panel title="Certificate orders" subtitle={`${jobs.length} persisted jobs`}>
+      <Panel title="Certificate orders" subtitle={`${inventory.total} persisted jobs: ${inventory.issued} issued, ${inventory.revoked} revoked, ${inventory.failed} failed, ${inventory.pending} active`}>
         {loadingJobs ? <LoadingState /> : (
           <div className="table-wrap">
             <table>
-              <thead><tr><th>ID</th><th>Domains</th><th>Status</th><th>Attempts</th><th>Expires</th><th>Error</th></tr></thead>
+              <thead><tr><th>ID</th><th>Domains</th><th>Status</th><th>Attempts</th><th>Expires</th><th>Renewal</th><th>Error</th></tr></thead>
               <tbody>
                 {jobs.map((job) => (
                   <tr key={job.id}>
@@ -422,6 +482,7 @@ function CertificatesPage({ mutate, capabilities }) {
                     <td>{job.status}</td>
                     <td>{job.attempt}/{job.max_attempts}</td>
                     <td>{job.not_after ? new Date(job.not_after).toLocaleString() : "-"}</td>
+                    <td>{job.renewal_of ? <code>{shortFingerprint(job.renewal_of)}</code> : "-"}</td>
                     <td className="muted">{job.error || "-"}</td>
                   </tr>
                 ))}
