@@ -784,13 +784,38 @@ func TestValidateCertificateIssuanceConfiguration(t *testing.T) {
 	cfg.Certificates.AccountEmail = ""
 	cfg.Certificates.AcceptTOS = false
 	cfg.PowerDNS.AuthoritativeURL = ""
+	cfg.Certificates.CRLDistributionURL = "https://ca.example.test/private-ca.crl"
 	if err := cfg.Validate(); err != nil {
 		t.Fatalf("private-ca certificate configuration should not require ACME fields: %v", err)
 	}
 
+	cfg.Certificates.CRLDistributionURL = "not-a-url"
+	if err := cfg.Validate(); err == nil || !strings.Contains(err.Error(), "crl_distribution_url") {
+		t.Fatalf("expected crl_distribution_url validation error, got %v", err)
+	}
+	cfg.Certificates.CRLDistributionURL = ""
+
 	cfg.Certificates.IssuerMode = "browser-local"
 	if err := cfg.Validate(); err == nil || !strings.Contains(err.Error(), "issuer_mode") {
 		t.Fatalf("expected issuer_mode validation error, got %v", err)
+	}
+}
+
+func TestLoadCertificateCRLDistributionURL(t *testing.T) {
+	cfg := Default()
+	err := Load(strings.NewReader(`{
+		"certificates": {
+			"enabled": true,
+			"issuer_mode": "private-ca",
+			"storage_dir": "/tmp/anyns-certificates",
+			"crl_distribution_url": "https://ca.example.test/private-ca.crl"
+		}
+	}`), &cfg)
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+	if cfg.Certificates.CRLDistributionURL != "https://ca.example.test/private-ca.crl" {
+		t.Fatalf("crl distribution url=%q", cfg.Certificates.CRLDistributionURL)
 	}
 }
 

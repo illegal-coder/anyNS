@@ -310,6 +310,9 @@ func (i *PrivateRootIssuer) Issue(ctx context.Context, domains []string, state f
 		SubjectKeyId:          subjectKeyID,
 		AuthorityKeyId:        append([]byte(nil), i.rootCert.SubjectKeyId...),
 	}
+	if crlURL := strings.TrimSpace(i.cfg.CRLDistributionURL); crlURL != "" {
+		template.CRLDistributionPoints = []string{crlURL}
+	}
 	der, err := x509.CreateCertificate(rand.Reader, template, i.rootCert, leafKey.Public(), i.rootKey)
 	if err != nil {
 		return IssueOutput{}, fmt.Errorf("create leaf certificate: %w", err)

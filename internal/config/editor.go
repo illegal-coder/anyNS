@@ -52,6 +52,7 @@ type EditableCertificates struct {
 	DNSPollIntervalSeconds       int    `json:"dns_poll_interval_seconds"`
 	MaxAttempts                  int    `json:"max_attempts"`
 	RenewBeforeDays              int    `json:"renew_before_days"`
+	CRLDistributionURL           string `json:"crl_distribution_url"`
 }
 
 type EditableConfig struct {
@@ -121,6 +122,7 @@ func (cfg Config) Editable() EditableConfig {
 			DNSPollIntervalSeconds:       int(cfg.Certificates.DNSPollInterval.Seconds()),
 			MaxAttempts:                  cfg.Certificates.MaxAttempts,
 			RenewBeforeDays:              cfg.Certificates.RenewBeforeDays,
+			CRLDistributionURL:           cfg.Certificates.CRLDistributionURL,
 		},
 		ConfigFile: cfg.ConfigFile,
 		Writable:   configFileWritable(cfg.ConfigFile),
@@ -179,6 +181,7 @@ func ApplyEditable(current Config, edit EditableConfig) Config {
 	next.Certificates.DNSPollIntervalSeconds = edit.Certificates.DNSPollIntervalSeconds
 	next.Certificates.MaxAttempts = edit.Certificates.MaxAttempts
 	next.Certificates.RenewBeforeDays = edit.Certificates.RenewBeforeDays
+	next.Certificates.CRLDistributionURL = edit.Certificates.CRLDistributionURL
 	return next
 }
 
@@ -237,6 +240,7 @@ func SaveEditableFile(path string, edit EditableConfig) error {
 		"dns_poll_interval":       fmt.Sprintf("%ds", edit.Certificates.DNSPollIntervalSeconds),
 		"max_attempts":            edit.Certificates.MaxAttempts,
 		"renew_before_days":       edit.Certificates.RenewBeforeDays,
+		"crl_distribution_url":    edit.Certificates.CRLDistributionURL,
 	}); err != nil {
 		return err
 	}

@@ -98,6 +98,7 @@ type CertificatesConfig struct {
 	DNSPollIntervalSeconds    int           `json:"dns_poll_interval_seconds"`
 	MaxAttempts               int           `json:"max_attempts"`
 	RenewBeforeDays           int           `json:"renew_before_days"`
+	CRLDistributionURL        string        `json:"crl_distribution_url"`
 }
 
 type ManagementConfig struct {
@@ -186,6 +187,7 @@ type fileCertificatesConfig struct {
 	DNSPollInterval       durationOrSeconds `json:"dns_poll_interval"`
 	MaxAttempts           int               `json:"max_attempts"`
 	RenewBeforeDays       int               `json:"renew_before_days"`
+	CRLDistributionURL    string            `json:"crl_distribution_url"`
 }
 
 type durationOrSeconds struct {
@@ -270,6 +272,7 @@ func Default() Config {
 			DNSPollIntervalSeconds:    envInt("ANYNS_ACME_DNS_POLL_INTERVAL_SECONDS", 2),
 			MaxAttempts:               envInt("ANYNS_ACME_MAX_ATTEMPTS", 3),
 			RenewBeforeDays:           envInt("ANYNS_CERTIFICATE_RENEW_BEFORE_DAYS", 30),
+			CRLDistributionURL:        env("ANYNS_PRIVATE_CA_CRL_DISTRIBUTION_URL", ""),
 		},
 	}
 }
@@ -458,6 +461,9 @@ func (cfg Config) Validate() error {
 				problems = append(problems, "powerdns.authoritative_url is required for ACME DNS-01")
 			}
 		case "private-ca":
+			if strings.TrimSpace(cfg.Certificates.CRLDistributionURL) != "" && !validHTTPURL(cfg.Certificates.CRLDistributionURL) {
+				problems = append(problems, "certificates.crl_distribution_url must be an http or https URL with a host")
+			}
 		default:
 			problems = append(problems, "certificates.issuer_mode must be acme or private-ca")
 		}
@@ -942,6 +948,9 @@ func applyCertificates(raw fileCertificatesConfig, cfg *Config) {
 	if raw.RenewBeforeDays > 0 {
 		cfg.Certificates.RenewBeforeDays = raw.RenewBeforeDays
 	}
+	if raw.CRLDistributionURL != "" {
+		cfg.Certificates.CRLDistributionURL = raw.CRLDistributionURL
+	}
 }
 
 func resolveSecretFiles(cfg *Config, baseDir string) error {
@@ -1076,6 +1085,7 @@ func applyEnvOverrides(cfg Config) Config {
 	cfg.Certificates.DNSPollIntervalSeconds = int(cfg.Certificates.DNSPollInterval.Seconds())
 	cfg.Certificates.MaxAttempts = envInt("ANYNS_ACME_MAX_ATTEMPTS", cfg.Certificates.MaxAttempts)
 	cfg.Certificates.RenewBeforeDays = envInt("ANYNS_CERTIFICATE_RENEW_BEFORE_DAYS", cfg.Certificates.RenewBeforeDays)
+	cfg.Certificates.CRLDistributionURL = env("ANYNS_PRIVATE_CA_CRL_DISTRIBUTION_URL", cfg.Certificates.CRLDistributionURL)
 	return cfg
 }
 

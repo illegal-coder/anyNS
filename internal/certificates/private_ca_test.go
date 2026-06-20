@@ -17,7 +17,8 @@ import (
 )
 
 func TestPrivateRootIssuerCreatesRootAndIssuesLeafChain(t *testing.T) {
-	cfg := config.CertificatesConfig{StorageDir: t.TempDir()}
+	crlDistributionURL := "https://ca.example.test/private-ca.crl"
+	cfg := config.CertificatesConfig{StorageDir: t.TempDir(), CRLDistributionURL: crlDistributionURL}
 	issuer, err := NewPrivateRootIssuer(cfg)
 	if err != nil {
 		t.Fatal(err)
@@ -74,6 +75,9 @@ func TestPrivateRootIssuerCreatesRootAndIssuesLeafChain(t *testing.T) {
 	}
 	if !stringSlicesEqual(leaf.DNSNames, []string{"example.test", "*.example.test"}) {
 		t.Fatalf("leaf DNSNames=%v", leaf.DNSNames)
+	}
+	if !stringSlicesEqual(leaf.CRLDistributionPoints, []string{crlDistributionURL}) {
+		t.Fatalf("leaf CRLDistributionPoints=%v", leaf.CRLDistributionPoints)
 	}
 	if leaf.NotAfter.After(root.NotAfter) {
 		t.Fatalf("leaf NotAfter %s exceeds root %s", leaf.NotAfter, root.NotAfter)
