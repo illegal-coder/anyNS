@@ -415,6 +415,70 @@ func TestPrivateCACertificateOrderUsesLocalIssuer(t *testing.T) {
 		t.Fatalf("imported leaf signature: %v", err)
 	}
 
+	oldFingerprint = metadata.SHA256Fingerprint
+	rec = httptest.NewRecorder()
+	mux.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/v1/certificates/private-ca/root/rotate", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("rotate root status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &metadata); err != nil {
+		t.Fatalf("decode rotated metadata: %v", err)
+	}
+	if metadata.SHA256Fingerprint == oldFingerprint || metadata.BackupStatus.Status != "stale" {
+		t.Fatalf("rotated metadata=%+v old=%s", metadata, oldFingerprint)
+	}
+	if strings.Contains(rec.Body.String(), "PRIVATE KEY") || strings.Contains(rec.Body.String(), "BEGIN ") {
+		t.Fatalf("rotate metadata leaked key or PEM material: %s", rec.Body.String())
+	}
+	rotatedRootPEM, err := os.ReadFile(filepath.Join(cfg.Certificates.StorageDir, "private-ca", "root-cert.pem"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	rotatedRoot := testCertificateChain(t, rotatedRootPEM)[0]
+
+	body = `{"domains":["rotated.example"],"idempotency_key":"private-ca-rotated"}`
+	rec = httptest.NewRecorder()
+	mux.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/v1/certificates/orders", strings.NewReader(body)))
+	if rec.Code != http.StatusAccepted {
+		t.Fatalf("rotated order status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	var rotatedJob struct {
+		ID string `json:"id"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &rotatedJob); err != nil {
+		t.Fatalf("decode rotated job: %v", err)
+	}
+	deadline = time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		rec = httptest.NewRecorder()
+		mux.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/v1/certificates/orders/"+rotatedJob.ID, nil))
+		if rec.Code != http.StatusOK {
+			t.Fatalf("rotated job status=%d body=%s", rec.Code, rec.Body.String())
+		}
+		var current struct {
+			Status string `json:"status"`
+		}
+		if err := json.Unmarshal(rec.Body.Bytes(), &current); err != nil {
+			t.Fatalf("decode rotated current job: %v", err)
+		}
+		if current.Status == "issued" {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	rec = httptest.NewRecorder()
+	mux.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/v1/certificates/orders/"+rotatedJob.ID+"/certificate", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("rotated certificate status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	rotatedChain := testCertificateChain(t, rec.Body.Bytes())
+	if len(rotatedChain) != 2 || !bytes.Equal(rotatedChain[1].Raw, rotatedRoot.Raw) {
+		t.Fatalf("rotated chain root mismatch length=%d", len(rotatedChain))
+	}
+	if err := rotatedChain[0].CheckSignatureFrom(rotatedRoot); err != nil {
+		t.Fatalf("rotated leaf signature: %v", err)
+	}
+
 	rec = httptest.NewRecorder()
 	mux.ServeHTTP(rec, httptest.NewRequest(http.MethodPatch, "/api/v1/certificates/private-ca/root", strings.NewReader(`{"disabled":true}`)))
 	if rec.Code != http.StatusOK {
@@ -479,7 +543,7 @@ func TestPrivateCACertificateOrderUsesLocalIssuer(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(auditBody), "certificate.private_ca.root.update") || !strings.Contains(string(auditBody), "certificate.private_ca.root.backup_status") || !strings.Contains(string(auditBody), "certificate.private_ca.root.import") {
+	if !strings.Contains(string(auditBody), "certificate.private_ca.root.update") || !strings.Contains(string(auditBody), "certificate.private_ca.root.backup_status") || !strings.Contains(string(auditBody), "certificate.private_ca.root.import") || !strings.Contains(string(auditBody), "certificate.private_ca.root.rotate") {
 		t.Fatalf("audit event missing: %s", auditBody)
 	}
 	if strings.Contains(string(auditBody), "PRIVATE KEY") || strings.Contains(string(auditBody), "BEGIN ") {

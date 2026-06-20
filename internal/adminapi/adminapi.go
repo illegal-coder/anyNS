@@ -78,6 +78,7 @@ func Register(mux *http.ServeMux, application *app.App, cfg *config.Config) {
 	mux.HandleFunc("/api/v1/certificates/private-ca/root", handler.certificatePrivateCARoot)
 	mux.HandleFunc("/api/v1/certificates/private-ca/root/backup-status", handler.certificatePrivateCARootBackupStatus)
 	mux.HandleFunc("/api/v1/certificates/private-ca/root/import", handler.certificatePrivateCARootImport)
+	mux.HandleFunc("/api/v1/certificates/private-ca/root/rotate", handler.certificatePrivateCARootRotate)
 	mux.HandleFunc("/api/v1/certificates/tlsa", handler.certificateTLSA)
 }
 
@@ -174,6 +175,7 @@ func (h *Handler) capabilities(w http.ResponseWriter, r *http.Request) {
 			"PATCH /api/v1/certificates/private-ca/root",
 			"POST /api/v1/certificates/private-ca/root/backup-status",
 			"POST /api/v1/certificates/private-ca/root/import",
+			"POST /api/v1/certificates/private-ca/root/rotate",
 			"POST /api/v1/certificates/tlsa",
 		),
 		"plugins": feature(
@@ -539,6 +541,44 @@ func (h *Handler) certificatePrivateCARootImport(w http.ResponseWriter, r *http.
 		return
 	}
 	h.application.AppendManagementAudit("certificate.private_ca.root.import", principal.ID, r.Method, r.URL.Path, "ok", map[string]any{
+		"sha256_fingerprint": metadata.SHA256Fingerprint,
+	})
+	httpapi.WriteJSON(w, http.StatusOK, metadata)
+}
+
+func (h *Handler) certificatePrivateCARootRotate(w http.ResponseWriter, r *http.Request) {
+	current := *h.cfg
+	if r.Method != http.MethodPost {
+		httpapi.Error(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	principal, ok := httpapi.RequireScopePrincipal(w, r, current, httpapi.ScopeCertificatesWrite)
+	if !ok {
+		return
+	}
+	if strings.TrimSpace(current.Certificates.IssuerMode) != "private-ca" {
+		httpapi.Error(w, http.StatusNotFound, "private CA root is not configured")
+		return
+	}
+	if h.certificates == nil {
+		httpapi.Error(w, http.StatusServiceUnavailable, h.certificateUnavailable())
+		return
+	}
+	metadata, err := certificates.RotatePrivateRoot(current.Certificates)
+	if err != nil {
+		httpapi.Error(w, http.StatusServiceUnavailable, err.Error())
+		return
+	}
+	issuer, err := certificates.NewPrivateRootIssuer(current.Certificates)
+	if err != nil {
+		httpapi.Error(w, http.StatusServiceUnavailable, "private CA root issuer cannot be reloaded")
+		return
+	}
+	if err := h.certificates.SetIssuer(issuer); err != nil {
+		httpapi.Error(w, http.StatusServiceUnavailable, err.Error())
+		return
+	}
+	h.application.AppendManagementAudit("certificate.private_ca.root.rotate", principal.ID, r.Method, r.URL.Path, "ok", map[string]any{
 		"sha256_fingerprint": metadata.SHA256Fingerprint,
 	})
 	httpapi.WriteJSON(w, http.StatusOK, metadata)

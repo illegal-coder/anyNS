@@ -294,6 +294,58 @@ func TestImportPrivateRootReplacesRootAndRequiresMatchingKey(t *testing.T) {
 	}
 }
 
+func TestRotatePrivateRootSelectsNewActiveRoot(t *testing.T) {
+	cfg := config.CertificatesConfig{StorageDir: t.TempDir()}
+	if _, err := NewPrivateRootIssuer(cfg); err != nil {
+		t.Fatal(err)
+	}
+	original, err := PrivateRootMetadataForConfig(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := RecordPrivateRootBackup(cfg, original.SHA256Fingerprint); err != nil {
+		t.Fatal(err)
+	}
+
+	rotated, err := RotatePrivateRoot(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rotated.SHA256Fingerprint == original.SHA256Fingerprint {
+		t.Fatalf("rotation did not replace root fingerprint=%s", rotated.SHA256Fingerprint)
+	}
+	if rotated.BackupStatus.Status != "stale" || rotated.BackupStatus.SHA256Fingerprint != original.SHA256Fingerprint {
+		t.Fatalf("backup status after rotation=%+v original=%s", rotated.BackupStatus, original.SHA256Fingerprint)
+	}
+	if !rotated.RootKeyPresent || rotated.RootKeyMode != "0600" {
+		t.Fatalf("rotated root key metadata=%+v", rotated)
+	}
+
+	issuer, err := NewPrivateRootIssuer(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	output, err := issuer.Issue(context.Background(), []string{"rotated.example"}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	chain := certificateChain(t, output.CertificatePEM)
+	if len(chain) != 2 {
+		t.Fatalf("chain length=%d", len(chain))
+	}
+	rotatedRootPEM, err := os.ReadFile(filepath.Join(privateRootDir(cfg), privateRootCertFile))
+	if err != nil {
+		t.Fatal(err)
+	}
+	rotatedRoot := firstCertificate(t, rotatedRootPEM)
+	if !bytes.Equal(chain[1].Raw, rotatedRoot.Raw) {
+		t.Fatal("issued chain did not include rotated root")
+	}
+	if err := chain[0].CheckSignatureFrom(rotatedRoot); err != nil {
+		t.Fatalf("leaf signature from rotated root: %v", err)
+	}
+}
+
 func containsExtKeyUsage(values []x509.ExtKeyUsage, want x509.ExtKeyUsage) bool {
 	for _, value := range values {
 		if value == want {

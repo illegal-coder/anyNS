@@ -211,6 +211,17 @@ func ImportPrivateRoot(cfg config.CertificatesConfig, certPEM, keyPEM []byte) (P
 	return PrivateRootMetadataForConfig(cfg)
 }
 
+func RotatePrivateRoot(cfg config.CertificatesConfig) (PrivateRootMetadata, error) {
+	rootDir := privateRootDir(cfg)
+	if err := os.MkdirAll(rootDir, 0o700); err != nil {
+		return PrivateRootMetadata{}, errors.New("private CA root storage cannot be created")
+	}
+	if _, _, _, err := createPrivateRoot(filepath.Join(rootDir, privateRootKeyFile), filepath.Join(rootDir, privateRootCertFile)); err != nil {
+		return PrivateRootMetadata{}, err
+	}
+	return PrivateRootMetadataForConfig(cfg)
+}
+
 func (i *PrivateRootIssuer) Issue(ctx context.Context, domains []string, state func(string)) (IssueOutput, error) {
 	select {
 	case <-ctx.Done():
