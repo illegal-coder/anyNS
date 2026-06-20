@@ -147,6 +147,19 @@ func (m *Manager) Close() {
 	m.wg.Wait()
 }
 
+func (m *Manager) SetIssuer(issuer Issuer) error {
+	if issuer == nil {
+		return errors.New("certificate issuer is required")
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.closed {
+		return errors.New("certificate manager is closed")
+	}
+	m.issuer = issuer
+	return nil
+}
+
 func (m *Manager) Get(id string) (Job, bool) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
@@ -201,7 +214,10 @@ func (m *Manager) Revoke(ctx context.Context, id string) (Job, error) {
 	if err != nil {
 		return Job{}, err
 	}
-	if err := m.issuer.Revoke(ctx, certificatePEM); err != nil {
+	m.mu.RLock()
+	issuer := m.issuer
+	m.mu.RUnlock()
+	if err := issuer.Revoke(ctx, certificatePEM); err != nil {
 		return Job{}, err
 	}
 	now := time.Now().UTC()
@@ -237,9 +253,10 @@ func (m *Manager) run(id string) {
 		})
 		m.mu.RLock()
 		domains := append([]string(nil), m.jobs[id].Domains...)
+		issuer := m.issuer
 		m.mu.RUnlock()
 		ctx, cancel := context.WithTimeout(context.Background(), m.cfg.RequestTimeout)
-		output, err := m.issuer.Issue(ctx, domains, func(status string) {
+		output, err := issuer.Issue(ctx, domains, func(status string) {
 			if status == StatusFinalizing {
 				m.update(id, func(job *Job) { job.Status = StatusFinalizing })
 			}

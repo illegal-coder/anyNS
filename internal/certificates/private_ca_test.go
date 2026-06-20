@@ -211,6 +211,89 @@ func TestPrivateRootBackupStatusRequiresCurrentFingerprint(t *testing.T) {
 	}
 }
 
+func TestImportPrivateRootReplacesRootAndRequiresMatchingKey(t *testing.T) {
+	cfg := config.CertificatesConfig{StorageDir: t.TempDir()}
+	if _, err := NewPrivateRootIssuer(cfg); err != nil {
+		t.Fatal(err)
+	}
+	original, err := PrivateRootMetadataForConfig(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := RecordPrivateRootBackup(cfg, original.SHA256Fingerprint); err != nil {
+		t.Fatal(err)
+	}
+
+	importDir := t.TempDir()
+	importKeyPath := filepath.Join(importDir, "root-key.pem")
+	importCertPath := filepath.Join(importDir, "root-cert.pem")
+	_, importCert, _, err := createPrivateRoot(importKeyPath, importCertPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	importKeyPEM, err := os.ReadFile(importKeyPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	importCertPEM, err := os.ReadFile(importCertPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	mismatchDir := t.TempDir()
+	mismatchKeyPath := filepath.Join(mismatchDir, "root-key.pem")
+	mismatchCertPath := filepath.Join(mismatchDir, "root-cert.pem")
+	if _, _, _, err := createPrivateRoot(mismatchKeyPath, mismatchCertPath); err != nil {
+		t.Fatal(err)
+	}
+	mismatchKeyPEM, err := os.ReadFile(mismatchKeyPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ImportPrivateRoot(cfg, importCertPEM, mismatchKeyPEM); err == nil || !strings.Contains(err.Error(), "does not match") {
+		t.Fatalf("mismatched import err=%v", err)
+	}
+	afterMismatch, err := PrivateRootMetadataForConfig(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if afterMismatch.SHA256Fingerprint != original.SHA256Fingerprint {
+		t.Fatalf("mismatched import changed root: before=%s after=%s", original.SHA256Fingerprint, afterMismatch.SHA256Fingerprint)
+	}
+
+	imported, err := ImportPrivateRoot(cfg, importCertPEM, importKeyPEM)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if imported.SHA256Fingerprint == original.SHA256Fingerprint {
+		t.Fatalf("import did not replace root fingerprint=%s", imported.SHA256Fingerprint)
+	}
+	if imported.BackupStatus.Status != "stale" {
+		t.Fatalf("backup status after import=%+v", imported.BackupStatus)
+	}
+	if !imported.RootKeyPresent || imported.RootKeyMode != "0600" {
+		t.Fatalf("imported root key metadata=%+v", imported)
+	}
+	issuer, err := NewPrivateRootIssuer(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	output, err := issuer.Issue(context.Background(), []string{"imported.example"}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	chain := certificateChain(t, output.CertificatePEM)
+	if len(chain) != 2 {
+		t.Fatalf("chain length=%d", len(chain))
+	}
+	if !bytes.Equal(chain[1].Raw, importCert.Raw) {
+		t.Fatal("issued chain did not include imported root")
+	}
+	if err := chain[0].CheckSignatureFrom(importCert); err != nil {
+		t.Fatalf("leaf signature from imported root: %v", err)
+	}
+}
+
 func containsExtKeyUsage(values []x509.ExtKeyUsage, want x509.ExtKeyUsage) bool {
 	for _, value := range values {
 		if value == want {

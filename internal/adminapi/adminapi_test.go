@@ -2,7 +2,9 @@ package adminapi
 
 import (
 	"bytes"
+	"crypto/x509"
 	"encoding/json"
+	"encoding/pem"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -12,6 +14,7 @@ import (
 	"time"
 
 	"github.com/anyns/anyns/internal/app"
+	"github.com/anyns/anyns/internal/certificates"
 	"github.com/anyns/anyns/internal/config"
 	"github.com/anyns/anyns/internal/httpapi"
 	"github.com/anyns/anyns/internal/powerdns"
@@ -333,6 +336,85 @@ func TestPrivateCACertificateOrderUsesLocalIssuer(t *testing.T) {
 		t.Fatalf("backup metadata=%+v", metadata.BackupStatus)
 	}
 
+	importStorage := t.TempDir()
+	if _, err := certificates.NewPrivateRootIssuer(config.CertificatesConfig{StorageDir: importStorage}); err != nil {
+		t.Fatal(err)
+	}
+	importCertPEM, err := os.ReadFile(filepath.Join(importStorage, "private-ca", "root-cert.pem"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	importKeyPEM, err := os.ReadFile(filepath.Join(importStorage, "private-ca", "root-key.pem"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	importBody, err := json.Marshal(map[string]string{
+		"certificate_pem": string(importCertPEM),
+		"private_key_pem": string(importKeyPEM),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	oldFingerprint := metadata.SHA256Fingerprint
+	rec = httptest.NewRecorder()
+	mux.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/v1/certificates/private-ca/root/import", bytes.NewReader(importBody)))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("import root status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &metadata); err != nil {
+		t.Fatalf("decode imported metadata: %v", err)
+	}
+	if metadata.SHA256Fingerprint == oldFingerprint || metadata.BackupStatus.Status != "stale" {
+		t.Fatalf("imported metadata=%+v old=%s", metadata, oldFingerprint)
+	}
+	if strings.Contains(rec.Body.String(), "PRIVATE KEY") || strings.Contains(rec.Body.String(), "BEGIN ") {
+		t.Fatalf("import metadata leaked key or PEM material: %s", rec.Body.String())
+	}
+
+	body = `{"domains":["imported.example"],"idempotency_key":"private-ca-imported"}`
+	rec = httptest.NewRecorder()
+	mux.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/v1/certificates/orders", strings.NewReader(body)))
+	if rec.Code != http.StatusAccepted {
+		t.Fatalf("imported order status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	var importedJob struct {
+		ID string `json:"id"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &importedJob); err != nil {
+		t.Fatalf("decode imported job: %v", err)
+	}
+	deadline = time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		rec = httptest.NewRecorder()
+		mux.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/v1/certificates/orders/"+importedJob.ID, nil))
+		if rec.Code != http.StatusOK {
+			t.Fatalf("imported job status=%d body=%s", rec.Code, rec.Body.String())
+		}
+		var current struct {
+			Status string `json:"status"`
+		}
+		if err := json.Unmarshal(rec.Body.Bytes(), &current); err != nil {
+			t.Fatalf("decode imported current job: %v", err)
+		}
+		if current.Status == "issued" {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	rec = httptest.NewRecorder()
+	mux.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/v1/certificates/orders/"+importedJob.ID+"/certificate", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("imported certificate status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	importedChain := testCertificateChain(t, rec.Body.Bytes())
+	importedRoot := testCertificateChain(t, importCertPEM)[0]
+	if len(importedChain) != 2 || !bytes.Equal(importedChain[1].Raw, importedRoot.Raw) {
+		t.Fatalf("imported chain root mismatch length=%d", len(importedChain))
+	}
+	if err := importedChain[0].CheckSignatureFrom(importedRoot); err != nil {
+		t.Fatalf("imported leaf signature: %v", err)
+	}
+
 	rec = httptest.NewRecorder()
 	mux.ServeHTTP(rec, httptest.NewRequest(http.MethodPatch, "/api/v1/certificates/private-ca/root", strings.NewReader(`{"disabled":true}`)))
 	if rec.Code != http.StatusOK {
@@ -397,12 +479,36 @@ func TestPrivateCACertificateOrderUsesLocalIssuer(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(auditBody), "certificate.private_ca.root.update") || !strings.Contains(string(auditBody), "certificate.private_ca.root.backup_status") {
+	if !strings.Contains(string(auditBody), "certificate.private_ca.root.update") || !strings.Contains(string(auditBody), "certificate.private_ca.root.backup_status") || !strings.Contains(string(auditBody), "certificate.private_ca.root.import") {
 		t.Fatalf("audit event missing: %s", auditBody)
 	}
 	if strings.Contains(string(auditBody), "PRIVATE KEY") || strings.Contains(string(auditBody), "BEGIN ") {
 		t.Fatalf("audit leaked key material: %s", auditBody)
 	}
+}
+
+func testCertificateChain(t *testing.T, body []byte) []*x509.Certificate {
+	t.Helper()
+	var certs []*x509.Certificate
+	for {
+		block, rest := pem.Decode(body)
+		if block == nil {
+			break
+		}
+		body = rest
+		if block.Type != "CERTIFICATE" {
+			continue
+		}
+		cert, err := x509.ParseCertificate(block.Bytes)
+		if err != nil {
+			t.Fatal(err)
+		}
+		certs = append(certs, cert)
+	}
+	if len(certs) == 0 {
+		t.Fatal("no certificate found")
+	}
+	return certs
 }
 
 func TestCapabilitiesRequireAuthentication(t *testing.T) {

@@ -176,6 +176,41 @@ func RecordPrivateRootBackup(cfg config.CertificatesConfig, sha256Fingerprint st
 	return PrivateRootMetadataForConfig(cfg)
 }
 
+func ImportPrivateRoot(cfg config.CertificatesConfig, certPEM, keyPEM []byte) (PrivateRootMetadata, error) {
+	if len(bytes.TrimSpace(certPEM)) == 0 {
+		return PrivateRootMetadata{}, errors.New("private root certificate PEM is required")
+	}
+	if len(bytes.TrimSpace(keyPEM)) == 0 {
+		return PrivateRootMetadata{}, errors.New("private root key PEM is required")
+	}
+	key, err := parsePrivateKeyPEM(keyPEM)
+	if err != nil {
+		return PrivateRootMetadata{}, err
+	}
+	cert, err := parseCertificatePEM(certPEM)
+	if err != nil {
+		return PrivateRootMetadata{}, err
+	}
+	if err := validatePrivateRoot(key, cert); err != nil {
+		return PrivateRootMetadata{}, err
+	}
+	keyDER, err := x509.MarshalPKCS8PrivateKey(key)
+	if err != nil {
+		return PrivateRootMetadata{}, errors.New("private root key cannot be encoded")
+	}
+	rootDir := privateRootDir(cfg)
+	if err := os.MkdirAll(rootDir, 0o700); err != nil {
+		return PrivateRootMetadata{}, errors.New("private CA root storage cannot be created")
+	}
+	if err := atomicWrite(filepath.Join(rootDir, privateRootKeyFile), pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: keyDER}), 0o600); err != nil {
+		return PrivateRootMetadata{}, errors.New("private CA root key cannot be written")
+	}
+	if err := atomicWrite(filepath.Join(rootDir, privateRootCertFile), pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: cert.Raw}), 0o644); err != nil {
+		return PrivateRootMetadata{}, errors.New("private CA root certificate cannot be written")
+	}
+	return PrivateRootMetadataForConfig(cfg)
+}
+
 func (i *PrivateRootIssuer) Issue(ctx context.Context, domains []string, state func(string)) (IssueOutput, error) {
 	select {
 	case <-ctx.Done():
@@ -322,8 +357,8 @@ func loadPrivateRoot(keyPath, certPath string) (crypto.Signer, *x509.Certificate
 	if err != nil {
 		return nil, nil, nil, err
 	}
-	if !cert.IsCA || cert.KeyUsage&x509.KeyUsageCertSign == 0 {
-		return nil, nil, nil, errors.New("private root certificate is not a CA")
+	if err := validatePrivateRoot(key, cert); err != nil {
+		return nil, nil, nil, err
 	}
 	return key, cert, certBody, nil
 }
@@ -383,7 +418,18 @@ func parsePrivateKeyPEM(body []byte) (crypto.Signer, error) {
 	if block == nil {
 		return nil, errors.New("private root key PEM is invalid")
 	}
-	key, err := x509.ParsePKCS8PrivateKey(block.Bytes)
+	var key any
+	var err error
+	switch block.Type {
+	case "PRIVATE KEY":
+		key, err = x509.ParsePKCS8PrivateKey(block.Bytes)
+	case "EC PRIVATE KEY":
+		key, err = x509.ParseECPrivateKey(block.Bytes)
+	case "RSA PRIVATE KEY":
+		key, err = x509.ParsePKCS1PrivateKey(block.Bytes)
+	default:
+		return nil, errors.New("private root key PEM type is unsupported")
+	}
 	if err != nil {
 		return nil, fmt.Errorf("parse private root key: %w", err)
 	}
@@ -404,6 +450,33 @@ func parseCertificatePEM(body []byte) (*x509.Certificate, error) {
 		return nil, fmt.Errorf("parse private root certificate: %w", err)
 	}
 	return cert, nil
+}
+
+func validatePrivateRoot(key crypto.Signer, cert *x509.Certificate) error {
+	if !cert.BasicConstraintsValid || !cert.IsCA || cert.KeyUsage&x509.KeyUsageCertSign == 0 {
+		return errors.New("private root certificate is not a valid CA")
+	}
+	if len(cert.SubjectKeyId) == 0 || len(cert.AuthorityKeyId) == 0 || !bytes.Equal(cert.SubjectKeyId, cert.AuthorityKeyId) {
+		return errors.New("private root certificate must include matching SKI and AKI")
+	}
+	if time.Now().UTC().After(cert.NotAfter) {
+		return errors.New("private root certificate is expired")
+	}
+	if err := cert.CheckSignatureFrom(cert); err != nil {
+		return errors.New("private root certificate must be self-signed")
+	}
+	keyDER, err := x509.MarshalPKIXPublicKey(key.Public())
+	if err != nil {
+		return errors.New("private root key public component cannot be encoded")
+	}
+	certDER, err := x509.MarshalPKIXPublicKey(cert.PublicKey)
+	if err != nil {
+		return errors.New("private root certificate public key cannot be encoded")
+	}
+	if !bytes.Equal(keyDER, certDER) {
+		return errors.New("private root key does not match certificate")
+	}
+	return nil
 }
 
 func randomSerial() (*big.Int, error) {
