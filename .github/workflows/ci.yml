@@ -94,3 +94,4 @@ jobs:
           docker compose -f tests/docker/compose.hnsd.yml config --quiet
           docker compose -f tests/docker/compose.dns-integration.yml -f tests/docker/compose.selenium.yml config --quiet
           docker compose -f tests/docker/compose.dns-integration.yml -f tests/docker/compose.soa-tld.yml config --quiet
+          docker compose -f tests/docker/compose.dns-integration.yml -f tests/docker/compose.dnssec.yml config --quiet

@@ -110,7 +110,7 @@
 
 ## 最早 P0-P4 计划完成度
 
-- [x] **P0 基础环境，约 96%**：PowerDNS、运行时、管理 API、Web 管理、DNSLog、Compose、缓存、现代 RR 和一键构建均已完成；真实 DNSSEC bogus 链自动验收仍缺。
+- [x] **P0 基础环境，约 97%**：PowerDNS、运行时、管理 API、Web 管理、DNSLog、Compose、缓存、现代 RR、一键构建和隔离 DNSSEC valid/bogus 验证门禁均已完成；生产父区 DS 发布和真实外部链路仍需单独验收。
 - [x] **P1 HNS，约 86%**：主链路、NXDOMAIN、缓存、审计、失败边界和 fixture 已完成；live hnsd P2P/SPV 仍为 opt-in。
 - [x] **P2 插件并联，约 83%**：19 个插件、统一路由、冲突优先级、缓存隔离和契约测试已完成；真实公网链节点/API 尚未形成生产门禁。
 - [x] **P3 安全防护，约 85%**：主要检测、阻断、审计、蜜罐失败队列和指标已完成；短程 Docker load/soak 已有证据，持续流量、压力和容量基线仍待补充。
@@ -130,7 +130,7 @@
 ## 后续待办
 
 - [ ] 向 GitHub Support 提交旧 SHA 缓存对象清除请求并复核旧对象不可访问。
-- [ ] 增加有效 DNSSEC 链、bogus 链、AD flag 和验证失败自动测试。
+- [x] 增加有效 DNSSEC 链、bogus 链、AD flag 和验证失败自动测试；`bash tests/acceptance/docker-dnssec-validation.sh` 在隔离 gsqlite/Recursor profile 中验证 `secure` 链 `NOERROR` + `ad` + RRSIG，以及故意损坏 DS 的 `bogus` 链 `SERVFAIL` 且无 `ad`。
 - [x] 在受控时间窗运行 live hnsd P2P/SPV 集成 smoke gate。
 - [ ] 为选定插件增加真实外部 RPC/API smoke test，凭据只通过 secret 注入。
 - [ ] 增加 NXDOMAIN flood、随机子域、长稳和容量基线测试；短程 Docker load/soak 门禁已完成。

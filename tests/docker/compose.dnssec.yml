@@ -1,0 +1,33 @@
+services:
+  pdns-authoritative:
+    volumes:
+      - ./pdns-authoritative-gsqlite.conf:/etc/powerdns/pdns.conf:ro
+      - dnssec-pdns-data:/var/lib/powerdns
+
+  pdns-recursor:
+    command: ["--config-dir=/etc/pdns-recursor", "--enable-old-settings=yes"]
+    volumes:
+      - ./pdns-recursor-dnssec.conf:/etc/pdns-recursor/recursor.conf:ro
+
+  anyns-plugin-runtime:
+    environment:
+      ANYNS_MANAGEMENT_AUTH_REQUIRED: "false"
+
+  anyns-admin-api:
+    environment:
+      ANYNS_MANAGEMENT_AUTH_REQUIRED: "false"
+      ANYNS_PDNS_AUTH_URL: http://pdns-authoritative:8081
+      ANYNS_PDNS_RECURSOR_URL: http://pdns-recursor:8082
+      ANYNS_PDNS_SERVER_ID: localhost
+      PDNS_AUTH_API_KEY: docker-integration
+      PDNS_RECURSOR_API_KEY: docker-integration
+    depends_on:
+      anyns-plugin-runtime:
+        condition: service_started
+      pdns-authoritative:
+        condition: service_started
+      pdns-recursor:
+        condition: service_started
+
+volumes:
+  dnssec-pdns-data:
