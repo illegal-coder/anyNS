@@ -5,6 +5,7 @@ import (
 	"crypto/x509"
 	"encoding/json"
 	"encoding/pem"
+	"math/big"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -287,6 +288,22 @@ func TestPrivateCACertificateOrderUsesLocalIssuer(t *testing.T) {
 	if count := strings.Count(rec.Body.String(), "BEGIN CERTIFICATE"); count != 2 {
 		t.Fatalf("certificate chain count=%d body=%s", count, rec.Body.String())
 	}
+	issuedChain := testCertificateChain(t, rec.Body.Bytes())
+
+	rec = httptest.NewRecorder()
+	mux.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/v1/certificates/orders/"+job.ID+"/revoke", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("revoke status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	rec = httptest.NewRecorder()
+	mux.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/v1/certificates/private-ca/crl", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("CRL status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if strings.Contains(rec.Body.String(), "PRIVATE KEY") || strings.Contains(rec.Body.String(), "BEGIN CERTIFICATE") {
+		t.Fatalf("CRL leaked certificate/key material: %s", rec.Body.String())
+	}
+	assertCRLContainsSerial(t, rec.Body.Bytes(), issuedChain[0].SerialNumber)
 
 	rec = httptest.NewRecorder()
 	mux.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/v1/certificates/private-ca/root", nil))
@@ -573,6 +590,24 @@ func testCertificateChain(t *testing.T, body []byte) []*x509.Certificate {
 		t.Fatal("no certificate found")
 	}
 	return certs
+}
+
+func assertCRLContainsSerial(t *testing.T, body []byte, serial *big.Int) {
+	t.Helper()
+	block, _ := pem.Decode(body)
+	if block == nil || block.Type != "X509 CRL" {
+		t.Fatalf("CRL PEM block=%v", block)
+	}
+	crl, err := x509.ParseCRL(block.Bytes)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, revoked := range crl.TBSCertList.RevokedCertificates {
+		if revoked.SerialNumber.Cmp(serial) == 0 {
+			return
+		}
+	}
+	t.Fatalf("CRL missing serial %s revoked=%+v", serial, crl.TBSCertList.RevokedCertificates)
 }
 
 func TestCapabilitiesRequireAuthentication(t *testing.T) {

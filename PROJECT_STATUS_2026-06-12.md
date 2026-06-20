@@ -59,6 +59,7 @@
 - [x] Certificates 管理页面显示 ACME/private-root 信任模式、私有根指纹、备份状态、根密钥状态和证书清单计数，并继续避免显示私钥或存储路径。
 - [x] 增加 `POST /api/v1/certificates/private-ca/root/import`，支持导入自签名私有根 CA，验证 CA 约束、SKI/AKI、公私钥匹配和未过期状态，并在导入后重新加载 private-ca issuer。
 - [x] 增加 `POST /api/v1/certificates/private-ca/root/rotate`，生成新的本地活动根 CA，轮换后重新加载 private-ca issuer，并使旧备份标记显示为 `stale`。
+- [x] 增加 `GET /api/v1/certificates/private-ca/crl`，返回当前活动根签名的 PEM CRL，仅包含已标记 revoked 且由当前根签发的叶证书 serial，不返回证书链 PEM 或私钥。
 
 ## 测试与验收
 
@@ -78,6 +79,7 @@
 - [x] Private CA root backup-status 回归测试覆盖缺失、指纹不匹配拒绝、匹配后 `current`、旧标记 `stale`，以及管理审计不包含 PEM 或私钥。
 - [x] Private CA root import 回归测试覆盖公私钥不匹配拒绝、导入后根指纹替换、旧备份标记变为 `stale`、根私钥 `0600`、issuer 重载后新叶证书由导入根签发，以及管理审计不包含 PEM 或私钥。
 - [x] Private CA root rotation 回归测试覆盖新活动根指纹、旧备份标记 `stale`、根私钥 `0600`、issuer 重载后新叶证书由轮换根签发，以及管理审计不包含 PEM、路径或私钥。
+- [x] Private CA CRL 回归测试覆盖 revoked 叶证书 serial、当前根 CRL 签名校验、Admin API PEM CRL 输出，以及响应不包含证书链 PEM 或私钥。
 - [x] Private CA 并发签发回归测试覆盖多个同时提交的签发任务全部进入 issued 清单、有效期窗口存在、公开清单不泄露 idempotency key，并验证底层 issuer 最大并发为 1。
 - [x] `bash tests/acceptance/private-ca-certificates.sh` 使用隔离 Compose profile 验证 private CA Admin 镜像构建、叶证书签发、证书链校验、证书下载私钥非披露、根/叶私钥权限、重启持久化和容器内备份恢复。
 - [x] `bash tests/acceptance/private-ca-certificates.sh` 现扩展验证 private CA 证书清单、有效期窗口、TLSA 生成不发布、强制续期与 `renewal_of`、原证书吊销、吊销后禁止续期、吊销证书下载私钥非披露，以及重启和备份恢复后的状态持久化。

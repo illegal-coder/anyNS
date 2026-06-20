@@ -241,6 +241,27 @@ func (m *Manager) CertificatePEM(id string) ([]byte, error) {
 	return os.ReadFile(filepath.Join(m.cfg.StorageDir, "certs", id, "fullchain.pem"))
 }
 
+func (m *Manager) RevokedCertificatePEMs() ([][]byte, error) {
+	m.mu.RLock()
+	ids := make([]string, 0)
+	for _, job := range m.jobs {
+		if job.Status == StatusRevoked {
+			ids = append(ids, job.ID)
+		}
+	}
+	m.mu.RUnlock()
+	sort.Strings(ids)
+	out := make([][]byte, 0, len(ids))
+	for _, id := range ids {
+		body, err := os.ReadFile(filepath.Join(m.cfg.StorageDir, "certs", id, "fullchain.pem"))
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, body)
+	}
+	return out, nil
+}
+
 func (m *Manager) run(id string) {
 	m.work <- struct{}{}
 	defer func() { <-m.work }()

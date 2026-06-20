@@ -222,6 +222,45 @@ func RotatePrivateRoot(cfg config.CertificatesConfig) (PrivateRootMetadata, erro
 	return PrivateRootMetadataForConfig(cfg)
 }
 
+func PrivateRootCRLPEM(cfg config.CertificatesConfig, revokedChains [][]byte, now time.Time) ([]byte, error) {
+	rootDir := privateRootDir(cfg)
+	key, cert, _, err := loadPrivateRoot(filepath.Join(rootDir, privateRootKeyFile), filepath.Join(rootDir, privateRootCertFile))
+	if err != nil {
+		return nil, err
+	}
+	if now.IsZero() {
+		now = time.Now().UTC()
+	}
+	revoked := make([]pkix.RevokedCertificate, 0, len(revokedChains))
+	for _, chain := range revokedChains {
+		certs, err := parseCertificateChainPEM(chain)
+		if err != nil {
+			return nil, err
+		}
+		if len(certs) == 0 {
+			continue
+		}
+		leaf := certs[0]
+		if len(leaf.AuthorityKeyId) > 0 && len(cert.SubjectKeyId) > 0 && !bytes.Equal(leaf.AuthorityKeyId, cert.SubjectKeyId) {
+			continue
+		}
+		revoked = append(revoked, pkix.RevokedCertificate{
+			SerialNumber:   leaf.SerialNumber,
+			RevocationTime: now,
+		})
+	}
+	crlDER, err := x509.CreateRevocationList(rand.Reader, &x509.RevocationList{
+		RevokedCertificates: revoked,
+		Number:              big.NewInt(now.Unix()),
+		ThisUpdate:          now,
+		NextUpdate:          now.Add(7 * 24 * time.Hour),
+	}, cert, key)
+	if err != nil {
+		return nil, fmt.Errorf("create private root CRL: %w", err)
+	}
+	return pem.EncodeToMemory(&pem.Block{Type: "X509 CRL", Bytes: crlDER}), nil
+}
+
 func (i *PrivateRootIssuer) Issue(ctx context.Context, domains []string, state func(string)) (IssueOutput, error) {
 	select {
 	case <-ctx.Done():
@@ -461,6 +500,26 @@ func parseCertificatePEM(body []byte) (*x509.Certificate, error) {
 		return nil, fmt.Errorf("parse private root certificate: %w", err)
 	}
 	return cert, nil
+}
+
+func parseCertificateChainPEM(body []byte) ([]*x509.Certificate, error) {
+	var certs []*x509.Certificate
+	for {
+		block, rest := pem.Decode(body)
+		if block == nil {
+			break
+		}
+		body = rest
+		if block.Type != "CERTIFICATE" {
+			continue
+		}
+		cert, err := x509.ParseCertificate(block.Bytes)
+		if err != nil {
+			return nil, fmt.Errorf("parse certificate chain: %w", err)
+		}
+		certs = append(certs, cert)
+	}
+	return certs, nil
 }
 
 func validatePrivateRoot(key crypto.Signer, cert *x509.Certificate) error {

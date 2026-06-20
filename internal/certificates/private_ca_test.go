@@ -346,6 +346,45 @@ func TestRotatePrivateRootSelectsNewActiveRoot(t *testing.T) {
 	}
 }
 
+func TestPrivateRootCRLIncludesRevokedLeaf(t *testing.T) {
+	cfg := config.CertificatesConfig{StorageDir: t.TempDir()}
+	issuer, err := NewPrivateRootIssuer(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	output, err := issuer.Issue(context.Background(), []string{"revoked.example"}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	crlPEM, err := PrivateRootCRLPEM(cfg, [][]byte{output.CertificatePEM}, time.Now().UTC())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bytes.Contains(crlPEM, []byte("PRIVATE KEY")) || bytes.Contains(crlPEM, []byte("BEGIN CERTIFICATE")) {
+		t.Fatalf("CRL leaked certificate/key material: %s", crlPEM)
+	}
+	block, _ := pem.Decode(crlPEM)
+	if block == nil || block.Type != "X509 CRL" {
+		t.Fatalf("CRL PEM block=%v", block)
+	}
+	crl, err := x509.ParseCRL(block.Bytes)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rootPEM, err := os.ReadFile(filepath.Join(privateRootDir(cfg), privateRootCertFile))
+	if err != nil {
+		t.Fatal(err)
+	}
+	root := firstCertificate(t, rootPEM)
+	if err := root.CheckCRLSignature(crl); err != nil {
+		t.Fatalf("CRL signature: %v", err)
+	}
+	leaf := certificateChain(t, output.CertificatePEM)[0]
+	if len(crl.TBSCertList.RevokedCertificates) != 1 || crl.TBSCertList.RevokedCertificates[0].SerialNumber.Cmp(leaf.SerialNumber) != 0 {
+		t.Fatalf("revoked certificates=%+v want serial=%s", crl.TBSCertList.RevokedCertificates, leaf.SerialNumber)
+	}
+}
+
 func containsExtKeyUsage(values []x509.ExtKeyUsage, want x509.ExtKeyUsage) bool {
 	for _, value := range values {
 		if value == want {
