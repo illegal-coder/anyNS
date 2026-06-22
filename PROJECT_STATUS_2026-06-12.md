@@ -61,6 +61,7 @@
 - [x] 增加 `POST /api/v1/certificates/private-ca/root/rotate`，生成新的本地活动根 CA，轮换后重新加载 private-ca issuer，并使旧备份标记显示为 `stale`。
 - [x] 增加 `GET /api/v1/certificates/private-ca/root/certificate`，显式下载当前活动私有根 CA 公开证书 PEM，要求 `certificates:read`，不返回根私钥、叶私钥或存储路径。
 - [x] 增加 `GET /api/v1/certificates/private-ca/root/trust`，返回私有根信任交接元数据、根证书/CRL URL、安装目标和操作员动作，明确不属于公开 WebPKI，且不返回 PEM、私钥或存储路径。
+- [x] 增加 `GET /api/v1/certificates/private-ca/root/trust-store/handoff`，返回生产 trust store 操作员交接元数据和受控目标清单，明确不自动修改客户端 trust store、不提升为公开 WebPKI，且不返回 PEM、私钥或存储路径。
 - [x] 增加 `GET /api/v1/certificates/private-ca/crl`，返回当前活动根签名的 PEM CRL，仅包含已标记 revoked 且由当前根签发的叶证书 serial，不返回证书链 PEM 或私钥。
 - [x] 增加 `GET /api/v1/certificates/orders/{id}/ocsp`，为 private-ca 证书作业返回当前活动根签名的 DER OCSP 响应，issued 作业为 `good`、revoked 作业为 `revoked`，不返回 PEM、私钥或存储路径。
 - [x] 增加 `certificates.crl_distribution_url`，为新 private-ca 叶证书写入 CRL Distribution Point；配置校验要求 HTTP(S) URL，并在 Admin 服务上发布配置 URL 的非保留路径，但不分发客户端 trust store。
@@ -86,6 +87,7 @@
 - [x] Private CA root import 回归测试覆盖公私钥不匹配拒绝、导入后根指纹替换、旧备份标记变为 `stale`、根私钥 `0600`、issuer 重载后新叶证书由导入根签发，以及管理审计不包含 PEM 或私钥。
 - [x] Private CA root rotation 回归测试覆盖新活动根指纹、旧备份标记 `stale`、根私钥 `0600`、issuer 重载后新叶证书由轮换根签发，以及管理审计不包含 PEM、路径或私钥。
 - [x] Private CA root certificate 回归测试覆盖显式根证书 PEM 下载要求 `certificates:read`、`HEAD` 无 body、只返回当前活动根 CA 证书且不包含私钥。
+- [x] Private CA trust-store handoff 回归测试覆盖 `certificates:read` 鉴权、只读方法、capability 暴露、Linux/macOS/Windows/浏览器/MDM/容器目标清单、`mutates_client_trust:false` guardrail，以及响应不包含 PEM、私钥或存储路径。
 - [x] Private CA CRL 回归测试覆盖 revoked 叶证书 serial、当前根 CRL 签名校验、Admin API PEM CRL 输出，以及响应不包含证书链 PEM 或私钥。
 - [x] Private CA OCSP 回归测试覆盖 issued/revoked 作业的 DER OCSP 响应、当前根签名解析、`certificates:read` 鉴权、`HEAD` 无 body、capability 暴露，以及响应不包含 PEM 或私钥。
 - [x] Private CA CRL Distribution Point 回归测试覆盖配置解析、HTTP(S) URL 校验，以及新签发叶证书包含配置的 CRL Distribution Point。

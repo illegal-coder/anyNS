@@ -71,6 +71,35 @@ type PrivateCATrustHandoff struct {
 	Warnings              []string                  `json:"warnings"`
 }
 
+type PrivateCATrustStoreHandoff struct {
+	IssuerMode             string                      `json:"issuer_mode"`
+	TrustModel             string                      `json:"trust_model"`
+	PublicWebPKI           bool                        `json:"public_webpki"`
+	AutomationMode         string                      `json:"automation_mode"`
+	MutatesClientTrust     bool                        `json:"mutates_client_trust"`
+	RequiresExplicitTrust  bool                        `json:"requires_explicit_trust"`
+	RootCertificateURL     string                      `json:"root_certificate_url"`
+	SHA256Fingerprint      string                      `json:"sha256_fingerprint"`
+	Subject                string                      `json:"subject"`
+	SerialNumber           string                      `json:"serial_number"`
+	NotBefore              time.Time                   `json:"not_before"`
+	NotAfter               time.Time                   `json:"not_after"`
+	Disabled               bool                        `json:"disabled"`
+	Preconditions          []string                    `json:"preconditions"`
+	Targets                []PrivateCATrustStoreTarget `json:"targets"`
+	Warnings               []string                    `json:"warnings"`
+	UnsupportedAutomations []string                    `json:"unsupported_automations"`
+}
+
+type PrivateCATrustStoreTarget struct {
+	ID           string   `json:"id"`
+	Name         string   `json:"name"`
+	Scope        string   `json:"scope"`
+	InstallNotes []string `json:"install_notes"`
+	VerifyNotes  []string `json:"verify_notes"`
+	RemovalNotes []string `json:"removal_notes"`
+}
+
 func Register(mux *http.ServeMux, application *app.App, cfg *config.Config) {
 	handler := &Handler{
 		application: application,
@@ -100,6 +129,7 @@ func Register(mux *http.ServeMux, application *app.App, cfg *config.Config) {
 	mux.HandleFunc("/api/v1/certificates/private-ca/root", handler.certificatePrivateCARoot)
 	mux.HandleFunc("/api/v1/certificates/private-ca/root/certificate", handler.certificatePrivateCARootCertificate)
 	mux.HandleFunc("/api/v1/certificates/private-ca/root/trust", handler.certificatePrivateCARootTrust)
+	mux.HandleFunc("/api/v1/certificates/private-ca/root/trust-store/handoff", handler.certificatePrivateCARootTrustStoreHandoff)
 	mux.HandleFunc("/api/v1/certificates/private-ca/root/backup-status", handler.certificatePrivateCARootBackupStatus)
 	mux.HandleFunc("/api/v1/certificates/private-ca/root/import", handler.certificatePrivateCARootImport)
 	mux.HandleFunc("/api/v1/certificates/private-ca/root/rotate", handler.certificatePrivateCARootRotate)
@@ -203,6 +233,7 @@ func (h *Handler) capabilities(w http.ResponseWriter, r *http.Request) {
 			"GET /api/v1/certificates/private-ca/root",
 			"GET /api/v1/certificates/private-ca/root/certificate",
 			"GET /api/v1/certificates/private-ca/root/trust",
+			"GET /api/v1/certificates/private-ca/root/trust-store/handoff",
 			"PATCH /api/v1/certificates/private-ca/root",
 			"POST /api/v1/certificates/private-ca/root/backup-status",
 			"POST /api/v1/certificates/private-ca/root/import",
@@ -665,6 +696,168 @@ func (h *Handler) certificatePrivateCARootTrust(w http.ResponseWriter, r *http.R
 	}
 	if _, ok := configuredCRLPublicationPath(current.Certificates.CRLDistributionURL); ok {
 		response.PublicCRLURL = strings.TrimSpace(current.Certificates.CRLDistributionURL)
+	}
+	httpapi.WriteJSON(w, http.StatusOK, response)
+}
+
+func (h *Handler) certificatePrivateCARootTrustStoreHandoff(w http.ResponseWriter, r *http.Request) {
+	current := *h.cfg
+	if r.Method != http.MethodGet {
+		httpapi.Error(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	if !httpapi.RequireScope(w, r, current, httpapi.ScopeCertificatesRead) {
+		return
+	}
+	if strings.TrimSpace(current.Certificates.IssuerMode) != "private-ca" {
+		httpapi.Error(w, http.StatusNotFound, "private CA root is not configured")
+		return
+	}
+	if h.certificates == nil {
+		httpapi.Error(w, http.StatusServiceUnavailable, h.certificateUnavailable())
+		return
+	}
+	metadata, err := certificates.PrivateRootMetadataForConfig(current.Certificates)
+	if err != nil {
+		httpapi.Error(w, http.StatusServiceUnavailable, err.Error())
+		return
+	}
+	response := PrivateCATrustStoreHandoff{
+		IssuerMode:            metadata.IssuerMode,
+		TrustModel:            "private-root",
+		PublicWebPKI:          false,
+		AutomationMode:        "operator-handoff",
+		MutatesClientTrust:    false,
+		RequiresExplicitTrust: true,
+		RootCertificateURL:    "/api/v1/certificates/private-ca/root/certificate",
+		SHA256Fingerprint:     metadata.SHA256Fingerprint,
+		Subject:               metadata.Subject,
+		SerialNumber:          metadata.SerialNumber,
+		NotBefore:             metadata.NotBefore,
+		NotAfter:              metadata.NotAfter,
+		Disabled:              metadata.Disabled,
+		Preconditions: []string{
+			"download_current_root_certificate",
+			"verify_sha256_fingerprint",
+			"record_private_root_backup_status",
+			"limit_installation_to_controlled_clients",
+			"define_removal_plan_before_distribution",
+		},
+		Targets: []PrivateCATrustStoreTarget{
+			{
+				ID:    "linux-system",
+				Name:  "Linux system CA store",
+				Scope: "managed host or image",
+				InstallNotes: []string{
+					"install the current root certificate with the platform CA trust tooling",
+					"refresh the host or image CA bundle after installation",
+				},
+				VerifyNotes: []string{
+					"verify the installed root SHA-256 fingerprint matches this response",
+					"verify a private-ca leaf validates only after the root is installed",
+				},
+				RemovalNotes: []string{
+					"remove the distributed root certificate from the platform CA trust tooling",
+					"refresh the host or image CA bundle after removal",
+				},
+			},
+			{
+				ID:    "macos-system",
+				Name:  "macOS system or login keychain",
+				Scope: "managed workstation",
+				InstallNotes: []string{
+					"install the current root certificate into the selected managed keychain",
+					"set trust only for controlled private-root use cases",
+				},
+				VerifyNotes: []string{
+					"verify the installed certificate fingerprint before enabling dependent services",
+					"verify the trust setting is scoped to the intended managed keychain",
+				},
+				RemovalNotes: []string{
+					"remove the current or rotated-out root from the managed keychain",
+					"verify dependent services fail closed or use the replacement root",
+				},
+			},
+			{
+				ID:    "windows-machine",
+				Name:  "Windows local machine root store",
+				Scope: "managed endpoint",
+				InstallNotes: []string{
+					"deploy the current root certificate through endpoint management or group policy",
+					"scope deployment to controlled clients that require private-root validation",
+				},
+				VerifyNotes: []string{
+					"verify the installed root fingerprint in the local machine root store",
+					"verify private-ca leaf validation succeeds only for intended names",
+				},
+				RemovalNotes: []string{
+					"remove the current or rotated-out root through the same management channel",
+					"verify stale private-root leaves no longer validate after removal",
+				},
+			},
+			{
+				ID:    "browser-profile",
+				Name:  "Browser profile or enterprise browser policy",
+				Scope: "managed browser",
+				InstallNotes: []string{
+					"install the current root certificate through managed browser policy or profile tooling",
+					"keep browser-local self-signed mode separate from private-root trust",
+				},
+				VerifyNotes: []string{
+					"verify the browser reports the expected root fingerprint",
+					"verify wrong-hostname validation still fails",
+				},
+				RemovalNotes: []string{
+					"remove the distributed root from browser policy or profile tooling",
+					"verify private-root trust is not silently inherited from another store",
+				},
+			},
+			{
+				ID:    "mobile-mdm",
+				Name:  "Mobile device management profile",
+				Scope: "managed mobile device",
+				InstallNotes: []string{
+					"deploy the current root certificate through the MDM trust profile",
+					"limit the profile to devices that require private-root validation",
+				},
+				VerifyNotes: []string{
+					"verify profile installation reports the expected root fingerprint",
+					"verify revocation and renewal workflows remain reachable for managed devices",
+				},
+				RemovalNotes: []string{
+					"remove the MDM trust profile or replace it with the rotated root profile",
+					"verify unmanaged devices never receive private-root trust",
+				},
+			},
+			{
+				ID:    "container-image",
+				Name:  "Container image CA bundle",
+				Scope: "controlled workload image",
+				InstallNotes: []string{
+					"copy the current root certificate into the image CA source directory",
+					"rebuild the image CA bundle during image build",
+				},
+				VerifyNotes: []string{
+					"verify the image contains the expected root fingerprint",
+					"verify private-ca leaf validation succeeds from a fresh container",
+				},
+				RemovalNotes: []string{
+					"remove the root certificate from the image source and rebuild the CA bundle",
+					"roll out rebuilt images to remove stale trust",
+				},
+			},
+		},
+		Warnings: []string{
+			"this endpoint is an operator handoff and does not install trust automatically",
+			"private-root trust must not be described as public WebPKI trust",
+			"root rotation requires an explicit distribution and removal plan",
+		},
+		UnsupportedAutomations: []string{
+			"direct endpoint trust-store mutation",
+			"production parent-zone mutation",
+			"public WebPKI trust elevation",
+			"private key export",
+		},
 	}
 	httpapi.WriteJSON(w, http.StatusOK, response)
 }

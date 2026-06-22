@@ -735,6 +735,111 @@ func TestPrivateCARootTrustHandoffRequiresReadScopeAndReturnsNoSecrets(t *testin
 	}
 }
 
+func TestPrivateCATrustStoreHandoffRequiresReadScopeAndDoesNotMutateTrust(t *testing.T) {
+	cfg := config.Default()
+	cfg.Management.AuthRequired = true
+	cfg.Management.Keys = []config.ManagementKey{
+		{
+			ID:     "certificate-reader",
+			APIKey: "cert-read",
+			Scopes: []string{httpapi.ScopeCertificatesRead},
+		},
+		{
+			ID:     "overview-reader",
+			APIKey: "overview" + "-read",
+			Scopes: []string{httpapi.ScopeManagementRead},
+		},
+	}
+	cfg.Certificates.Enabled = true
+	cfg.Certificates.IssuerMode = "private-ca"
+	cfg.Certificates.StorageDir = t.TempDir()
+	application, err := app.NewFromConfig(cfg)
+	if err != nil {
+		t.Fatalf("new app: %v", err)
+	}
+	mux := http.NewServeMux()
+	Register(mux, application, &cfg)
+
+	path := "/api/v1/certificates/private-ca/root/trust-store/handoff"
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, path, nil))
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("unauthenticated trust-store handoff status=%d body=%s", rec.Code, rec.Body.String())
+	}
+
+	req := httptest.NewRequest(http.MethodGet, path, nil)
+	req.Header.Set("Authorization", "Bearer overview-read")
+	rec = httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("wrong-scope trust-store handoff status=%d body=%s", rec.Code, rec.Body.String())
+	}
+
+	req = httptest.NewRequest(http.MethodPost, path, nil)
+	req.Header.Set("Authorization", "Bearer cert-read")
+	rec = httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusMethodNotAllowed {
+		t.Fatalf("POST trust-store handoff status=%d body=%s", rec.Code, rec.Body.String())
+	}
+
+	req = httptest.NewRequest(http.MethodGet, path, nil)
+	req.Header.Set("Authorization", "Bearer cert-read")
+	rec = httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("trust-store handoff status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	var response PrivateCATrustStoreHandoff
+	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode trust-store handoff: %v", err)
+	}
+	if response.IssuerMode != "private-ca" || response.TrustModel != "private-root" || response.PublicWebPKI || !response.RequiresExplicitTrust {
+		t.Fatalf("trust-store mode response=%+v", response)
+	}
+	if response.AutomationMode != "operator-handoff" || response.MutatesClientTrust {
+		t.Fatalf("trust-store mutation flags=%+v", response)
+	}
+	if response.RootCertificateURL != "/api/v1/certificates/private-ca/root/certificate" || response.SHA256Fingerprint == "" || response.Subject == "" {
+		t.Fatalf("missing root handoff metadata=%+v", response)
+	}
+	for _, target := range []string{"linux-system", "macos-system", "windows-machine", "browser-profile", "mobile-mdm", "container-image"} {
+		if !containsTrustStoreTarget(response.Targets, target) {
+			t.Fatalf("missing trust-store target %q in %+v", target, response.Targets)
+		}
+	}
+	if !containsString(response.UnsupportedAutomations, "direct endpoint trust-store mutation") || !containsString(response.Preconditions, "verify_sha256_fingerprint") {
+		t.Fatalf("missing handoff guardrails=%+v", response)
+	}
+	body := rec.Body.String()
+	for _, forbidden := range []string{
+		"PRIVATE " + "KEY",
+		"BEGIN " + "CERTIFICATE",
+		cfg.Certificates.StorageDir,
+		"root-key.pem",
+		"root-cert.pem",
+	} {
+		if strings.Contains(body, forbidden) {
+			t.Fatalf("trust-store handoff leaked %q: %s", forbidden, body)
+		}
+	}
+
+	req = httptest.NewRequest(http.MethodGet, "/api/v1/capabilities", nil)
+	req.Header.Set("Authorization", "Bearer cert-read")
+	rec = httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("capabilities status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	var capabilities CapabilitiesResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &capabilities); err != nil {
+		t.Fatalf("decode capabilities: %v", err)
+	}
+	if !containsString(capabilities.Features["certificates"].Endpoints, "GET /api/v1/certificates/private-ca/root/trust-store/handoff") {
+		t.Fatalf("trust-store handoff endpoint missing from capabilities: %+v", capabilities.Features["certificates"].Endpoints)
+	}
+}
+
 func TestPrivateCAOCSPRequiresReadScopeAndReportsRevocation(t *testing.T) {
 	cfg := config.Default()
 	cfg.Management.AuthRequired = true
@@ -1086,6 +1191,15 @@ func waitCertificateJobStatus(t *testing.T, mux http.Handler, jobID, bearer, wan
 func containsString(values []string, want string) bool {
 	for _, value := range values {
 		if value == want {
+			return true
+		}
+	}
+	return false
+}
+
+func containsTrustStoreTarget(values []PrivateCATrustStoreTarget, want string) bool {
+	for _, value := range values {
+		if value.ID == want {
 			return true
 		}
 	}
