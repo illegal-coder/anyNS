@@ -73,6 +73,8 @@ type PatchZoneRequest struct {
 	RRSets []RRSet `json:"rrsets"`
 }
 
+const maxRecordContentLength = 4096
+
 type CryptoKey struct {
 	ID        int      `json:"id"`
 	KeyType   string   `json:"keytype"`
@@ -308,6 +310,9 @@ func (c *Client) PatchAuthoritativeZone(ctx context.Context, zoneID string, requ
 		if !validRecordType(rrset.Type) {
 			return validationErrorf("rrsets[%d].type is invalid", index)
 		}
+		if err := validateRRSetOwnerForType(zoneID, rrset.Name, rrset.Type); err != nil {
+			return validationErrorf("rrsets[%d].name is invalid for %s: %v", index, rrset.Type, err)
+		}
 		switch rrset.ChangeType {
 		case "REPLACE":
 			if rrset.TTL == 0 {
@@ -317,6 +322,9 @@ func (c *Client) PatchAuthoritativeZone(ctx context.Context, zoneID string, requ
 				return validationErrorf("rrsets[%d].records is required for REPLACE", index)
 			}
 			for recordIndex := range rrset.Records {
+				if err := validateRecordContentSafety(rrset.Records[recordIndex].Content); err != nil {
+					return validationErrorf("rrsets[%d].records[%d].content is invalid: %v", index, recordIndex, err)
+				}
 				content, normalizeErr := normalizeRecordContent(rrset.Type, rrset.Records[recordIndex].Content)
 				if normalizeErr != nil {
 					return validationErrorf("rrsets[%d].records[%d].content is invalid: %v", index, recordIndex, normalizeErr)
@@ -898,6 +906,61 @@ func normalizeRecordContent(recordType, content string) (string, error) {
 		return normalized, nil
 	}
 	return content, nil
+}
+
+func validateRRSetOwnerForType(zoneID, owner, recordType string) error {
+	switch recordType {
+	case "SOA", "DNSKEY":
+		if owner != zoneID {
+			return fmt.Errorf("%s records must be at the zone apex", recordType)
+		}
+	case "TLSA":
+		if err := validateTLSAOwner(owner, zoneID); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func validateTLSAOwner(owner, zoneID string) error {
+	if owner == zoneID {
+		return fmt.Errorf("TLSA owner must include _port._protocol labels")
+	}
+	relative := strings.TrimSuffix(owner, "."+zoneID)
+	if relative == owner || relative == "" {
+		return fmt.Errorf("TLSA owner must be inside zone and include _port._protocol labels")
+	}
+	labels := strings.Split(relative, ".")
+	if len(labels) < 2 {
+		return fmt.Errorf("TLSA owner must include _port._protocol labels")
+	}
+	portLabel := strings.TrimPrefix(labels[0], "_")
+	if portLabel == labels[0] || portLabel == "" {
+		return fmt.Errorf("TLSA port label must start with underscore")
+	}
+	port, err := strconv.Atoi(portLabel)
+	if err != nil || port <= 0 || port > 65535 {
+		return fmt.Errorf("TLSA port label must be between _1 and _65535")
+	}
+	switch labels[1] {
+	case "_tcp", "_udp", "_sctp":
+		return nil
+	default:
+		return fmt.Errorf("TLSA protocol label must be _tcp, _udp, or _sctp")
+	}
+}
+
+func validateRecordContentSafety(content string) error {
+	content = strings.TrimSpace(content)
+	if len(content) > maxRecordContentLength {
+		return fmt.Errorf("record content exceeds %d bytes", maxRecordContentLength)
+	}
+	for _, character := range content {
+		if character < 0x20 || character == 0x7f {
+			return fmt.Errorf("record content must not contain literal control characters")
+		}
+	}
+	return nil
 }
 
 func decorateZone(zone *Zone) {

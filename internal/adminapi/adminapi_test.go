@@ -1601,6 +1601,73 @@ func TestPowerDNSZoneDetailAndRRSetPatch(t *testing.T) {
 	}
 }
 
+func TestPowerDNSRRSetPatchRejectsUnsafeMutationsBeforePowerDNS(t *testing.T) {
+	var powerDNSRequests int32
+	pdns := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt32(&powerDNSRequests, 1)
+		http.Error(w, "unexpected PowerDNS request", http.StatusInternalServerError)
+	}))
+	defer pdns.Close()
+
+	cfg := config.Default()
+	cfg.PowerDNS.AuthoritativeURL = pdns.URL
+	cfg.PowerDNS.AuthoritativeAPIKey = "pdns-secret"
+	application, err := app.NewFromConfig(cfg)
+	if err != nil {
+		t.Fatalf("new app: %v", err)
+	}
+	mux := http.NewServeMux()
+	Register(mux, application, &cfg)
+
+	tests := []powerdns.RRSet{
+		{
+			Name:       "child.example.",
+			Type:       "DNSKEY",
+			ChangeType: "REPLACE",
+			Records:    []powerdns.Record{{Content: "257 3 13 AQIDBA=="}},
+		},
+		{
+			Name:       "_443._ftp.example.",
+			Type:       "TLSA",
+			ChangeType: "REPLACE",
+			Records:    []powerdns.Record{{Content: "3 1 1 " + strings.Repeat("AB", 32)}},
+		},
+		{
+			Name:       "example.",
+			Type:       "TXT",
+			ChangeType: "REPLACE",
+			Records:    []powerdns.Record{{Content: "\"ok\"\nmalicious.example. 300 IN A 192.0.2.1"}},
+		},
+		{
+			Name:       "example.",
+			Type:       "TXT",
+			ChangeType: "REPLACE",
+			Records:    []powerdns.Record{{Content: strings.Repeat("A", 4097)}},
+		},
+	}
+	for _, rrset := range tests {
+		t.Run(rrset.Type+"-"+rrset.Name, func(t *testing.T) {
+			body, err := json.Marshal(powerdns.PatchZoneRequest{RRSets: []powerdns.RRSet{rrset}})
+			if err != nil {
+				t.Fatalf("marshal patch: %v", err)
+			}
+			req := httptest.NewRequest(http.MethodPatch, "/api/v1/powerdns/authoritative/zones/example./rrsets", strings.NewReader(string(body)))
+			req.Header.Set("Content-Type", "application/json")
+			rec := httptest.NewRecorder()
+			mux.ServeHTTP(rec, req)
+			if rec.Code != http.StatusBadRequest {
+				t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+			}
+			if strings.Contains(rec.Body.String(), "pdns-secret") {
+				t.Fatalf("response leaked PowerDNS API key: %s", rec.Body.String())
+			}
+		})
+	}
+	if got := atomic.LoadInt32(&powerDNSRequests); got != 0 {
+		t.Fatalf("PowerDNS request count=%d", got)
+	}
+}
+
 func TestPowerDNSSOAUpdateThroughAdminAPI(t *testing.T) {
 	var patched powerdns.PatchZoneRequest
 	pdns := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

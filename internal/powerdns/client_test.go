@@ -383,6 +383,86 @@ func TestPatchAuthoritativeZoneValidatesDNSSECDANEAndCAARecords(t *testing.T) {
 	}
 }
 
+func TestPatchAuthoritativeZoneRejectsUnsafeRRSetMutations(t *testing.T) {
+	cfg := config.Default().PowerDNS
+	cfg.AuthoritativeURL = "http://powerdns.invalid"
+	client := New(cfg)
+	tests := []struct {
+		name   string
+		rrset  RRSet
+		errMsg string
+	}{
+		{
+			name: "dnskey child owner",
+			rrset: RRSet{
+				Name:       "child.example.",
+				Type:       "DNSKEY",
+				ChangeType: "REPLACE",
+				Records:    []Record{{Content: "257 3 13 AQIDBA=="}},
+			},
+			errMsg: "zone apex",
+		},
+		{
+			name: "tlsa missing underscores",
+			rrset: RRSet{
+				Name:       "443.tcp.example.",
+				Type:       "TLSA",
+				ChangeType: "REPLACE",
+				Records:    []Record{{Content: "3 1 1 " + strings.Repeat("AB", 32)}},
+			},
+			errMsg: "port label",
+		},
+		{
+			name: "tlsa unsupported protocol",
+			rrset: RRSet{
+				Name:       "_443._ftp.example.",
+				Type:       "TLSA",
+				ChangeType: "REPLACE",
+				Records:    []Record{{Content: "3 1 1 " + strings.Repeat("AB", 32)}},
+			},
+			errMsg: "protocol label",
+		},
+		{
+			name: "tlsa invalid port",
+			rrset: RRSet{
+				Name:       "_0._tcp.example.",
+				Type:       "TLSA",
+				ChangeType: "REPLACE",
+				Records:    []Record{{Content: "3 1 1 " + strings.Repeat("AB", 32)}},
+			},
+			errMsg: "port label",
+		},
+		{
+			name: "literal newline injection",
+			rrset: RRSet{
+				Name:       "example.",
+				Type:       "TXT",
+				ChangeType: "REPLACE",
+				Records:    []Record{{Content: "\"ok\"\nmalicious.example. 300 IN A 192.0.2.1"}},
+			},
+			errMsg: "control characters",
+		},
+		{
+			name: "oversized content",
+			rrset: RRSet{
+				Name:       "example.",
+				Type:       "TXT",
+				ChangeType: "REPLACE",
+				Records:    []Record{{Content: strings.Repeat("A", maxRecordContentLength+1)}},
+			},
+			errMsg: "exceeds",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := client.PatchAuthoritativeZone(context.Background(), "example.", PatchZoneRequest{RRSets: []RRSet{tt.rrset}})
+			if err == nil || !IsValidationError(err) || !strings.Contains(err.Error(), tt.errMsg) {
+				t.Fatalf("PatchAuthoritativeZone err=%v, want validation containing %q", err, tt.errMsg)
+			}
+		})
+	}
+}
+
 func TestAuthoritativeCryptoKeyLifecycle(t *testing.T) {
 	var created CreateCryptoKeyRequest
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
