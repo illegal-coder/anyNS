@@ -322,6 +322,30 @@ func TestCreateHNSZoneRejectsMultipleLabels(t *testing.T) {
 	}
 }
 
+func TestCreateHNSZoneRejectsMalformedTopLevelLabels(t *testing.T) {
+	cfg := config.Default().PowerDNS
+	cfg.AuthoritativeURL = "http://powerdns.invalid"
+	client := New(cfg)
+	for _, input := range []string{
+		"_service",
+		"bad/name",
+		`bad\name`,
+		"bad%2fname",
+		"bad;name",
+		"bad\"name",
+		"*",
+		"-example",
+		"example-",
+	} {
+		t.Run(input, func(t *testing.T) {
+			_, err := client.CreateAuthoritativeZone(context.Background(), CreateZoneRequest{Name: input, HNS: true})
+			if err == nil || !IsValidationError(err) {
+				t.Fatalf("CreateAuthoritativeZone(%q) err=%v", input, err)
+			}
+		})
+	}
+}
+
 func TestPatchAuthoritativeZoneValidatesDNSSECDANEAndCAARecords(t *testing.T) {
 	var patched PatchZoneRequest
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

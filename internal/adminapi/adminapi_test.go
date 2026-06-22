@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -1482,6 +1483,62 @@ func TestCreateUnicodeHNSZoneThroughAdminAPI(t *testing.T) {
 	}
 	if !strings.Contains(rec.Body.String(), `"unicode_name":"灵."`) || len(patched.RRSets) != 3 {
 		t.Fatalf("patched=%#v response=%s", patched, rec.Body.String())
+	}
+}
+
+func TestCreateHNSZoneRejectsMalformedLabelsBeforePowerDNS(t *testing.T) {
+	var powerDNSRequests int32
+	pdns := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt32(&powerDNSRequests, 1)
+		http.Error(w, "unexpected PowerDNS request", http.StatusInternalServerError)
+	}))
+	defer pdns.Close()
+
+	cfg := config.Default()
+	cfg.PowerDNS.AuthoritativeURL = pdns.URL
+	cfg.PowerDNS.AuthoritativeAPIKey = "pdns-secret"
+	application, err := app.NewFromConfig(cfg)
+	if err != nil {
+		t.Fatalf("new app: %v", err)
+	}
+	mux := http.NewServeMux()
+	Register(mux, application, &cfg)
+
+	for _, name := range []string{
+		"_service",
+		"bad/name",
+		`bad\name`,
+		"bad%2fname",
+		"bad;name",
+		"bad\"name",
+		"*",
+		"-example",
+		"example-",
+		"www.example",
+	} {
+		t.Run(name, func(t *testing.T) {
+			body, err := json.Marshal(powerdns.CreateZoneRequest{
+				Name:     name,
+				HNS:      true,
+				GlueIPv4: "192.0.2.53",
+			})
+			if err != nil {
+				t.Fatalf("marshal request: %v", err)
+			}
+			req := httptest.NewRequest(http.MethodPost, "/api/v1/powerdns/authoritative/zones", strings.NewReader(string(body)))
+			req.Header.Set("Content-Type", "application/json")
+			rec := httptest.NewRecorder()
+			mux.ServeHTTP(rec, req)
+			if rec.Code != http.StatusBadRequest {
+				t.Fatalf("name=%q status=%d body=%s", name, rec.Code, rec.Body.String())
+			}
+			if strings.Contains(rec.Body.String(), "pdns-secret") {
+				t.Fatalf("response leaked PowerDNS API key: %s", rec.Body.String())
+			}
+		})
+	}
+	if got := atomic.LoadInt32(&powerDNSRequests); got != 0 {
+		t.Fatalf("PowerDNS request count=%d", got)
 	}
 }
 

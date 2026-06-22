@@ -81,6 +81,7 @@
 - [x] Admin 服务支持在 `certificates.crl_distribution_url` 的非保留路径发布无需管理凭据的 PEM CRL；普通 `/api/v1/certificates/private-ca/crl` 仍要求 `certificates:read`，公开路径不返回证书链、私钥或存储路径。
 - [x] 新增隔离 HNS private-ca demo smoke，将 `example.hns` 单标签 TLD 创建、apex SOA/NS/glue、DNSKEY/DS/RRSIG、private-ca 叶证书、根证书显式下载、disposable HTTPS origin、TLSA 发布、吊销和公开 CRL 串成同一可重复验收路径。
 - [x] 增加外部 DNSLog/OOB 回调平台拒绝能力：`security.reject_dnslog_platforms` 显式开关、`security.dnslog_platform_domains` 规范化列表、Admin 安全页控件、配置 API 持久化和 Runtime 阻断审计；匹配顺序为 allowlist -> external-dnslog-platform -> denylist/sinkhole/analyzers，命中时 DNSLog 使用 `matched_rule=external-dnslog-platform`。
+- [x] HNS 单标签 Zone 创建在调用 PowerDNS 前拒绝 malformed label：service-label、斜杠、反斜杠、百分号、分号、引号、wildcard、首尾 hyphen 和多标签名称均返回客户端错误，且不会转发到 PowerDNS。
 
 ## 测试与验收
 
@@ -115,6 +116,7 @@
 - [x] `bash tests/acceptance/selenium-admin.sh` 验证 capability-aware 管理流程及 Unicode HNS Zone/记录增删交互。
 - [x] `bash tests/acceptance/selenium-admin.sh` 现包含移动端 HNS 单标签 Zone 创建、SOA Refresh 修改、SOA 记录表刷新和测试 Zone 清理恢复。
 - [x] `bash tests/acceptance/docker-soa-tld.sh` 使用一次性 gsqlite/Recursor 拓扑验证 2 个单标签 HNS Zone（ASCII/Unicode IDNA）、apex SOA/NS、A/AAAA glue、非法子 Zone 400、Authoritative AA、递归一致性和 serial 递增，并在结束后删除测试卷。
+- [x] HNS malformed label API 回归测试覆盖 direct client 与 Admin API 边界：`go test -buildvcs=false ./internal/powerdns ./internal/adminapi -run 'TestCreateHNSZoneRejectsMalformedTopLevelLabels|TestCreateHNSZoneRejectsMalformedLabelsBeforePowerDNS|TestCreateUnicodeHNSZone'`。
 - [x] `bash tests/acceptance/docker-soa-tld.sh` 现扩展验证 `example.` 单标签 TLD 经 BIND 明文 DNS、DoT 和 DoH 的 SOA 响应，且错误 DoT 证书主机名会被拒绝。
 - [x] `bash tests/acceptance/docker-hnsd-integration.sh` 默认 no-live 模式验证 hnsd/Recursor/BIND DoT/DoH profile model；live hnsd 运行仍需显式 `ANYNS_RUN_DOCKER_HNSD_INTEGRATION=1`。
 - [x] `ANYNS_RUN_DOCKER_HNSD_INTEGRATION=1 bash tests/acceptance/docker-hnsd-integration.sh` 在服务器隔离 Docker 网络中验证 live hnsd -> anyNS Runtime `hns` 路由 -> PowerDNS Recursor -> BIND 明文 DNS/DoT/DoH 链路；新 hnsd 未同步时接受 `SERVFAIL`，并验证不使用 static HNS fixture。

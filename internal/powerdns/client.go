@@ -215,6 +215,11 @@ func (c *Client) CreateAuthoritativeZone(ctx context.Context, request CreateZone
 	if request.HNS && strings.Contains(strings.TrimSuffix(zoneName, "."), ".") {
 		return Zone{}, validationErrorf("HNS zone must be a single top-level label")
 	}
+	if request.HNS {
+		if err := validateHNSTopLevelLabel(zoneName); err != nil {
+			return Zone{}, err
+		}
+	}
 	if request.Kind == "" {
 		request.Kind = "Native"
 	}
@@ -627,6 +632,29 @@ func trimHNSSuffix(name string) string {
 		}
 	}
 	return name
+}
+
+func validateHNSTopLevelLabel(zoneName string) error {
+	label := strings.TrimSuffix(zoneName, ".")
+	if label == "" || strings.Contains(label, ".") {
+		return validationErrorf("HNS zone must be a single top-level label")
+	}
+	if strings.HasPrefix(label, "-") || strings.HasSuffix(label, "-") {
+		return validationErrorf("HNS zone label must not start or end with hyphen")
+	}
+	for _, character := range label {
+		if character >= 'a' && character <= 'z' {
+			continue
+		}
+		if character >= '0' && character <= '9' {
+			continue
+		}
+		if character == '-' {
+			continue
+		}
+		return validationErrorf("HNS zone label must contain only letters, digits, and hyphen after IDNA normalization")
+	}
+	return nil
 }
 
 func initialZoneRRSets(zoneName string, nameservers []string, request CreateZoneRequest) ([]RRSet, error) {
