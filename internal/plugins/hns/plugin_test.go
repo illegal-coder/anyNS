@@ -306,6 +306,100 @@ func TestParseDNSResponseMapsNXDomain(t *testing.T) {
 	}
 }
 
+func TestBuildDNSQueryRejectsOverlongQName(t *testing.T) {
+	label := strings.Repeat("a", 63)
+	overlongName := strings.Join([]string{label, label, label, label}, ".") + "."
+	if _, _, err := buildDNSQuery(overlongName, 1); err == nil {
+		t.Fatal("build overlong qname succeeded, want error")
+	}
+}
+
+func TestParseDNSResponseRejectsMalformedCompressedNames(t *testing.T) {
+	cases := []struct {
+		name    string
+		mutate  func([]byte, int) []byte
+		wantErr string
+	}{
+		{
+			name: "compression pointer loop",
+			mutate: func(packet []byte, answerOffset int) []byte {
+				packet[answerOffset] = 0xc0
+				packet[answerOffset+1] = byte(answerOffset)
+				return packet
+			},
+			wantErr: "DNS compression pointer loop",
+		},
+		{
+			name: "compression pointer out of range",
+			mutate: func(packet []byte, answerOffset int) []byte {
+				packet[answerOffset] = 0xc0
+				packet[answerOffset+1] = 0xff
+				return packet
+			},
+			wantErr: "DNS compression pointer out of range",
+		},
+		{
+			name: "short compression pointer",
+			mutate: func(packet []byte, answerOffset int) []byte {
+				packet[answerOffset] = 0xc0
+				return packet[:answerOffset+1]
+			},
+			wantErr: "short DNS compression pointer",
+		},
+		{
+			name: "unsupported label encoding",
+			mutate: func(packet []byte, answerOffset int) []byte {
+				packet[answerOffset] = 0x40
+				return packet
+			},
+			wantErr: "unsupported DNS label encoding",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			packet := dnsResponsePacket(t, 0x1234, "example.hns.", []dnsAnswer{
+				{name: "example.hns.", typ: 1, ttl: 120, rdata: []byte{198, 51, 100, 10}},
+			})
+			_, questionEnd, err := readDNSName(packet, 12)
+			if err != nil {
+				t.Fatalf("read question: %v", err)
+			}
+			answerOffset := questionEnd + 4
+			packet = tc.mutate(packet, answerOffset)
+			_, err = parseDNSResponse(packet, 0x1234, "example.hns.", time.Now())
+			if err == nil || !strings.Contains(err.Error(), tc.wantErr) {
+				t.Fatalf("parse err = %v, want %q", err, tc.wantErr)
+			}
+		})
+	}
+}
+
+func TestParseDNSResponseRejectsOverlongExpandedName(t *testing.T) {
+	var buf bytes.Buffer
+	_ = binary.Write(&buf, binary.BigEndian, uint16(0x1234))
+	_ = binary.Write(&buf, binary.BigEndian, uint16(0x8180))
+	_ = binary.Write(&buf, binary.BigEndian, uint16(0))
+	_ = binary.Write(&buf, binary.BigEndian, uint16(1))
+	_ = binary.Write(&buf, binary.BigEndian, uint16(0))
+	_ = binary.Write(&buf, binary.BigEndian, uint16(0))
+	for i := 0; i < 4; i++ {
+		buf.WriteByte(63)
+		buf.WriteString(strings.Repeat("a", 63))
+	}
+	buf.WriteByte(0)
+	_ = binary.Write(&buf, binary.BigEndian, uint16(1))
+	_ = binary.Write(&buf, binary.BigEndian, uint16(1))
+	_ = binary.Write(&buf, binary.BigEndian, uint32(60))
+	_ = binary.Write(&buf, binary.BigEndian, uint16(4))
+	buf.Write([]byte{198, 51, 100, 10})
+
+	_, err := parseDNSResponse(buf.Bytes(), 0x1234, "example.hns.", time.Now())
+	if err == nil || !strings.Contains(err.Error(), "DNS name too long") {
+		t.Fatalf("parse overlong name err = %v, want DNS name too long", err)
+	}
+}
+
 func TestFormatRDATAFormatsDNSKEYAndTLSA(t *testing.T) {
 	dnskey, ok := formatRDATA(nil, 0, []byte{0x01, 0x01, 0x03, 0x0d, 0x01, 0x02, 0x03}, 48)
 	if !ok || dnskey != "257 3 13 AQID" {

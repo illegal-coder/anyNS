@@ -19,7 +19,10 @@ import (
 	"github.com/anyns/anyns/internal/plugins"
 )
 
-const maxDNSPacketSize = 4096
+const (
+	maxDNSPacketSize     = 4096
+	maxDNSNameWireLength = 255
+)
 
 type dnsExchangeFunc func(ctx context.Context, address string, packet []byte, wantID uint16) ([]byte, string, error)
 
@@ -331,9 +334,14 @@ func writeDNSName(buf *bytes.Buffer, qname string) error {
 		buf.WriteByte(0)
 		return nil
 	}
+	wireLen := 1
 	for _, label := range strings.Split(qname, ".") {
 		if len(label) == 0 || len(label) > 63 {
 			return fmt.Errorf("invalid DNS label %q", label)
+		}
+		wireLen += 1 + len(label)
+		if wireLen > maxDNSNameWireLength {
+			return errors.New("DNS name too long")
 		}
 		buf.WriteByte(byte(len(label)))
 		buf.WriteString(label)
@@ -507,6 +515,7 @@ func readDNSName(packet []byte, offset int) (string, int, error) {
 	next := offset
 	jumped := false
 	seen := 0
+	wireLen := 1
 	for {
 		if offset >= len(packet) {
 			return "", 0, errors.New("DNS name exceeds packet")
@@ -546,6 +555,10 @@ func readDNSName(packet []byte, offset int) (string, int, error) {
 		}
 		if offset+length > len(packet) {
 			return "", 0, errors.New("short DNS label")
+		}
+		wireLen += 1 + length
+		if wireLen > maxDNSNameWireLength {
+			return "", 0, errors.New("DNS name too long")
 		}
 		labels = append(labels, string(packet[offset:offset+length]))
 		offset += length
