@@ -983,6 +983,68 @@ func TestPrivateCAOCSPRequiresReadScopeAndReportsRevocation(t *testing.T) {
 	}
 }
 
+func TestCertificateTLSAPublishOutsideAuthoritativeZoneReturnsNotFound(t *testing.T) {
+	pdns := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("X-API-Key") != "pdns-secret" {
+			t.Fatalf("PowerDNS key not forwarded")
+		}
+		if r.Method != http.MethodGet || r.URL.Path != "/api/v1/servers/localhost/zones" {
+			t.Fatalf("unexpected PowerDNS request %s %s", r.Method, r.URL.Path)
+		}
+		_ = json.NewEncoder(w).Encode([]powerdns.Zone{{ID: "example.", Name: "example.", Kind: "Native"}})
+	}))
+	defer pdns.Close()
+
+	cfg := config.Default()
+	cfg.Management.AuthRequired = true
+	cfg.Management.Keys = []config.ManagementKey{{
+		ID:     "certificate-operator",
+		APIKey: "cert-operator",
+		Scopes: []string{httpapi.ScopeCertificatesRead, httpapi.ScopeCertificatesWrite},
+	}}
+	cfg.Certificates.Enabled = true
+	cfg.Certificates.IssuerMode = "private-ca"
+	cfg.Certificates.StorageDir = t.TempDir()
+	cfg.Certificates.MaxAttempts = 1
+	cfg.Certificates.RequestTimeout = 5 * time.Second
+	cfg.PowerDNS.AuthoritativeURL = pdns.URL
+	cfg.PowerDNS.AuthoritativeAPIKey = "pdns-secret"
+	application, err := app.NewFromConfig(cfg)
+	if err != nil {
+		t.Fatalf("new app: %v", err)
+	}
+	mux := http.NewServeMux()
+	Register(mux, application, &cfg)
+	const bearer = "Bearer cert-operator"
+
+	create := httptest.NewRequest(http.MethodPost, "/api/v1/certificates/orders", strings.NewReader(`{"domains":["www.example"],"idempotency_key":"tlsa-outside-zone"}`))
+	create.Header.Set("Authorization", bearer)
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, create)
+	if rec.Code != http.StatusAccepted {
+		t.Fatalf("order status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	var job struct {
+		ID string `json:"id"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &job); err != nil {
+		t.Fatalf("decode job: %v", err)
+	}
+	waitCertificateJobStatus(t, mux, job.ID, bearer, certificates.StatusIssued)
+
+	requestBody := `{"job_id":"` + job.ID + `","domain":"www.other","port":443,"protocol":"tcp","usage":3,"selector":1,"matching_type":1,"publish":true}`
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/certificates/tlsa", strings.NewReader(requestBody))
+	req.Header.Set("Authorization", bearer)
+	rec = httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("TLSA publish status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if strings.Contains(rec.Body.String(), "PRIVATE KEY") || strings.Contains(rec.Body.String(), cfg.Certificates.StorageDir) {
+		t.Fatalf("TLSA error leaked sensitive material: %s", rec.Body.String())
+	}
+}
+
 func TestPrivateCACRLPublicationUsesConfiguredPublicPath(t *testing.T) {
 	cfg := config.Default()
 	cfg.Management.AuthRequired = true
@@ -1081,6 +1143,15 @@ func TestPrivateCACRLPublicationUsesConfiguredPublicPath(t *testing.T) {
 	}
 	if rec.Body.Len() != 0 {
 		t.Fatalf("HEAD returned body length=%d", rec.Body.Len())
+	}
+
+	rec = httptest.NewRecorder()
+	mux.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/.well-known/anyns/private-ca.crl/anything", nil))
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("public CRL prefix miss status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if strings.Contains(rec.Body.String(), "BEGIN X509 CRL") || strings.Contains(rec.Body.String(), "PRIVATE KEY") {
+		t.Fatalf("public CRL prefix miss leaked CRL/key material: %s", rec.Body.String())
 	}
 }
 

@@ -3,6 +3,7 @@ package adminapi
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -28,6 +29,8 @@ type Handler struct {
 	certificates     *certificates.Manager
 	certificateError string
 }
+
+var errPowerDNSZoneNotFound = errors.New("authoritative PowerDNS zone not found")
 
 type ServiceStatus struct {
 	Configured bool   `json:"configured"`
@@ -136,6 +139,7 @@ func Register(mux *http.ServeMux, application *app.App, cfg *config.Config) {
 	mux.HandleFunc("/api/v1/certificates/tlsa", handler.certificateTLSA)
 	if path, ok := configuredCRLPublicationPath(cfg.Certificates.CRLDistributionURL); ok {
 		mux.HandleFunc(path, handler.certificatePrivateCACRLPublication)
+		mux.HandleFunc(path+"/", handler.certificatePrivateCACRLPublicationMiss)
 	}
 }
 
@@ -523,6 +527,10 @@ func (h *Handler) certificatePrivateCACRLPublication(w http.ResponseWriter, r *h
 		return
 	}
 	h.writePrivateCACRL(w, current, r.Method != http.MethodHead)
+}
+
+func (h *Handler) certificatePrivateCACRLPublicationMiss(w http.ResponseWriter, r *http.Request) {
+	httpapi.Error(w, http.StatusNotFound, "CRL publication path not found")
 }
 
 func (h *Handler) writePrivateCACRL(w http.ResponseWriter, current config.Config, includeBody bool) {
@@ -1072,6 +1080,10 @@ func (h *Handler) certificateTLSA(w http.ResponseWriter, r *http.Request) {
 			request.TTL = 300
 		}
 		if err := publishTLSA(r.Context(), powerdns.New(current.PowerDNS), owner, value, request.TTL); err != nil {
+			if errors.Is(err, errPowerDNSZoneNotFound) {
+				httpapi.Error(w, http.StatusNotFound, err.Error())
+				return
+			}
 			httpapi.Error(w, powerDNSErrorStatus(err), err.Error())
 			return
 		}
@@ -1100,7 +1112,7 @@ func publishTLSA(ctx context.Context, client *powerdns.Client, owner, value stri
 		}
 	}
 	if zone.ID == "" {
-		return fmt.Errorf("no authoritative PowerDNS zone contains %s", owner)
+		return fmt.Errorf("%w: no authoritative PowerDNS zone contains %s", errPowerDNSZoneNotFound, owner)
 	}
 	return client.PatchAuthoritativeZone(ctx, zone.ID, powerdns.PatchZoneRequest{RRSets: []powerdns.RRSet{{
 		Name:       owner,
