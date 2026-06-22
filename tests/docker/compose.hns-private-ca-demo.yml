@@ -1,0 +1,16 @@
+services:
+  anyns-admin-api:
+    environment:
+      ANYNS_CERTIFICATES_ENABLED: "true"
+      ANYNS_CERTIFICATE_ISSUER_MODE: private-ca
+      ANYNS_CERTIFICATE_STORAGE_DIR: /var/lib/anyns/certificates
+      ANYNS_PRIVATE_CA_CRL_DISTRIBUTION_URL: http://anyns-admin-api:8080/private-ca.crl
+      ANYNS_ACME_MAX_ATTEMPTS: "1"
+      ANYNS_ACME_REQUEST_TIMEOUT_SECONDS: "30"
+    ports:
+      - "127.0.0.1:${ANYNS_HNS_PRIVATE_CA_DEMO_ADMIN_PORT:-28110}:8080/tcp"
+    volumes:
+      - hns-private-ca-demo-admin-data:/var/lib/anyns
+
+volumes:
+  hns-private-ca-demo-admin-data:
