@@ -124,7 +124,42 @@ func hnsDNSBackendQName(qname string) (string, error) {
 			break
 		}
 	}
-	return dnsname.ToASCII(normalized)
+	ascii, err := dnsname.ToASCII(normalized)
+	if err != nil {
+		return "", err
+	}
+	if err := validateHNSBackendRootLabel(ascii); err != nil {
+		return "", err
+	}
+	return ascii, nil
+}
+
+func validateHNSBackendRootLabel(qname string) error {
+	name := strings.TrimSuffix(qname, ".")
+	if name == "" {
+		return fmt.Errorf("HNS root label is required")
+	}
+	labels := strings.Split(name, ".")
+	rootLabel := labels[len(labels)-1]
+	if rootLabel == "" {
+		return fmt.Errorf("HNS root label is required")
+	}
+	if strings.HasPrefix(rootLabel, "-") || strings.HasSuffix(rootLabel, "-") {
+		return fmt.Errorf("HNS root label must not start or end with hyphen")
+	}
+	for _, character := range rootLabel {
+		if character >= 'a' && character <= 'z' {
+			continue
+		}
+		if character >= '0' && character <= '9' {
+			continue
+		}
+		if character == '-' {
+			continue
+		}
+		return fmt.Errorf("HNS root label must contain only letters, digits, and hyphen after IDNA normalization")
+	}
+	return nil
 }
 
 func restoreHNSDNSAnswerName(answerName, backendQName, originalQName string) string {

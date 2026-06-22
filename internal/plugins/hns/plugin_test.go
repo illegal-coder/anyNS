@@ -150,11 +150,12 @@ func TestDNSBackendAddressDefaultsPort(t *testing.T) {
 
 func TestDNSBackendQNameTranslation(t *testing.T) {
 	tests := map[string]string{
-		"example.hns":      "example.",
-		"www.example.hns.": "www.example.",
-		"example.hsd":      "example.",
-		"example":          "example.",
-		"灵.hns":            "xn--5nx.",
+		"example.hns":           "example.",
+		"www.example.hns.":      "www.example.",
+		"_443._tcp.example.hns": "_443._tcp.example.",
+		"example.hsd":           "example.",
+		"example":               "example.",
+		"灵.hns":                 "xn--5nx.",
 	}
 	for input, want := range tests {
 		got, err := hnsDNSBackendQName(input)
@@ -167,6 +168,50 @@ func TestDNSBackendQNameTranslation(t *testing.T) {
 	}
 	if got := restoreHNSDNSAnswerName("www.example.", "example.", "example.hns."); got != "www.example.hns." {
 		t.Fatalf("restored answer = %q", got)
+	}
+}
+
+func TestDNSBackendQNameRejectsMalformedRootLabels(t *testing.T) {
+	for _, input := range []string{
+		"bad/name.hns",
+		`bad\name.hns`,
+		"bad%2fname.hns",
+		"bad;name.hns",
+		"bad\"name.hns",
+		"*.hns",
+		"-example.hns",
+		"example-.hns",
+		"www.bad/name.hns",
+	} {
+		t.Run(input, func(t *testing.T) {
+			if got, err := hnsDNSBackendQName(input); err == nil {
+				t.Fatalf("hnsDNSBackendQName(%q) = %q, want error", input, got)
+			}
+		})
+	}
+}
+
+func TestDNSBackendResolveRejectsMalformedRootLabelBeforeExchange(t *testing.T) {
+	called := false
+	plugin := New()
+	plugin.ConfigureBackend(BackendConfig{
+		URL: "dns://127.0.0.1:5350",
+		DNSExchange: func(context.Context, string, []byte, uint16) ([]byte, string, error) {
+			called = true
+			return nil, "", nil
+		},
+	})
+	result, err := plugin.Resolve(context.Background(), plugins.ResolveRequest{QName: "bad/name.hns", QType: "A"})
+	if err == nil {
+		t.Fatalf("expected malformed HNS backend query to fail")
+	}
+	if called {
+		t.Fatalf("malformed HNS backend query reached DNS exchange")
+	}
+	if result.RCode != plugins.RCodeServFail ||
+		result.SourcePlugin != "hns" ||
+		result.AuditMetadata["reason"] != "dns_query_name_invalid" {
+		t.Fatalf("result = %#v", result)
 	}
 }
 
