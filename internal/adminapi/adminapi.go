@@ -78,6 +78,7 @@ func Register(mux *http.ServeMux, application *app.App, cfg *config.Config) {
 	mux.HandleFunc("/api/v1/certificates/orders/", handler.certificateOrder)
 	mux.HandleFunc("/api/v1/certificates/private-ca/crl", handler.certificatePrivateCACRL)
 	mux.HandleFunc("/api/v1/certificates/private-ca/root", handler.certificatePrivateCARoot)
+	mux.HandleFunc("/api/v1/certificates/private-ca/root/certificate", handler.certificatePrivateCARootCertificate)
 	mux.HandleFunc("/api/v1/certificates/private-ca/root/backup-status", handler.certificatePrivateCARootBackupStatus)
 	mux.HandleFunc("/api/v1/certificates/private-ca/root/import", handler.certificatePrivateCARootImport)
 	mux.HandleFunc("/api/v1/certificates/private-ca/root/rotate", handler.certificatePrivateCARootRotate)
@@ -178,6 +179,7 @@ func (h *Handler) capabilities(w http.ResponseWriter, r *http.Request) {
 			"POST /api/v1/certificates/orders/{id}/revoke",
 			"GET /api/v1/certificates/private-ca/crl",
 			"GET /api/v1/certificates/private-ca/root",
+			"GET /api/v1/certificates/private-ca/root/certificate",
 			"PATCH /api/v1/certificates/private-ca/root",
 			"POST /api/v1/certificates/private-ca/root/backup-status",
 			"POST /api/v1/certificates/private-ca/root/import",
@@ -542,6 +544,38 @@ func (h *Handler) certificatePrivateCARoot(w http.ResponseWriter, r *http.Reques
 	default:
 		httpapi.Error(w, http.StatusMethodNotAllowed, "method not allowed")
 	}
+}
+
+func (h *Handler) certificatePrivateCARootCertificate(w http.ResponseWriter, r *http.Request) {
+	current := *h.cfg
+	if r.Method != http.MethodGet && r.Method != http.MethodHead {
+		httpapi.Error(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	if !httpapi.RequireScope(w, r, current, httpapi.ScopeCertificatesRead) {
+		return
+	}
+	if strings.TrimSpace(current.Certificates.IssuerMode) != "private-ca" {
+		httpapi.Error(w, http.StatusNotFound, "private CA root is not configured")
+		return
+	}
+	if h.certificates == nil {
+		httpapi.Error(w, http.StatusServiceUnavailable, h.certificateUnavailable())
+		return
+	}
+	rootPEM, err := certificates.PrivateRootCertificatePEM(current.Certificates)
+	if err != nil {
+		httpapi.Error(w, http.StatusServiceUnavailable, err.Error())
+		return
+	}
+	w.Header().Set("Content-Type", "application/x-pem-file")
+	w.Header().Set("Content-Disposition", `attachment; filename="anyns-private-root-ca.pem"`)
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	w.WriteHeader(http.StatusOK)
+	if r.Method == http.MethodHead {
+		return
+	}
+	_, _ = w.Write(rootPEM)
 }
 
 func (h *Handler) certificatePrivateCARootBackupStatus(w http.ResponseWriter, r *http.Request) {

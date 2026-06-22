@@ -568,6 +568,68 @@ func TestPrivateCACertificateOrderUsesLocalIssuer(t *testing.T) {
 	}
 }
 
+func TestPrivateCARootCertificateRequiresReadScopeAndReturnsOnlyRootPEM(t *testing.T) {
+	cfg := config.Default()
+	cfg.Management.AuthRequired = true
+	cfg.Management.Keys = []config.ManagementKey{{
+		ID:     "certificate-reader",
+		APIKey: "cert-read",
+		Scopes: []string{httpapi.ScopeCertificatesRead},
+	}}
+	cfg.Certificates.Enabled = true
+	cfg.Certificates.IssuerMode = "private-ca"
+	cfg.Certificates.StorageDir = t.TempDir()
+	application, err := app.NewFromConfig(cfg)
+	if err != nil {
+		t.Fatalf("new app: %v", err)
+	}
+	mux := http.NewServeMux()
+	Register(mux, application, &cfg)
+
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/v1/certificates/private-ca/root/certificate", nil))
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("unauthenticated root certificate status=%d body=%s", rec.Code, rec.Body.String())
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/certificates/private-ca/root/certificate", nil)
+	req.Header.Set("Authorization", "Bearer cert-read")
+	rec = httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("root certificate status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if got := rec.Header().Get("Content-Disposition"); !strings.Contains(got, "anyns-private-root-ca.pem") {
+		t.Fatalf("content disposition=%q", got)
+	}
+	if strings.Contains(rec.Body.String(), "PRIVATE "+"KEY") {
+		t.Fatalf("root certificate leaked key material: %s", rec.Body.String())
+	}
+	if count := strings.Count(rec.Body.String(), "BEGIN "+"CERTIFICATE"); count != 1 {
+		t.Fatalf("root certificate PEM count=%d body=%s", count, rec.Body.String())
+	}
+	gotRoot := testCertificateChain(t, rec.Body.Bytes())[0]
+	storedRootPEM, err := os.ReadFile(filepath.Join(cfg.Certificates.StorageDir, "private-ca", "root-cert.pem"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	storedRoot := testCertificateChain(t, storedRootPEM)[0]
+	if !bytes.Equal(gotRoot.Raw, storedRoot.Raw) || !gotRoot.IsCA {
+		t.Fatalf("root certificate mismatch is_ca=%v", gotRoot.IsCA)
+	}
+
+	head := httptest.NewRequest(http.MethodHead, "/api/v1/certificates/private-ca/root/certificate", nil)
+	head.Header.Set("Authorization", "Bearer cert-read")
+	rec = httptest.NewRecorder()
+	mux.ServeHTTP(rec, head)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("root certificate HEAD status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if rec.Body.Len() != 0 {
+		t.Fatalf("HEAD returned body length=%d", rec.Body.Len())
+	}
+}
+
 func TestPrivateCACRLPublicationUsesConfiguredPublicPath(t *testing.T) {
 	cfg := config.Default()
 	cfg.Management.AuthRequired = true

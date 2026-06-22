@@ -135,6 +135,25 @@ func PrivateRootMetadataForConfig(cfg config.CertificatesConfig) (PrivateRootMet
 	return metadata, nil
 }
 
+func PrivateRootCertificatePEM(cfg config.CertificatesConfig) ([]byte, error) {
+	rootCertPath := filepath.Join(privateRootDir(cfg), privateRootCertFile)
+	certBody, err := os.ReadFile(rootCertPath)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, errors.New("private CA root certificate is not initialized")
+	}
+	if err != nil {
+		return nil, errors.New("private CA root certificate cannot be read")
+	}
+	cert, err := parseCertificatePEM(certBody)
+	if err != nil {
+		return nil, err
+	}
+	if err := validatePrivateRootCertificate(cert); err != nil {
+		return nil, err
+	}
+	return pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: cert.Raw}), nil
+}
+
 func SetPrivateRootDisabled(cfg config.CertificatesConfig, disabled bool) (PrivateRootMetadata, error) {
 	if _, err := PrivateRootMetadataForConfig(cfg); err != nil {
 		return PrivateRootMetadata{}, err
@@ -526,17 +545,8 @@ func parseCertificateChainPEM(body []byte) ([]*x509.Certificate, error) {
 }
 
 func validatePrivateRoot(key crypto.Signer, cert *x509.Certificate) error {
-	if !cert.BasicConstraintsValid || !cert.IsCA || cert.KeyUsage&x509.KeyUsageCertSign == 0 {
-		return errors.New("private root certificate is not a valid CA")
-	}
-	if len(cert.SubjectKeyId) == 0 || len(cert.AuthorityKeyId) == 0 || !bytes.Equal(cert.SubjectKeyId, cert.AuthorityKeyId) {
-		return errors.New("private root certificate must include matching SKI and AKI")
-	}
-	if time.Now().UTC().After(cert.NotAfter) {
-		return errors.New("private root certificate is expired")
-	}
-	if err := cert.CheckSignatureFrom(cert); err != nil {
-		return errors.New("private root certificate must be self-signed")
+	if err := validatePrivateRootCertificate(cert); err != nil {
+		return err
 	}
 	keyDER, err := x509.MarshalPKIXPublicKey(key.Public())
 	if err != nil {
@@ -548,6 +558,22 @@ func validatePrivateRoot(key crypto.Signer, cert *x509.Certificate) error {
 	}
 	if !bytes.Equal(keyDER, certDER) {
 		return errors.New("private root key does not match certificate")
+	}
+	return nil
+}
+
+func validatePrivateRootCertificate(cert *x509.Certificate) error {
+	if !cert.BasicConstraintsValid || !cert.IsCA || cert.KeyUsage&x509.KeyUsageCertSign == 0 {
+		return errors.New("private root certificate is not a valid CA")
+	}
+	if len(cert.SubjectKeyId) == 0 || len(cert.AuthorityKeyId) == 0 || !bytes.Equal(cert.SubjectKeyId, cert.AuthorityKeyId) {
+		return errors.New("private root certificate must include matching SKI and AKI")
+	}
+	if time.Now().UTC().After(cert.NotAfter) {
+		return errors.New("private root certificate is expired")
+	}
+	if err := cert.CheckSignatureFrom(cert); err != nil {
+		return errors.New("private root certificate must be self-signed")
 	}
 	return nil
 }

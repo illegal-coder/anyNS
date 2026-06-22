@@ -141,6 +141,31 @@ func TestPrivateRootMetadataExcludesPEMAndKeyMaterial(t *testing.T) {
 	}
 }
 
+func TestPrivateRootCertificatePEMReturnsOnlyPublicRoot(t *testing.T) {
+	cfg := config.CertificatesConfig{StorageDir: t.TempDir()}
+	if _, err := NewPrivateRootIssuer(cfg); err != nil {
+		t.Fatal(err)
+	}
+	rootPEM, err := PrivateRootCertificatePEM(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bytes.Contains(rootPEM, []byte("PRIVATE "+"KEY")) {
+		t.Fatalf("root certificate PEM leaked key material: %s", rootPEM)
+	}
+	block, rest := pem.Decode(rootPEM)
+	if block == nil || block.Type != "CERTIFICATE" || len(bytes.TrimSpace(rest)) != 0 {
+		t.Fatalf("unexpected root PEM block=%v rest=%q", block, rest)
+	}
+	cert, err := x509.ParseCertificate(block.Bytes)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := validatePrivateRootCertificate(cert); err != nil {
+		t.Fatalf("root certificate validation: %v", err)
+	}
+}
+
 func TestPrivateRootDisableBlocksIssuanceAndPersists(t *testing.T) {
 	cfg := config.CertificatesConfig{StorageDir: t.TempDir()}
 	issuer, err := NewPrivateRootIssuer(cfg)
