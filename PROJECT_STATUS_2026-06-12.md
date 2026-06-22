@@ -60,6 +60,7 @@
 - [x] 增加 `POST /api/v1/certificates/private-ca/root/import`，支持导入自签名私有根 CA，验证 CA 约束、SKI/AKI、公私钥匹配和未过期状态，并在导入后重新加载 private-ca issuer。
 - [x] 增加 `POST /api/v1/certificates/private-ca/root/rotate`，生成新的本地活动根 CA，轮换后重新加载 private-ca issuer，并使旧备份标记显示为 `stale`。
 - [x] 增加 `GET /api/v1/certificates/private-ca/root/certificate`，显式下载当前活动私有根 CA 公开证书 PEM，要求 `certificates:read`，不返回根私钥、叶私钥或存储路径。
+- [x] 增加 `GET /api/v1/certificates/private-ca/root/trust`，返回私有根信任交接元数据、根证书/CRL URL、安装目标和操作员动作，明确不属于公开 WebPKI，且不返回 PEM、私钥或存储路径。
 - [x] 增加 `GET /api/v1/certificates/private-ca/crl`，返回当前活动根签名的 PEM CRL，仅包含已标记 revoked 且由当前根签发的叶证书 serial，不返回证书链 PEM 或私钥。
 - [x] 增加 `certificates.crl_distribution_url`，为新 private-ca 叶证书写入 CRL Distribution Point；配置校验要求 HTTP(S) URL，并在 Admin 服务上发布配置 URL 的非保留路径，但不分发客户端 trust store。
 - [x] Admin 服务支持在 `certificates.crl_distribution_url` 的非保留路径发布无需管理凭据的 PEM CRL；普通 `/api/v1/certificates/private-ca/crl` 仍要求 `certificates:read`，公开路径不返回证书链、私钥或存储路径。

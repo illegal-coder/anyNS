@@ -51,6 +51,26 @@ type CapabilitiesResponse struct {
 	Features    map[string]FeatureCapability `json:"features"`
 }
 
+type PrivateCATrustHandoff struct {
+	IssuerMode            string                    `json:"issuer_mode"`
+	TrustModel            string                    `json:"trust_model"`
+	PublicWebPKI          bool                      `json:"public_webpki"`
+	RequiresExplicitTrust bool                      `json:"requires_explicit_trust"`
+	RootCertificateURL    string                    `json:"root_certificate_url"`
+	AuthenticatedCRLURL   string                    `json:"authenticated_crl_url"`
+	PublicCRLURL          string                    `json:"public_crl_url,omitempty"`
+	Subject               string                    `json:"subject"`
+	SerialNumber          string                    `json:"serial_number"`
+	NotBefore             time.Time                 `json:"not_before"`
+	NotAfter              time.Time                 `json:"not_after"`
+	SHA256Fingerprint     string                    `json:"sha256_fingerprint"`
+	Disabled              bool                      `json:"disabled"`
+	BackupStatus          certificates.BackupStatus `json:"backup_status"`
+	InstallTargets        []string                  `json:"install_targets"`
+	OperatorActions       []string                  `json:"operator_actions"`
+	Warnings              []string                  `json:"warnings"`
+}
+
 func Register(mux *http.ServeMux, application *app.App, cfg *config.Config) {
 	handler := &Handler{
 		application: application,
@@ -79,6 +99,7 @@ func Register(mux *http.ServeMux, application *app.App, cfg *config.Config) {
 	mux.HandleFunc("/api/v1/certificates/private-ca/crl", handler.certificatePrivateCACRL)
 	mux.HandleFunc("/api/v1/certificates/private-ca/root", handler.certificatePrivateCARoot)
 	mux.HandleFunc("/api/v1/certificates/private-ca/root/certificate", handler.certificatePrivateCARootCertificate)
+	mux.HandleFunc("/api/v1/certificates/private-ca/root/trust", handler.certificatePrivateCARootTrust)
 	mux.HandleFunc("/api/v1/certificates/private-ca/root/backup-status", handler.certificatePrivateCARootBackupStatus)
 	mux.HandleFunc("/api/v1/certificates/private-ca/root/import", handler.certificatePrivateCARootImport)
 	mux.HandleFunc("/api/v1/certificates/private-ca/root/rotate", handler.certificatePrivateCARootRotate)
@@ -180,6 +201,7 @@ func (h *Handler) capabilities(w http.ResponseWriter, r *http.Request) {
 			"GET /api/v1/certificates/private-ca/crl",
 			"GET /api/v1/certificates/private-ca/root",
 			"GET /api/v1/certificates/private-ca/root/certificate",
+			"GET /api/v1/certificates/private-ca/root/trust",
 			"PATCH /api/v1/certificates/private-ca/root",
 			"POST /api/v1/certificates/private-ca/root/backup-status",
 			"POST /api/v1/certificates/private-ca/root/import",
@@ -544,6 +566,67 @@ func (h *Handler) certificatePrivateCARoot(w http.ResponseWriter, r *http.Reques
 	default:
 		httpapi.Error(w, http.StatusMethodNotAllowed, "method not allowed")
 	}
+}
+
+func (h *Handler) certificatePrivateCARootTrust(w http.ResponseWriter, r *http.Request) {
+	current := *h.cfg
+	if r.Method != http.MethodGet {
+		httpapi.Error(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	if !httpapi.RequireScope(w, r, current, httpapi.ScopeCertificatesRead) {
+		return
+	}
+	if strings.TrimSpace(current.Certificates.IssuerMode) != "private-ca" {
+		httpapi.Error(w, http.StatusNotFound, "private CA root is not configured")
+		return
+	}
+	if h.certificates == nil {
+		httpapi.Error(w, http.StatusServiceUnavailable, h.certificateUnavailable())
+		return
+	}
+	metadata, err := certificates.PrivateRootMetadataForConfig(current.Certificates)
+	if err != nil {
+		httpapi.Error(w, http.StatusServiceUnavailable, err.Error())
+		return
+	}
+	response := PrivateCATrustHandoff{
+		IssuerMode:            metadata.IssuerMode,
+		TrustModel:            "private-root",
+		PublicWebPKI:          false,
+		RequiresExplicitTrust: true,
+		RootCertificateURL:    "/api/v1/certificates/private-ca/root/certificate",
+		AuthenticatedCRLURL:   "/api/v1/certificates/private-ca/crl",
+		Subject:               metadata.Subject,
+		SerialNumber:          metadata.SerialNumber,
+		NotBefore:             metadata.NotBefore,
+		NotAfter:              metadata.NotAfter,
+		SHA256Fingerprint:     metadata.SHA256Fingerprint,
+		Disabled:              metadata.Disabled,
+		BackupStatus:          metadata.BackupStatus,
+		InstallTargets: []string{
+			"system-trust-store",
+			"browser-profile",
+			"mobile-device-management",
+			"container-image-ca-bundle",
+		},
+		OperatorActions: []string{
+			"download_root_certificate",
+			"verify_sha256_fingerprint_before_install",
+			"install_root_certificate_only_on_controlled_clients",
+			"publish_or_configure_crl_access_for_revocation_checks",
+			"record_private_root_backup_status_after_independent_backup",
+		},
+		Warnings: []string{
+			"private-ca certificates are not public WebPKI trusted",
+			"clients must explicitly trust this root before private-ca leaf certificates validate",
+			"removing distributed trust is a separate operator action outside anyNS",
+		},
+	}
+	if _, ok := configuredCRLPublicationPath(current.Certificates.CRLDistributionURL); ok {
+		response.PublicCRLURL = strings.TrimSpace(current.Certificates.CRLDistributionURL)
+	}
+	httpapi.WriteJSON(w, http.StatusOK, response)
 }
 
 func (h *Handler) certificatePrivateCARootCertificate(w http.ResponseWriter, r *http.Request) {
