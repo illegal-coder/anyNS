@@ -178,6 +178,21 @@ tools '
   fi
 '
 
+echo "phase:ocsp-good"
+tools '
+  curl -fsS http://anyns-admin-api:8080/api/v1/certificates/orders/'"$JOB_ID"'/ocsp >/tmp/hns-demo-ocsp-good.der
+  openssl ocsp -sha256 -respin /tmp/hns-demo-ocsp-good.der \
+    -issuer /tmp/hns-demo-root-from-chain.pem \
+    -cert /tmp/hns-demo-leaf.pem \
+    -noverify -text > /tmp/hns-demo-ocsp-good.txt
+  grep -q "/tmp/hns-demo-leaf.pem: good" /tmp/hns-demo-ocsp-good.txt
+  if grep -a -q -- "-----BEGIN PRIVATE ""KEY-----" /tmp/hns-demo-ocsp-good.der ||
+     grep -a -q -- "-----BEGIN ""CERTIFICATE-----" /tmp/hns-demo-ocsp-good.der; then
+    echo "OCSP endpoint exposed PEM material"
+    exit 1
+  fi
+'
+
 echo "phase:https-demo"
 "${COMPOSE[@]}" exec -T hns-private-ca-origin sh -euc '
   test "$(stat -c %a /var/lib/anyns/certificates/certs/'"$JOB_ID"'/private-key.pem)" = "600"
@@ -229,6 +244,17 @@ tools '
   serial=$(openssl x509 -in /tmp/hns-demo-leaf.pem -noout -serial | cut -d= -f2 | sed "s/^0*//")
   curl -fsS -X POST http://anyns-admin-api:8080/api/v1/certificates/orders/'"$JOB_ID"'/revoke >/tmp/hns-demo-revoke.json
   grep -q "\"status\":\"revoked\"" /tmp/hns-demo-revoke.json
+  curl -fsS http://anyns-admin-api:8080/api/v1/certificates/orders/'"$JOB_ID"'/ocsp >/tmp/hns-demo-ocsp-revoked.der
+  openssl ocsp -sha256 -respin /tmp/hns-demo-ocsp-revoked.der \
+    -issuer /tmp/hns-demo-root-from-chain.pem \
+    -cert /tmp/hns-demo-leaf.pem \
+    -noverify -text > /tmp/hns-demo-ocsp-revoked.txt
+  grep -q "/tmp/hns-demo-leaf.pem: revoked" /tmp/hns-demo-ocsp-revoked.txt
+  if grep -a -q -- "-----BEGIN PRIVATE ""KEY-----" /tmp/hns-demo-ocsp-revoked.der ||
+     grep -a -q -- "-----BEGIN ""CERTIFICATE-----" /tmp/hns-demo-ocsp-revoked.der; then
+    echo "revoked OCSP endpoint exposed PEM material"
+    exit 1
+  fi
   curl -fsS http://anyns-admin-api:8080/private-ca.crl >/tmp/hns-demo-public.crl
   openssl crl -in /tmp/hns-demo-public.crl -noout -text > /tmp/hns-demo-public-crl.txt
   serial_norm=$(printf "%s" "$serial" | tr -d " :" | tr "[:lower:]" "[:upper:]")
@@ -240,4 +266,4 @@ tools '
   fi
 '
 
-echo "HNS private CA demo smoke passed: single-label TLD, SOA/NS/glue, DNSKEY/DS, private CA cert, HTTPS demo, root download, TLSA publish, CRL reachability"
+echo "HNS private CA demo smoke passed: single-label TLD, SOA/NS/glue, DNSKEY/DS, private CA cert, HTTPS demo, root download, TLSA publish, OCSP, CRL reachability"

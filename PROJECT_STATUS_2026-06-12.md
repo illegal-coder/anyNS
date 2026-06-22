@@ -100,7 +100,7 @@
 - [x] `bash tests/acceptance/docker-soa-tld.sh` 现扩展验证 `example.` 单标签 TLD 经 BIND 明文 DNS、DoT 和 DoH 的 SOA 响应，且错误 DoT 证书主机名会被拒绝。
 - [x] `bash tests/acceptance/docker-hnsd-integration.sh` 默认 no-live 模式验证 hnsd/Recursor/BIND DoT/DoH profile model；live hnsd 运行仍需显式 `ANYNS_RUN_DOCKER_HNSD_INTEGRATION=1`。
 - [x] `ANYNS_RUN_DOCKER_HNSD_INTEGRATION=1 bash tests/acceptance/docker-hnsd-integration.sh` 在服务器隔离 Docker 网络中验证 live hnsd -> anyNS Runtime `hns` 路由 -> PowerDNS Recursor -> BIND 明文 DNS/DoT/DoH 链路；新 hnsd 未同步时接受 `SERVFAIL`，并验证不使用 static HNS fixture。
-- [x] `bash tests/acceptance/hns-private-ca-demo.sh` 使用一次性 Admin/private-ca + PowerDNS/BIND 拓扑验证 HNS 单标签 TLD、DNSSEC 操作员数据、private CA 证书链、根证书下载、disposable HTTPS origin、默认 trust store 拒绝私有根、错误主机名拒绝、TLSA 发布、作业吊销和公开 CRL。
+- [x] `bash tests/acceptance/hns-private-ca-demo.sh` 使用一次性 Admin/private-ca + PowerDNS/BIND 拓扑验证 HNS 单标签 TLD、DNSSEC 操作员数据、private CA 证书链、根证书下载、disposable HTTPS origin、默认 trust store 拒绝私有根、错误主机名拒绝、TLSA 发布、OCSP `good`/`revoked`、作业吊销和公开 CRL。
 - [x] GitHub Actions `CI` 验证 Go test/vet/build、前端 unit/ESLint/build、shell 语法及全部隔离 Compose model（含 SOA/TLD），并上传短期构建产物。
 - [ ] 服务器当前仅提供 `go1.18 gccgo`；`go test -race -buildvcs=false ./internal/adminapi` 在生成 `testmain` 时失败为 `package testmain: cannot find package`，尚需使用标准 gc Go 工具链补跑 race gate。
 - [x] `docker compose config --quiet`
