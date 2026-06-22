@@ -12,5 +12,27 @@ services:
     volumes:
       - hns-private-ca-demo-admin-data:/var/lib/anyns
 
+  hns-private-ca-origin:
+    image: anyns/dns-tools:integration
+    entrypoint: ["/bin/sh", "-euc"]
+    command:
+      - |
+        while :; do
+          cert="$$(find /var/lib/anyns/certificates/certs -mindepth 2 -maxdepth 2 -name fullchain.pem 2>/dev/null | head -n 1 || true)"
+          if [ -n "$$cert" ]; then
+            key="$${cert%/fullchain.pem}/private-key.pem"
+            if [ -s "$$key" ]; then
+              exec openssl s_server -accept 8443 -cert "$$cert" -key "$$key" -www
+            fi
+          fi
+          sleep 1
+        done
+    volumes:
+      - hns-private-ca-demo-admin-data:/var/lib/anyns:ro
+    networks:
+      dnsnet:
+        aliases:
+          - hns-private-ca-origin
+
 volumes:
   hns-private-ca-demo-admin-data:

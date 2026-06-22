@@ -63,7 +63,7 @@
 - [x] 增加 `GET /api/v1/certificates/private-ca/crl`，返回当前活动根签名的 PEM CRL，仅包含已标记 revoked 且由当前根签发的叶证书 serial，不返回证书链 PEM 或私钥。
 - [x] 增加 `certificates.crl_distribution_url`，为新 private-ca 叶证书写入 CRL Distribution Point；配置校验要求 HTTP(S) URL，并在 Admin 服务上发布配置 URL 的非保留路径，但不分发客户端 trust store。
 - [x] Admin 服务支持在 `certificates.crl_distribution_url` 的非保留路径发布无需管理凭据的 PEM CRL；普通 `/api/v1/certificates/private-ca/crl` 仍要求 `certificates:read`，公开路径不返回证书链、私钥或存储路径。
-- [x] 新增隔离 HNS private-ca demo smoke，将 `example.hns` 单标签 TLD 创建、apex SOA/NS/glue、DNSKEY/DS/RRSIG、private-ca 叶证书、根证书显式下载、TLSA 发布、吊销和公开 CRL 串成同一可重复验收路径。
+- [x] 新增隔离 HNS private-ca demo smoke，将 `example.hns` 单标签 TLD 创建、apex SOA/NS/glue、DNSKEY/DS/RRSIG、private-ca 叶证书、根证书显式下载、disposable HTTPS origin、TLSA 发布、吊销和公开 CRL 串成同一可重复验收路径。
 
 ## 测试与验收
 
@@ -97,7 +97,7 @@
 - [x] `bash tests/acceptance/docker-soa-tld.sh` 现扩展验证 `example.` 单标签 TLD 经 BIND 明文 DNS、DoT 和 DoH 的 SOA 响应，且错误 DoT 证书主机名会被拒绝。
 - [x] `bash tests/acceptance/docker-hnsd-integration.sh` 默认 no-live 模式验证 hnsd/Recursor/BIND DoT/DoH profile model；live hnsd 运行仍需显式 `ANYNS_RUN_DOCKER_HNSD_INTEGRATION=1`。
 - [x] `ANYNS_RUN_DOCKER_HNSD_INTEGRATION=1 bash tests/acceptance/docker-hnsd-integration.sh` 在服务器隔离 Docker 网络中验证 live hnsd -> anyNS Runtime `hns` 路由 -> PowerDNS Recursor -> BIND 明文 DNS/DoT/DoH 链路；新 hnsd 未同步时接受 `SERVFAIL`，并验证不使用 static HNS fixture。
-- [x] `bash tests/acceptance/hns-private-ca-demo.sh` 使用一次性 Admin/private-ca + PowerDNS/BIND 拓扑验证 HNS 单标签 TLD、DNSSEC 操作员数据、private CA 证书链、根证书下载、TLSA 发布、作业吊销和公开 CRL。
+- [x] `bash tests/acceptance/hns-private-ca-demo.sh` 使用一次性 Admin/private-ca + PowerDNS/BIND 拓扑验证 HNS 单标签 TLD、DNSSEC 操作员数据、private CA 证书链、根证书下载、disposable HTTPS origin、默认 trust store 拒绝私有根、错误主机名拒绝、TLSA 发布、作业吊销和公开 CRL。
 - [x] GitHub Actions `CI` 验证 Go test/vet/build、前端 unit/ESLint/build、shell 语法及全部隔离 Compose model（含 SOA/TLD），并上传短期构建产物。
 - [ ] 服务器当前仅提供 `go1.18 gccgo`；`go test -race -buildvcs=false ./internal/adminapi` 在生成 `testmain` 时失败为 `package testmain: cannot find package`，尚需使用标准 gc Go 工具链补跑 race gate。
 - [x] `docker compose config --quiet`

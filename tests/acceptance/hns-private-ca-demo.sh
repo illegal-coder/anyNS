@@ -39,6 +39,7 @@ cleanup
   pdns-recursor \
   anyns-plugin-runtime \
   anyns-admin-api \
+  hns-private-ca-origin \
   bind-latest \
   dns-tools
 
@@ -177,6 +178,37 @@ tools '
   fi
 '
 
+echo "phase:https-demo"
+"${COMPOSE[@]}" exec -T hns-private-ca-origin sh -euc '
+  test "$(stat -c %a /var/lib/anyns/certificates/certs/'"$JOB_ID"'/private-key.pem)" = "600"
+  test "$(stat -c %a /var/lib/anyns/certificates/certs/'"$JOB_ID"'/fullchain.pem)" = "600"
+'
+tools '
+  for _ in $(seq 1 20); do
+    if NO_PROXY="*" no_proxy="*" curl -fsS \
+      --cacert /tmp/hns-demo-root-download.pem \
+      --connect-to www.example:8443:hns-private-ca-origin:8443 \
+      https://www.example:8443/ >/tmp/hns-demo-https.txt; then
+      break
+    fi
+    sleep 1
+  done
+  grep -q "s_server" /tmp/hns-demo-https.txt
+  if NO_PROXY="*" no_proxy="*" curl -fsS \
+    --connect-to www.example:8443:hns-private-ca-origin:8443 \
+    https://www.example:8443/ >/tmp/hns-demo-untrusted.txt 2>&1; then
+    echo "HTTPS demo accepted private root without explicit trust"
+    exit 1
+  fi
+  if NO_PROXY="*" no_proxy="*" curl -fsS \
+    --cacert /tmp/hns-demo-root-download.pem \
+    --connect-to wrong.example:8443:hns-private-ca-origin:8443 \
+    https://wrong.example:8443/ >/tmp/hns-demo-wrong-host.txt 2>&1; then
+    echo "HTTPS demo accepted wrong hostname"
+    exit 1
+  fi
+'
+
 echo "phase:publish-tlsa"
 tools '
   curl -fsS -X POST http://anyns-admin-api:8080/api/v1/certificates/tlsa \
@@ -208,4 +240,4 @@ tools '
   fi
 '
 
-echo "HNS private CA demo smoke passed: single-label TLD, SOA/NS/glue, DNSKEY/DS, private CA cert, root download, TLSA publish, CRL reachability"
+echo "HNS private CA demo smoke passed: single-label TLD, SOA/NS/glue, DNSKEY/DS, private CA cert, HTTPS demo, root download, TLSA publish, CRL reachability"
