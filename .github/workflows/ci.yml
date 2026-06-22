@@ -76,6 +76,15 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
+        with:
+          go-version-file: go.mod
+          cache: true
+          cache-dependency-path: go.sum
+      - name: Source policy scan
+        run: |
+          go run -buildvcs=false ./cmd/anyns-source-policy --format markdown | tee source-policy.md
+          cat source-policy.md >> "$GITHUB_STEP_SUMMARY"
       - name: Validate tracked shell scripts
         run: git ls-files '*.sh' -z | xargs -0 -r -n1 bash -n
       - name: Validate Compose models
@@ -96,3 +105,9 @@ jobs:
           docker compose -f tests/docker/compose.dns-integration.yml -f tests/docker/compose.soa-tld.yml config --quiet
           docker compose -f tests/docker/compose.dns-integration.yml -f tests/docker/compose.dnssec.yml config --quiet
           docker compose -f tests/docker/compose.dns-integration.yml -f tests/docker/compose.soa-tld.yml -f tests/docker/compose.hns-private-ca-demo.yml config --quiet
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: anyns-source-policy
+          path: source-policy.md
+          if-no-files-found: error
+          retention-days: 7

@@ -76,6 +76,8 @@
 - [x] `go test -buildvcs=false ./...`
 - [x] `go vet ./...`
 - [x] `bash tests/acceptance/check-local.sh`
+- [x] `go test -buildvcs=false ./cmd/anyns-source-policy` 覆盖 CI 源码策略扫描器 fixtures：第三方 Action 固定、workflow 写权限、PEM 私钥、私有自动化路径、pipe-to-shell、Compose privileged/host runtime、Go 弱 hash、`InsecureSkipVerify`、shell command construction 以及安全边界样例。
+- [x] `go run -buildvcs=false ./cmd/anyns-source-policy --format markdown` 对当前跟踪源码输出 0 findings，并在 GitHub Actions `CI` 配置门禁中写入 step summary 和 7 天 artifact。
 - [x] Dashboard scope 回归测试验证仅有 `management:read` 的凭据无法读取其他功能数据。
 - [x] Capability scope 回归测试验证细粒度读取凭据只显示其可访问功能，并继续隐藏 overview 和无关功能。
 - [x] PowerDNS capability 回归测试覆盖仅 Authoritative、仅 Recursor 和旧版聚合 capability 前端兼容。
@@ -103,7 +105,7 @@
 - [x] `bash tests/acceptance/docker-hnsd-integration.sh` 默认 no-live 模式验证 hnsd/Recursor/BIND DoT/DoH profile model；live hnsd 运行仍需显式 `ANYNS_RUN_DOCKER_HNSD_INTEGRATION=1`。
 - [x] `ANYNS_RUN_DOCKER_HNSD_INTEGRATION=1 bash tests/acceptance/docker-hnsd-integration.sh` 在服务器隔离 Docker 网络中验证 live hnsd -> anyNS Runtime `hns` 路由 -> PowerDNS Recursor -> BIND 明文 DNS/DoT/DoH 链路；新 hnsd 未同步时接受 `SERVFAIL`，并验证不使用 static HNS fixture。
 - [x] `bash tests/acceptance/hns-private-ca-demo.sh` 使用一次性 Admin/private-ca + PowerDNS/BIND 拓扑验证 HNS 单标签 TLD、DNSSEC 操作员数据、Recursor `ad` 验证、private CA 证书链、根证书下载、disposable HTTPS origin、默认 trust store 拒绝私有根、错误主机名拒绝、TLSA 发布、OCSP `good`/`revoked`、作业吊销和公开 CRL。
-- [x] GitHub Actions `CI` 验证 Go test/vet/build、前端 unit/ESLint/build、shell 语法及全部隔离 Compose model（含 SOA/TLD），并上传短期构建产物。
+- [x] GitHub Actions `CI` 验证 Go test/vet/build、前端 unit/ESLint/build、源码策略扫描、shell 语法及全部隔离 Compose model（含 SOA/TLD），并上传短期构建产物和 source-policy 摘要。
 - [ ] 服务器当前仅提供 `go1.18 gccgo`；`go test -race -buildvcs=false ./internal/adminapi` 在生成 `testmain` 时失败为 `package testmain: cannot find package`，尚需使用标准 gc Go 工具链补跑 race gate。
 - [x] `docker compose config --quiet`
 - [x] `bash tests/acceptance/docker-gpgsql-backup-restore.sh` 验证 gpgsql 空库初始化、健康检查、DNS 查询、逻辑备份、数据变更和恢复。

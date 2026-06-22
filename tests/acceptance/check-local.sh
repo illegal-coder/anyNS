@@ -15,7 +15,8 @@ grep -q 'lua-cjson' configs/pdns-recursor/Dockerfile
 grep -q 'lua-socket' configs/pdns-recursor/Dockerfile
 bash tests/acceptance/pdns-lua-hook.sh
 bash tests/acceptance/runtime-smoke.sh
+GOCACHE="${GOCACHE:-/tmp/anyns-go-build}" go run -buildvcs=false ./cmd/anyns-source-policy
 
 GOCACHE="${GOCACHE:-/tmp/anyns-go-build}" go test -buildvcs=false ./...
 GOCACHE="${GOCACHE:-/tmp/anyns-go-build}" go vet -buildvcs=false ./...
-GOCACHE="${GOCACHE:-/tmp/anyns-go-build}" go build -buildvcs=false ./cmd/anyns-admin-api ./cmd/anyns-plugin-runtime ./cmd/anyns-log-forwarder ./cmd/anyns-config-check ./cmd/anyns-management-key
+GOCACHE="${GOCACHE:-/tmp/anyns-go-build}" go build -buildvcs=false ./cmd/anyns-admin-api ./cmd/anyns-plugin-runtime ./cmd/anyns-log-forwarder ./cmd/anyns-config-check ./cmd/anyns-management-key ./cmd/anyns-source-policy
