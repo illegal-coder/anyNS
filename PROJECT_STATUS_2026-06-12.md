@@ -1,6 +1,6 @@
 # anyNS 项目状态与计划偏差
 
-日期：2026-06-12
+日期：2026-06-23
 
 ## 2026-06-18 优先级调整
 
@@ -11,12 +11,25 @@
 - [x] 增加 GitHub Actions 快速门禁规划，覆盖 Go、前端、shell 与 Compose model。
 - [x] GitHub Actions 快速门禁已在 `main` 连续通过，并固定第三方 Action SHA、显式缓存依赖和 7 天构建产物保留期。
 - [ ] 完成 SOA/TLD 全链路测试矩阵。
-- [ ] 完成 private-ca 根证书生命周期、叶证书签发和安全测试。
+- [x] 完成 private-ca 根证书生命周期、叶证书签发和安全测试；生产父区 DS、外部验证器、标准 Go race gate、生产 TLS/反代和跨主机灾备仍按后续生产验收处理。
 - [ ] 完成 DNS/SSL 控制面组件拆分和浏览器验收。
 
 详细执行顺序见 `docs/10-当前高优先级路线.md`。
 
 本文件以 `docs/00-项目需求书.md`、`docs/06-开发路线与验收.md` 为最早计划基线。百分比为工程验收覆盖度估算，不代表工期。
+
+## 2026-06-23 Stage 1 closeout
+
+- [x] Stage 1 baseline 为 `6a6adefa9cd513400c6226789ba38f1947cec928`；下一阶段应以本次 closeout 文档提交作为新 baseline。
+- [x] 十个开发 pass、build gate、white-box security、black-box security、remediation、GitHub CI security automation 和 DNS/root security development 均已完成并写入私有 stage report。
+- [x] HNS private-CA demo 在隔离 Docker 拓扑中验证 `example.hns` 以 `example.` 单标签顶级区存储，覆盖 apex SOA/NS/glue、DNSKEY/DS、Authoritative RRSIG、Recursor `ad` 验证、private-ca 证书、根证书显式下载、显式私有根 HTTPS、默认 trust store 拒绝、错误主机名拒绝、TLSA 发布、OCSP `good`/`revoked`、作业吊销和公开 CRL。
+- [x] Build gate 通过 `go test -buildvcs=false ./...`、`go vet -buildvcs=false ./...`、本地二进制构建、前端 unit/ESLint/build、shell 语法、Compose model、`private-ca-certificates`、`docker-dnssec-validation` 和 `hns-private-ca-demo`。
+- [x] White-box security 未确认新增安全漏洞；black-box low finding 已通过 `cd0e4288eb5094e92da1d259cfc12857fb91e8b3` 修复为 TLSA 越区发布返回客户端错误；CRL 子路径也改为明确 404。
+- [x] 隔离 demo 仍故意关闭管理认证，只能作为 disposable acceptance profile；生产部署必须启用管理鉴权、TLS/反向代理、受控凭据和网络边界。
+- [x] GitHub Actions `CI` 在 Stage 1 关键提交上通过，包括 `999fd20cf7f2410841d958468b0866da5824375e` 和后续文档 PR `74e5685935205161cb112fac3e2e7dab0a40d5d1`。
+- [x] `anyns-source-policy` 已把 Action pin、workflow 权限、私钥 PEM、私有自动化路径、pipe-to-shell、Compose privileged/host runtime、Go 弱 hash、`InsecureSkipVerify` 和 shell command construction 的确定性检查纳入 CI；这些检查是补充控制，不替代代码审查和运行时安全测试。
+- [x] 外部 DNSLog/OOB 平台拒绝能力已落地：显式开关、规范化平台域名列表、allowlist 优先级、Runtime `403`/DNS `SERVFAIL`、独立 DNSLog 审计标记和前端配置入口。
+- [ ] Stage 1 未关闭项：生产父区 DS 发布、外部 validating resolver、已同步 live hnsd 正向 `NOERROR`、生产反向代理/TLS、外部 RPC/API smoke、长稳/容量、标准 gc Go race gate、`govulncheck`、DNSLog 平台字段专用 Selenium、root/HNS malformed wire/API 矩阵和跨主机灾备。
 
 ## 当前任务完成度
 
@@ -129,12 +142,12 @@
 
 ## 最早 P0-P4 计划完成度
 
-- [x] **P0 基础环境，约 97%**：PowerDNS、运行时、管理 API、Web 管理、DNSLog、Compose、缓存、现代 RR、一键构建和隔离 DNSSEC valid/bogus 验证门禁均已完成；生产父区 DS 发布和真实外部链路仍需单独验收。
-- [x] **P1 HNS，约 86%**：主链路、NXDOMAIN、缓存、审计、失败边界和 fixture 已完成；live hnsd P2P/SPV 仍为 opt-in。
+- [x] **P0 基础环境，约 98%**：PowerDNS、运行时、管理 API、Web 管理、DNSLog、Compose、缓存、现代 RR、一键构建、隔离 DNSSEC valid/bogus 和 HNS private-CA demo 门禁均已完成；生产父区 DS 发布和真实外部链路仍需单独验收。
+- [x] **P1 HNS，约 90%**：主链路、NXDOMAIN、缓存、审计、失败边界、fixture、single-label demo 和 opt-in live hnsd smoke 已完成；已同步 live hnsd 正向 `NOERROR` 与外部验证器仍待生产验收。
 - [x] **P2 插件并联，约 83%**：19 个插件、统一路由、冲突优先级、缓存隔离和契约测试已完成；真实公网链节点/API 尚未形成生产门禁。
-- [x] **P3 安全防护，约 85%**：主要检测、阻断、审计、蜜罐失败队列和指标已完成；短程 Docker load/soak 已有证据，持续流量、压力和容量基线仍待补充。
-- [x] **P4 文档交付，约 86%**：需求、架构、接口、安全、部署、验收和当前状态文档已齐；gpgsql 备份恢复、隔离升级回滚和 Docker 内灾备恢复已有可执行流程和自动化证据，生产全栈升级、跨主机灾备和密钥轮换演练仍待记录。
-- [ ] **总体生产验收约 88%**：确定性开发和测试环境成熟，但 fixture 通过不能替代真实链后端、生产流量和灾备验收。
+- [x] **P3 安全防护，约 88%**：主要检测、阻断、审计、蜜罐失败队列、指标、外部 DNSLog 平台阻断和 CI source-policy 已完成；短程 Docker load/soak 已有证据，持续流量、压力和容量基线仍待补充。
+- [x] **P4 文档交付，约 88%**：需求、架构、接口、安全、部署、验收和当前状态文档已齐；Stage 1 closeout 已记录 sanitized evidence，生产全栈升级、跨主机灾备和密钥轮换演练仍待记录。
+- [ ] **总体生产验收约 90%**：确定性开发和测试环境成熟，但 fixture/demo 通过不能替代真实链后端、生产流量、外部验证器和灾备验收。
 
 ## 与最早计划的偏差
 
