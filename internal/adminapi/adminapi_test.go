@@ -568,6 +568,128 @@ func TestPrivateCACertificateOrderUsesLocalIssuer(t *testing.T) {
 	}
 }
 
+func TestPrivateCACRLPublicationUsesConfiguredPublicPath(t *testing.T) {
+	cfg := config.Default()
+	cfg.Management.AuthRequired = true
+	cfg.Management.Keys = []config.ManagementKey{{
+		ID:     "certificate-operator",
+		APIKey: "cert-test",
+		Scopes: []string{httpapi.ScopeCertificatesRead, httpapi.ScopeCertificatesWrite},
+	}}
+	cfg.Certificates.Enabled = true
+	cfg.Certificates.IssuerMode = "private-ca"
+	cfg.Certificates.StorageDir = t.TempDir()
+	cfg.Certificates.CRLDistributionURL = "https://ca.example.test/.well-known/anyns/private-ca.crl"
+	cfg.Certificates.MaxAttempts = 1
+	cfg.Certificates.RequestTimeout = 5 * time.Second
+	application, err := app.NewFromConfig(cfg)
+	if err != nil {
+		t.Fatalf("new app: %v", err)
+	}
+	mux := http.NewServeMux()
+	Register(mux, application, &cfg)
+
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/v1/certificates/private-ca/crl", nil))
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("authenticated CRL status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	const testBearer = "Bearer cert-test"
+
+	create := httptest.NewRequest(http.MethodPost, "/api/v1/certificates/orders", strings.NewReader(`{"domains":["www.example.test"],"idempotency_key":"public-crl"}`))
+	create.Header.Set("Authorization", testBearer)
+	rec = httptest.NewRecorder()
+	mux.ServeHTTP(rec, create)
+	if rec.Code != http.StatusAccepted {
+		t.Fatalf("order status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	var job struct {
+		ID string `json:"id"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &job); err != nil {
+		t.Fatalf("decode job: %v", err)
+	}
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		req := httptest.NewRequest(http.MethodGet, "/api/v1/certificates/orders/"+job.ID, nil)
+		req.Header.Set("Authorization", testBearer)
+		rec = httptest.NewRecorder()
+		mux.ServeHTTP(rec, req)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("job status=%d body=%s", rec.Code, rec.Body.String())
+		}
+		var current struct {
+			Status string `json:"status"`
+		}
+		if err := json.Unmarshal(rec.Body.Bytes(), &current); err != nil {
+			t.Fatalf("decode current job: %v", err)
+		}
+		if current.Status == "issued" {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/certificates/orders/"+job.ID+"/certificate", nil)
+	req.Header.Set("Authorization", testBearer)
+	rec = httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("certificate status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	issuedChain := testCertificateChain(t, rec.Body.Bytes())
+	if !stringSlicesEqual(issuedChain[0].CRLDistributionPoints, []string{cfg.Certificates.CRLDistributionURL}) {
+		t.Fatalf("leaf CRLDistributionPoints=%v", issuedChain[0].CRLDistributionPoints)
+	}
+
+	revoke := httptest.NewRequest(http.MethodPost, "/api/v1/certificates/orders/"+job.ID+"/revoke", nil)
+	revoke.Header.Set("Authorization", testBearer)
+	rec = httptest.NewRecorder()
+	mux.ServeHTTP(rec, revoke)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("revoke status=%d body=%s", rec.Code, rec.Body.String())
+	}
+
+	rec = httptest.NewRecorder()
+	mux.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/.well-known/anyns/private-ca.crl", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("public CRL status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if strings.Contains(rec.Body.String(), "PRIVATE "+"KEY") || strings.Contains(rec.Body.String(), "BEGIN "+"CERTIFICATE") {
+		t.Fatalf("public CRL leaked certificate/key material: %s", rec.Body.String())
+	}
+	assertCRLContainsSerial(t, rec.Body.Bytes(), issuedChain[0].SerialNumber)
+
+	rec = httptest.NewRecorder()
+	mux.ServeHTTP(rec, httptest.NewRequest(http.MethodHead, "/.well-known/anyns/private-ca.crl", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("public CRL HEAD status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if rec.Body.Len() != 0 {
+		t.Fatalf("HEAD returned body length=%d", rec.Body.Len())
+	}
+}
+
+func TestCRLPublicationPathRejectsAPIAndReservedPaths(t *testing.T) {
+	tests := []string{
+		"",
+		"https://ca.example.test",
+		"https://ca.example.test/",
+		"https://ca.example.test/private-ca/",
+		"https://ca.example.test/api/v1/certificates/private-ca/crl",
+		"https://ca.example.test/api/../private-ca.crl",
+		"https://ca.example.test/healthz",
+	}
+	for _, raw := range tests {
+		if path, ok := configuredCRLPublicationPath(raw); ok {
+			t.Fatalf("configuredCRLPublicationPath(%q)=%q, true", raw, path)
+		}
+	}
+	path, ok := configuredCRLPublicationPath("https://ca.example.test/.well-known/anyns/private-ca.crl")
+	if !ok || path != "/.well-known/anyns/private-ca.crl" {
+		t.Fatalf("configuredCRLPublicationPath valid=%q, %v", path, ok)
+	}
+}
+
 func testCertificateChain(t *testing.T, body []byte) []*x509.Certificate {
 	t.Helper()
 	var certs []*x509.Certificate
@@ -608,6 +730,18 @@ func assertCRLContainsSerial(t *testing.T, body []byte, serial *big.Int) {
 		}
 	}
 	t.Fatalf("CRL missing serial %s revoked=%+v", serial, crl.TBSCertList.RevokedCertificates)
+}
+
+func stringSlicesEqual(left, right []string) bool {
+	if len(left) != len(right) {
+		return false
+	}
+	for i := range left {
+		if left[i] != right[i] {
+			return false
+		}
+	}
+	return true
 }
 
 func TestCapabilitiesRequireAuthentication(t *testing.T) {

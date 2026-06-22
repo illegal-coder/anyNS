@@ -60,7 +60,8 @@
 - [x] 增加 `POST /api/v1/certificates/private-ca/root/import`，支持导入自签名私有根 CA，验证 CA 约束、SKI/AKI、公私钥匹配和未过期状态，并在导入后重新加载 private-ca issuer。
 - [x] 增加 `POST /api/v1/certificates/private-ca/root/rotate`，生成新的本地活动根 CA，轮换后重新加载 private-ca issuer，并使旧备份标记显示为 `stale`。
 - [x] 增加 `GET /api/v1/certificates/private-ca/crl`，返回当前活动根签名的 PEM CRL，仅包含已标记 revoked 且由当前根签发的叶证书 serial，不返回证书链 PEM 或私钥。
-- [x] 增加 `certificates.crl_distribution_url`，为新 private-ca 叶证书写入 CRL Distribution Point；配置校验要求 HTTP(S) URL，且不自动发布 CRL 或分发客户端 trust store。
+- [x] 增加 `certificates.crl_distribution_url`，为新 private-ca 叶证书写入 CRL Distribution Point；配置校验要求 HTTP(S) URL，并在 Admin 服务上发布配置 URL 的非保留路径，但不分发客户端 trust store。
+- [x] Admin 服务支持在 `certificates.crl_distribution_url` 的非保留路径发布无需管理凭据的 PEM CRL；普通 `/api/v1/certificates/private-ca/crl` 仍要求 `certificates:read`，公开路径不返回证书链、私钥或存储路径。
 
 ## 测试与验收
 
@@ -82,6 +83,7 @@
 - [x] Private CA root rotation 回归测试覆盖新活动根指纹、旧备份标记 `stale`、根私钥 `0600`、issuer 重载后新叶证书由轮换根签发，以及管理审计不包含 PEM、路径或私钥。
 - [x] Private CA CRL 回归测试覆盖 revoked 叶证书 serial、当前根 CRL 签名校验、Admin API PEM CRL 输出，以及响应不包含证书链 PEM 或私钥。
 - [x] Private CA CRL Distribution Point 回归测试覆盖配置解析、HTTP(S) URL 校验，以及新签发叶证书包含配置的 CRL Distribution Point。
+- [x] Private CA 配置路径 CRL 发布回归测试覆盖管理鉴权开启时 `/api` CRL 仍需认证、公开路径 GET 返回 revoked serial、HEAD 无 body、API/健康检查保留路径不会被注册为公开 CRL。
 - [x] Private CA 并发签发回归测试覆盖多个同时提交的签发任务全部进入 issued 清单、有效期窗口存在、公开清单不泄露 idempotency key，并验证底层 issuer 最大并发为 1。
 - [x] `bash tests/acceptance/private-ca-certificates.sh` 使用隔离 Compose profile 验证 private CA Admin 镜像构建、叶证书签发、证书链校验、证书下载私钥非披露、根/叶私钥权限、重启持久化和容器内备份恢复。
 - [x] `bash tests/acceptance/private-ca-certificates.sh` 现扩展验证 private CA 证书清单、有效期窗口、TLSA 生成不发布、强制续期与 `renewal_of`、原证书吊销、吊销后禁止续期、吊销证书下载私钥非披露，以及重启和备份恢复后的状态持久化。

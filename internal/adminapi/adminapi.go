@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"path"
 	"strconv"
 	"strings"
 	"time"
@@ -81,6 +82,9 @@ func Register(mux *http.ServeMux, application *app.App, cfg *config.Config) {
 	mux.HandleFunc("/api/v1/certificates/private-ca/root/import", handler.certificatePrivateCARootImport)
 	mux.HandleFunc("/api/v1/certificates/private-ca/root/rotate", handler.certificatePrivateCARootRotate)
 	mux.HandleFunc("/api/v1/certificates/tlsa", handler.certificateTLSA)
+	if path, ok := configuredCRLPublicationPath(cfg.Certificates.CRLDistributionURL); ok {
+		mux.HandleFunc(path, handler.certificatePrivateCACRLPublication)
+	}
 }
 
 func certificateIssuer(cfg config.Config) (certificates.Issuer, error) {
@@ -414,6 +418,19 @@ func (h *Handler) certificatePrivateCACRL(w http.ResponseWriter, r *http.Request
 	if !httpapi.RequireScope(w, r, current, httpapi.ScopeCertificatesRead) {
 		return
 	}
+	h.writePrivateCACRL(w, current, true)
+}
+
+func (h *Handler) certificatePrivateCACRLPublication(w http.ResponseWriter, r *http.Request) {
+	current := *h.cfg
+	if r.Method != http.MethodGet && r.Method != http.MethodHead {
+		httpapi.Error(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	h.writePrivateCACRL(w, current, r.Method != http.MethodHead)
+}
+
+func (h *Handler) writePrivateCACRL(w http.ResponseWriter, current config.Config, includeBody bool) {
 	if strings.TrimSpace(current.Certificates.IssuerMode) != "private-ca" {
 		httpapi.Error(w, http.StatusNotFound, "private CA root is not configured")
 		return
@@ -434,7 +451,45 @@ func (h *Handler) certificatePrivateCACRL(w http.ResponseWriter, r *http.Request
 	}
 	w.Header().Set("Content-Type", "application/x-pem-file")
 	w.WriteHeader(http.StatusOK)
+	if !includeBody {
+		return
+	}
 	_, _ = w.Write(crlPEM)
+}
+
+func configuredCRLPublicationPath(raw string) (string, bool) {
+	parsed, err := url.Parse(strings.TrimSpace(raw))
+	if err != nil || parsed.Scheme == "" || parsed.Host == "" {
+		return "", false
+	}
+	path := strings.TrimSpace(parsed.EscapedPath())
+	if path == "" {
+		path = "/"
+	}
+	if strings.HasSuffix(path, "/") {
+		return "", false
+	}
+	if path == "/api" || strings.HasPrefix(path, "/api/") {
+		return "", false
+	}
+	path = pathpkgClean(path)
+	if path == "/" || path == "/api" || strings.HasPrefix(path, "/api/") {
+		return "", false
+	}
+	switch path {
+	case "/healthz", "/readyz", "/metrics":
+		return "", false
+	default:
+		return path, true
+	}
+}
+
+func pathpkgClean(value string) string {
+	cleaned := path.Clean("/" + strings.TrimPrefix(value, "/"))
+	if cleaned == "." {
+		return "/"
+	}
+	return cleaned
 }
 
 func (h *Handler) certificatePrivateCARoot(w http.ResponseWriter, r *http.Request) {
