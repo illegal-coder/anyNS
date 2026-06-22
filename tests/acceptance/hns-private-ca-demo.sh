@@ -143,6 +143,23 @@ tools '
   grep -Eq "IN[[:space:]]+RRSIG[[:space:]]+DNSKEY" /tmp/hns-demo-dnskey-answer.txt
 '
 
+DS_RECORD="$("${COMPOSE[@]}" exec -T dns-tools sh -euc '
+  grep -Eo "\"[0-9]+ 13 2 [0-9a-fA-F]+\"" /tmp/hns-demo-derived-ds.json |
+    head -1 |
+    tr -d "\""
+')"
+"${COMPOSE[@]}" exec -T pdns-recursor rec_control add-ta example "$DS_RECORD"
+"${COMPOSE[@]}" exec -T pdns-recursor rec_control get-tas | tee /tmp/anyns-hns-demo-tas.txt
+grep -qx 'example' /tmp/anyns-hns-demo-tas.txt
+
+tools '
+  dig +dnssec +adflag +time=2 +tries=1 @pdns-recursor example. SOA |
+    tee /tmp/hns-demo-recursive-dnssec.txt
+  grep -q "status: NOERROR" /tmp/hns-demo-recursive-dnssec.txt
+  grep -Eq "flags:.* ad[; ]" /tmp/hns-demo-recursive-dnssec.txt
+  grep -Eq "example\\..*IN[[:space:]]+RRSIG[[:space:]]+SOA" /tmp/hns-demo-recursive-dnssec.txt
+'
+
 echo "phase:private-ca-certificate"
 tools '
   curl -fsS -X POST http://anyns-admin-api:8080/api/v1/certificates/orders \
