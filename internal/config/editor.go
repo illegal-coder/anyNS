@@ -136,6 +136,9 @@ func ApplyEditable(current Config, edit EditableConfig) Config {
 	}
 	next.Routes = append([]plugins.Route(nil), edit.Routes...)
 	next.Security = edit.Security.WithDefaults()
+	if normalized, err := security.NormalizeDNSLogPlatformDomains(next.Security.DNSLogPlatformDomains); err == nil {
+		next.Security.DNSLogPlatformDomains = normalized
+	}
 	next.DNSLog = edit.DNSLog
 	next.ControlPlane = edit.ControlPlane
 
@@ -212,6 +215,12 @@ func SaveEditableFile(path string, edit EditableConfig) error {
 	}
 	if err := mergePlugins(document, edit.Plugins); err != nil {
 		return err
+	}
+	edit.Security = edit.Security.WithDefaults()
+	if normalized, err := security.NormalizeDNSLogPlatformDomains(edit.Security.DNSLogPlatformDomains); err != nil {
+		return err
+	} else {
+		edit.Security.DNSLogPlatformDomains = normalized
 	}
 	if err := set("security", edit.Security); err != nil {
 		return err

@@ -577,6 +577,9 @@ func (cfg Config) Validate() error {
 			problems = append(problems, fmt.Sprintf("security.sinkhole_domains[%d] is required", i))
 		}
 	}
+	if _, err := security.NormalizeDNSLogPlatformDomains(cfg.Security.DNSLogPlatformDomains); err != nil {
+		problems = append(problems, "security.dnslog_platform_domains must contain DNS host names without wildcards, regex, empty labels, or control characters")
+	}
 
 	if strings.TrimSpace(cfg.Honeypot.APIKey) != "" && strings.TrimSpace(cfg.Honeypot.APIKeyFile) != "" {
 		problems = append(problems, "honeypot must not set both api_key and api_key_file")

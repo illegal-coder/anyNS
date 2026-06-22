@@ -140,6 +140,62 @@ func TestResolveEndpointPersistsDNSLogAndQueuesHoneypotFailure(t *testing.T) {
 	}
 }
 
+func TestResolveEndpointBlocksExternalDNSLogPlatformAndAuditsRule(t *testing.T) {
+	cfg := config.Default()
+	cfg.Security.RejectDNSLogPlatforms = true
+	cfg.Security.DNSLogPlatformDomains = []string{"interactsh.com"}
+
+	application, err := app.NewFromConfig(cfg)
+	if err != nil {
+		t.Fatalf("new app: %v", err)
+	}
+	mux := newRuntimeMux(application, cfg)
+
+	body := []byte(`{
+		"qname": "7f6d7a3bcb.token.interactsh.com.",
+		"qtype": "TXT",
+		"context": {
+			"trace_id": "external-dnslog-block",
+			"client_ip": "192.0.2.66",
+			"client_view": "default",
+			"tenant": "default"
+		}
+	}`)
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/resolve", bytes.NewReader(body))
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("resolve status = %d body=%s", rec.Code, rec.Body.String())
+	}
+	var response struct {
+		Result   plugins.ResolveResult `json:"result"`
+		Security security.Finding      `json:"security"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if response.Result.RCode != plugins.RCodeServFail ||
+		response.Result.SourcePlugin != "security" ||
+		response.Security.Rule != "external-dnslog-platform" ||
+		response.Security.Action != security.ActionBlock {
+		t.Fatalf("unexpected block response: %#v", response)
+	}
+
+	events := application.DNSLog.List(0)
+	if len(events) != 1 {
+		t.Fatalf("dnslog events = %#v", events)
+	}
+	if events[0].TraceID != "external-dnslog-block" ||
+		events[0].QName != "7f6d7a3bcb.token.interactsh.com." ||
+		events[0].Action != string(security.ActionBlock) ||
+		events[0].MatchedRule != "external-dnslog-platform" ||
+		events[0].SourcePlugin != "security" ||
+		events[0].RCode != plugins.RCodeServFail {
+		t.Fatalf("unexpected DNSLog event: %#v", events[0])
+	}
+}
+
 func TestAuditEventsEndpointHonorsLimit(t *testing.T) {
 	cfg := config.Default()
 	application, err := app.NewFromConfig(cfg)

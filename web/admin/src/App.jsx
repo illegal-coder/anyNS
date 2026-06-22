@@ -43,6 +43,7 @@ import {
   visibleNavigation,
 } from "./capabilities";
 import { domainToASCII, ensureTrailingDot, normalizeZoneInput, trimTrailingDot } from "./dnsname";
+import { normalizeDNSLogPlatformDomainList } from "./security";
 import { parseSOAContent, soaPayloadFromEditor } from "./soa";
 
 const navigation = [
@@ -1082,11 +1083,18 @@ function SecurityPage({ configuration, setConfiguration, saveConfiguration, dash
     ...configuration,
     security: { ...security, [name]: value },
   });
+  const saveSecurityConfiguration = () => saveConfiguration({
+    ...configuration,
+    security: {
+      ...security,
+      dnslog_platform_domains: normalizeDNSLogPlatformDomainList(security.dnslog_platform_domains || []),
+    },
+  });
   return (
     <div className="page-stack">
       <div className="page-actions">
         <div><p className="section-kicker">DNS SECURITY</p><h2>安全策略</h2><p>管理隧道检测、DGA、重绑定、速率限制、黑白名单和蜜罐联动。</p></div>
-        <button className="button primary" disabled={!canWrite} onClick={() => saveConfiguration(configuration)}><Save size={16} />保存安全策略</button>
+        <button className="button primary" disabled={!canWrite} onClick={saveSecurityConfiguration}><Save size={16} />保存安全策略</button>
       </div>
       {!canWrite && <InlineWarning text={configuration.writable ? "当前凭据仅允许读取安全策略。" : "当前配置文件为只读，Docker 部署需要挂载共享可写配置卷。"} />}
       <fieldset className="readonly-fieldset" disabled={!canWrite}>
@@ -1095,6 +1103,7 @@ function SecurityPage({ configuration, setConfiguration, saveConfiguration, dash
           <div className="settings-list">
             <ToggleRow label="启用 DNS 安全分析" detail="关闭后请求将直接进入插件路由" checked={security.enabled} onChange={(value) => update("enabled", value)} />
             <ToggleRow label="阻断 DNS Rebinding" detail="拒绝解析到私有、回环和链路本地地址" checked={security.block_rebinding} onChange={(value) => update("block_rebinding", value)} />
+            <ToggleRow label="拒绝 DNSLog 平台查询" detail="阻断外部 OOB 回调平台域名，不影响本地 DNSLog 审计记录" checked={Boolean(security.reject_dnslog_platforms)} onChange={(value) => update("reject_dnslog_platforms", value)} />
           </div>
           <div className="form-grid">
             <NumberField label="查询速率阈值" value={security.query_rate_threshold} onChange={(value) => update("query_rate_threshold", value)} />
@@ -1107,6 +1116,7 @@ function SecurityPage({ configuration, setConfiguration, saveConfiguration, dash
         </Panel>
         <Panel title="域名策略" subtitle="每行一个域名或后缀，后缀请以点开头">
           <ListEditor label="白名单" values={security.allowlist_domains || []} onChange={(values) => update("allowlist_domains", values)} />
+          <ListEditor label="DNSLog 平台域名" values={security.dnslog_platform_domains || []} onChange={(values) => update("dnslog_platform_domains", normalizeDNSLogPlatformDomainList(values))} />
           <ListEditor label="阻断列表" values={security.denylist_domains || []} onChange={(values) => update("denylist_domains", values)} />
           <ListEditor label="Sinkhole 列表" values={security.sinkhole_domains || []} onChange={(values) => update("sinkhole_domains", values)} />
         </Panel>

@@ -2,12 +2,14 @@ package security
 
 import (
 	"encoding/json"
+	"fmt"
 	"math"
 	"net"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/anyns/anyns/internal/dnsname"
 	"github.com/anyns/anyns/internal/plugins"
 )
 
@@ -60,6 +62,8 @@ type Policy struct {
 	AllowlistDomains           []string `json:"allowlist_domains,omitempty"`
 	DenylistDomains            []string `json:"denylist_domains,omitempty"`
 	SinkholeDomains            []string `json:"sinkhole_domains,omitempty"`
+	RejectDNSLogPlatforms      bool     `json:"reject_dnslog_platforms"`
+	DNSLogPlatformDomains      []string `json:"dnslog_platform_domains,omitempty"`
 	SinkholeIPv4               string   `json:"sinkhole_ipv4,omitempty"`
 	SinkholeIPv6               string   `json:"sinkhole_ipv6,omitempty"`
 	SinkholeTTL                int      `json:"sinkhole_ttl,omitempty"`
@@ -166,6 +170,9 @@ func (p Policy) WithDefaults() Policy {
 	if p.SinkholeTTL == 0 {
 		p.SinkholeTTL = defaults.SinkholeTTL
 	}
+	if normalized, err := NormalizeDNSLogPlatformDomains(p.DNSLogPlatformDomains); err == nil {
+		p.DNSLogPlatformDomains = normalized
+	}
 	return p
 }
 
@@ -195,6 +202,9 @@ func (a *Analyzer) AnalyzeQuery(req plugins.ResolveRequest) Finding {
 	qtype := plugins.NormalizeQType(req.QType)
 	if matchesDomainPattern(qname, a.policy.AllowlistDomains) {
 		return Finding{"allowlist-domain", RiskNone, ActionAllow, "domain matched security allowlist"}
+	}
+	if a.policy.RejectDNSLogPlatforms && matchesPlatformDomain(qname, a.policy.DNSLogPlatformDomains) {
+		return Finding{"external-dnslog-platform", RiskHigh, ActionBlock, "domain matched external DNSLog/OOB callback platform list"}
 	}
 	if matchesDomainPattern(qname, a.policy.DenylistDomains) {
 		return Finding{"denylist-domain", RiskCritical, ActionBlock, "domain matched security denylist"}
@@ -374,6 +384,64 @@ func matchesDomainPattern(qname string, patterns []string) bool {
 		}
 	}
 	return false
+}
+
+func matchesPlatformDomain(qname string, domains []string) bool {
+	q, ok := normalizePlatformDomain(qname)
+	if !ok {
+		return false
+	}
+	for _, domain := range domains {
+		p, ok := normalizePlatformDomain(domain)
+		if !ok {
+			continue
+		}
+		if q == p || strings.HasSuffix(q, "."+p) {
+			return true
+		}
+	}
+	return false
+}
+
+func normalizePlatformDomain(value string) (string, bool) {
+	ascii, err := dnsname.ToASCII(value)
+	if err != nil {
+		return "", false
+	}
+	domain := strings.TrimSuffix(strings.ToLower(strings.TrimSpace(ascii)), ".")
+	if domain == "" || domain == "." || strings.HasPrefix(domain, ".") || strings.Contains(domain, "..") {
+		return "", false
+	}
+	labels := strings.Split(domain, ".")
+	for _, label := range labels {
+		if label == "" || strings.HasPrefix(label, "-") || strings.HasSuffix(label, "-") {
+			return "", false
+		}
+		for _, r := range label {
+			if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') || r == '-' {
+				continue
+			}
+			return "", false
+		}
+	}
+	return domain, true
+}
+
+func NormalizeDNSLogPlatformDomains(domains []string) ([]string, error) {
+	normalized := make([]string, 0, len(domains))
+	seen := map[string]bool{}
+	for i, domain := range domains {
+		value, ok := normalizePlatformDomain(domain)
+		if !ok {
+			return nil, fmt.Errorf("dnslog platform domain %d is invalid", i)
+		}
+		if seen[value] {
+			continue
+		}
+		seen[value] = true
+		normalized = append(normalized, value)
+	}
+	return normalized, nil
 }
 
 func (a *Analyzer) Policy() Policy {

@@ -67,6 +67,7 @@
 - [x] 增加 `certificates.crl_distribution_url`，为新 private-ca 叶证书写入 CRL Distribution Point；配置校验要求 HTTP(S) URL，并在 Admin 服务上发布配置 URL 的非保留路径，但不分发客户端 trust store。
 - [x] Admin 服务支持在 `certificates.crl_distribution_url` 的非保留路径发布无需管理凭据的 PEM CRL；普通 `/api/v1/certificates/private-ca/crl` 仍要求 `certificates:read`，公开路径不返回证书链、私钥或存储路径。
 - [x] 新增隔离 HNS private-ca demo smoke，将 `example.hns` 单标签 TLD 创建、apex SOA/NS/glue、DNSKEY/DS/RRSIG、private-ca 叶证书、根证书显式下载、disposable HTTPS origin、TLSA 发布、吊销和公开 CRL 串成同一可重复验收路径。
+- [x] 增加外部 DNSLog/OOB 回调平台拒绝能力：`security.reject_dnslog_platforms` 显式开关、`security.dnslog_platform_domains` 规范化列表、Admin 安全页控件、配置 API 持久化和 Runtime 阻断审计；匹配顺序为 allowlist -> external-dnslog-platform -> denylist/sinkhole/analyzers，命中时 DNSLog 使用 `matched_rule=external-dnslog-platform`。
 
 ## 测试与验收
 
@@ -123,6 +124,7 @@
 - [x] 覆盖 `HTTPS`、`SVCB`、`DS`、`CAA`、`WALLET/TYPE262` 等现代 RR。
 - [x] 覆盖 19 个去中心化域名插件的确定性后端契约与路由优先级。
 - [x] 覆盖 denylist、sinkhole、DGA/隧道、DNS rebinding、异常 RR、放大和速率限制。
+- [x] 覆盖外部 DNSLog 平台拒绝的 exact/subdomain、大小写、尾点、IDNA、标签边界绕过、allowlist 优先级、关闭模式、列表投毒、配置持久化、Runtime `403`/`SERVFAIL` 和 DNSLog 审计形状；前端单元测试覆盖列表规范化。
 - [x] 覆盖 DNSLog 过滤、排序、分页、聚合、指标和蜜罐失败队列。
 
 ## 最早 P0-P4 计划完成度

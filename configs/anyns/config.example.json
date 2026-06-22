@@ -367,6 +367,8 @@
     "abnormal_rr_action": "log_only",
     "reflection_amplification_action": "rate_limit",
     "allowlist_domains": ["trusted.example"],
+    "reject_dnslog_platforms": false,
+    "dnslog_platform_domains": [],
     "denylist_domains": [".blocked.example"],
     "sinkhole_domains": ["ads.example"],
     "sinkhole_ipv4": "0.0.0.0",

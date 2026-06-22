@@ -53,6 +53,89 @@ func TestAnalyzeQueryHonorsListPolicies(t *testing.T) {
 	}
 }
 
+func TestAnalyzeQueryRejectsExternalDNSLogPlatforms(t *testing.T) {
+	analyzer := NewAnalyzerWithPolicy(Policy{
+		Enabled:               true,
+		RejectDNSLogPlatforms: true,
+		DNSLogPlatformDomains: []string{"Interactsh.COM.", "dnslog.例子"},
+	})
+
+	for _, qname := range []string{
+		"interactsh.com",
+		"token.INTERACTSH.com.",
+		"dnslog.xn--fsqu00a",
+		"a.b.dnslog.xn--fsqu00a.",
+	} {
+		finding := analyzer.AnalyzeQuery(plugins.ResolveRequest{QName: qname, QType: "A"})
+		if finding.Rule != "external-dnslog-platform" || finding.Action != ActionBlock || finding.RiskLevel != RiskHigh {
+			t.Fatalf("dnslog platform finding for %q = %#v", qname, finding)
+		}
+	}
+
+	for _, qname := range []string{
+		"notinteractsh.com",
+		"interactsh.com.evil.example",
+		"evilinteractsh.com",
+	} {
+		finding := analyzer.AnalyzeQuery(plugins.ResolveRequest{QName: qname, QType: "A"})
+		if finding.Rule == "external-dnslog-platform" {
+			t.Fatalf("boundary bypass candidate %q should not match: %#v", qname, finding)
+		}
+	}
+}
+
+func TestAnalyzeQueryAllowsTrustedDomainBeforeDNSLogPlatformRejection(t *testing.T) {
+	analyzer := NewAnalyzerWithPolicy(Policy{
+		Enabled:               true,
+		AllowlistDomains:      []string{".interactsh.com"},
+		RejectDNSLogPlatforms: true,
+		DNSLogPlatformDomains: []string{"interactsh.com"},
+		DenylistDomains:       []string{".interactsh.com"},
+	})
+
+	finding := analyzer.AnalyzeQuery(plugins.ResolveRequest{QName: "token.interactsh.com", QType: "TXT"})
+	if finding.Rule != "allowlist-domain" || finding.Action != ActionAllow {
+		t.Fatalf("allowlist should take precedence over DNSLog platform rejection: %#v", finding)
+	}
+}
+
+func TestAnalyzeQueryDNSLogPlatformRejectionCanBeDisabled(t *testing.T) {
+	analyzer := NewAnalyzerWithPolicy(Policy{
+		Enabled:               true,
+		RejectDNSLogPlatforms: false,
+		DNSLogPlatformDomains: []string{"interactsh.com"},
+	})
+
+	finding := analyzer.AnalyzeQuery(plugins.ResolveRequest{QName: "token.interactsh.com", QType: "A"})
+	if finding.Rule == "external-dnslog-platform" || finding.Action != ActionAllow {
+		t.Fatalf("disabled DNSLog platform rejection finding = %#v", finding)
+	}
+}
+
+func TestNormalizeDNSLogPlatformDomainsRejectsUnsafeEntries(t *testing.T) {
+	normalized, err := NormalizeDNSLogPlatformDomains([]string{" Interactsh.COM. ", "dnslog.例子", "interactsh.com"})
+	if err != nil {
+		t.Fatalf("normalize domains: %v", err)
+	}
+	if len(normalized) != 2 || normalized[0] != "interactsh.com" || normalized[1] != "dnslog.xn--fsqu00a" {
+		t.Fatalf("normalized domains = %#v", normalized)
+	}
+
+	for _, domains := range [][]string{
+		{""},
+		{"*.interactsh.com"},
+		{".interactsh.com"},
+		{"bad..interactsh.com"},
+		{"bad\ninteractsh.com"},
+		{"-bad.example"},
+		{"bad-.example"},
+	} {
+		if _, err := NormalizeDNSLogPlatformDomains(domains); err == nil {
+			t.Fatalf("expected unsafe DNSLog platform entry to fail: %#v", domains)
+		}
+	}
+}
+
 func TestAnalyzeQueryRateLimitsClientWindow(t *testing.T) {
 	analyzer := NewAnalyzerWithPolicy(Policy{
 		Enabled:                true,

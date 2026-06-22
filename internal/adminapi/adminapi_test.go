@@ -1661,6 +1661,8 @@ func TestConfigurationUpdatePreservesSecretsAndReloads(t *testing.T) {
 	edit.RequestTimeoutSeconds = 9
 	edit.Plugins[0].Enabled = false
 	edit.Security.Enabled = false
+	edit.Security.RejectDNSLogPlatforms = true
+	edit.Security.DNSLogPlatformDomains = []string{" Interactsh.COM. ", "dnslog.例子"}
 	body, _ := json.Marshal(edit)
 	req := httptest.NewRequest(http.MethodPut, "/api/v1/configuration", bytes.NewReader(body))
 	rec := httptest.NewRecorder()
@@ -1677,7 +1679,18 @@ func TestConfigurationUpdatePreservesSecretsAndReloads(t *testing.T) {
 			t.Fatalf("saved config lost %s: %s", secret, saved)
 		}
 	}
+	if !bytes.Contains(saved, []byte(`"reject_dnslog_platforms": true`)) ||
+		!bytes.Contains(saved, []byte(`"interactsh.com"`)) ||
+		!bytes.Contains(saved, []byte(`"dnslog.xn--fsqu00a"`)) {
+		t.Fatalf("saved config did not normalize DNSLog platform defense: %s", saved)
+	}
 	if cfg.RequestTimeout.Seconds() != 9 || cfg.Plugins[0].Enabled {
 		t.Fatalf("runtime config was not reloaded: %#v", cfg)
+	}
+	if !cfg.Security.RejectDNSLogPlatforms ||
+		len(cfg.Security.DNSLogPlatformDomains) != 2 ||
+		cfg.Security.DNSLogPlatformDomains[0] != "interactsh.com" ||
+		cfg.Security.DNSLogPlatformDomains[1] != "dnslog.xn--fsqu00a" {
+		t.Fatalf("runtime DNSLog platform config was not reloaded: %#v", cfg.Security)
 	}
 }

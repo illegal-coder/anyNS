@@ -41,10 +41,12 @@ func TestLoadAppliesFileConfigAndDefaults(t *testing.T) {
 				"nxdomain_threshold": 7,
 				"allowlist_domains": ["trusted.example"],
 				"denylist_domains": [".blocked.example"],
-			"sinkhole_domains": ["ads.example"],
-			"sinkhole_ipv4": "203.0.113.250",
-			"sinkhole_ipv6": "2001:db8::250",
-			"sinkhole_ttl": 45
+				"sinkhole_domains": ["ads.example"],
+				"reject_dnslog_platforms": true,
+				"dnslog_platform_domains": ["Interactsh.COM.", "dnslog.例子"],
+				"sinkhole_ipv4": "203.0.113.250",
+				"sinkhole_ipv6": "2001:db8::250",
+				"sinkhole_ttl": 45
 		},
 		"dnslog": {
 			"limit": 25,
@@ -102,6 +104,10 @@ func TestLoadAppliesFileConfigAndDefaults(t *testing.T) {
 		len(cfg.Security.AllowlistDomains) != 1 ||
 		len(cfg.Security.DenylistDomains) != 1 ||
 		len(cfg.Security.SinkholeDomains) != 1 ||
+		!cfg.Security.RejectDNSLogPlatforms ||
+		len(cfg.Security.DNSLogPlatformDomains) != 2 ||
+		cfg.Security.DNSLogPlatformDomains[0] != "interactsh.com" ||
+		cfg.Security.DNSLogPlatformDomains[1] != "dnslog.xn--fsqu00a" ||
 		cfg.Security.SinkholeIPv4 != "203.0.113.250" ||
 		cfg.Security.SinkholeIPv6 != "2001:db8::250" ||
 		cfg.Security.SinkholeTTL != 45 {
@@ -646,6 +652,7 @@ func TestValidateRejectsInvalidIntegrationConfig(t *testing.T) {
 	cfg.Security.SinkholeTTL = -1
 	cfg.Security.SinkholeIPv4 = "not-an-ip"
 	cfg.Security.AllowlistDomains = []string{""}
+	cfg.Security.DNSLogPlatformDomains = []string{"*.interactsh.com"}
 	cfg.Security.QueryRateWindowSeconds = -1
 	cfg.Security.RandomSubdomainThreshold = -1
 	cfg.ControlPlane.AdminProxyRuntime = true
@@ -678,6 +685,7 @@ func TestValidateRejectsInvalidIntegrationConfig(t *testing.T) {
 		"security.sinkhole_ttl",
 		"security.sinkhole_ipv4",
 		"security.allowlist_domains",
+		"security.dnslog_platform_domains",
 		"security.query_rate_window_seconds",
 		"security.random_subdomain_threshold",
 		"control_plane.runtime_control_url",
