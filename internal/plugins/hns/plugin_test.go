@@ -306,6 +306,47 @@ func TestParseDNSResponseMapsNXDomain(t *testing.T) {
 	}
 }
 
+func TestParseDNSResponseRejectsNonResponseAndQuestionMismatch(t *testing.T) {
+	t.Run("non-response packet", func(t *testing.T) {
+		packet := dnsResponsePacket(t, 0x1234, "example.hns.", nil)
+		packet[2] &^= 0x80
+		_, err := parseDNSResponse(packet, 0x1234, "example.hns.", time.Now())
+		if err == nil || !strings.Contains(err.Error(), "DNS packet is not a response") {
+			t.Fatalf("parse err = %v, want non-response error", err)
+		}
+	})
+
+	t.Run("question name mismatch", func(t *testing.T) {
+		packet := dnsResponsePacket(t, 0x1234, "evil.hns.", []dnsAnswer{
+			{name: "example.hns.", typ: 1, ttl: 120, rdata: []byte{198, 51, 100, 10}},
+		})
+		_, err := parseDNSResponse(packet, 0x1234, "example.hns.", time.Now())
+		if err == nil || !strings.Contains(err.Error(), "DNS question name mismatch") {
+			t.Fatalf("parse err = %v, want question mismatch error", err)
+		}
+	})
+}
+
+func TestParseDNSResponseFiltersUnrelatedAnswerNames(t *testing.T) {
+	packet := dnsResponsePacket(t, 0x1234, "example.hns.", []dnsAnswer{
+		{name: "example.hns.", typ: 1, ttl: 120, rdata: []byte{198, 51, 100, 10}},
+		{name: "evil.hns.", typ: 1, ttl: 30, rdata: []byte{203, 0, 113, 66}},
+	})
+	result, err := parseDNSResponse(packet, 0x1234, "example.hns.", time.Now())
+	if err != nil {
+		t.Fatalf("parse dns response: %v", err)
+	}
+	if len(result.RRSet) != 1 {
+		t.Fatalf("rrset = %#v, want only matching answer", result.RRSet)
+	}
+	if result.RRSet[0].Name != "example.hns." || result.RRSet[0].Value != "198.51.100.10" {
+		t.Fatalf("rrset = %#v", result.RRSet)
+	}
+	if result.TTL != 120 {
+		t.Fatalf("ttl = %d, want matching answer ttl", result.TTL)
+	}
+}
+
 func TestBuildDNSQueryRejectsOverlongQName(t *testing.T) {
 	label := strings.Repeat("a", 63)
 	overlongName := strings.Join([]string{label, label, label, label}, ".") + "."

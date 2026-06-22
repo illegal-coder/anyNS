@@ -358,18 +358,29 @@ func parseDNSResponse(packet []byte, wantID uint16, qname string, started time.T
 		return plugins.ResolveResult{}, errors.New("DNS response id mismatch")
 	}
 	flags := binary.BigEndian.Uint16(packet[2:4])
+	if flags&0x8000 == 0 {
+		return plugins.ResolveResult{}, errors.New("DNS packet is not a response")
+	}
 	rcode := flags & 0x000f
 	qdcount := int(binary.BigEndian.Uint16(packet[4:6]))
 	ancount := int(binary.BigEndian.Uint16(packet[6:8]))
 	offset := 12
+	normalizedQName := ""
+	if qname != "" {
+		normalizedQName = plugins.NormalizeQName(qname)
+	}
 	var err error
 	for i := 0; i < qdcount; i++ {
-		_, offset, err = readDNSName(packet, offset)
+		var questionName string
+		questionName, offset, err = readDNSName(packet, offset)
 		if err != nil {
 			return plugins.ResolveResult{}, err
 		}
 		if offset+4 > len(packet) {
 			return plugins.ResolveResult{}, errors.New("short DNS question")
+		}
+		if normalizedQName != "" && plugins.NormalizeQName(questionName) != normalizedQName {
+			return plugins.ResolveResult{}, errors.New("DNS question name mismatch")
 		}
 		offset += 4
 	}
@@ -406,6 +417,10 @@ func parseDNSResponse(packet []byte, wantID uint16, qname string, started time.T
 		if class != 1 {
 			continue
 		}
+		normalizedName := plugins.NormalizeQName(name)
+		if normalizedQName != "" && normalizedName != normalizedQName {
+			continue
+		}
 		value, ok := formatRDATA(packet, rdataOffset, rdata, typ)
 		if !ok {
 			continue
@@ -414,7 +429,7 @@ func parseDNSResponse(packet []byte, wantID uint16, qname string, started time.T
 		if rrType == "" {
 			rrType = "TYPE" + strconv.Itoa(int(typ))
 		}
-		rrset = append(rrset, plugins.RR{Name: plugins.NormalizeQName(name), Type: rrType, TTL: rrTTL, Value: value})
+		rrset = append(rrset, plugins.RR{Name: normalizedName, Type: rrType, TTL: rrTTL, Value: value})
 		if rrTTL > 0 && (ttl == 0 || rrTTL < ttl) {
 			ttl = rrTTL
 		}
@@ -426,8 +441,8 @@ func parseDNSResponse(packet []byte, wantID uint16, qname string, started time.T
 	if len(rrset) == 0 {
 		res.AuditMetadata["reason"] = "dns_backend_nodata"
 	}
-	if qname != "" {
-		res.RawRecord["query_name"] = plugins.NormalizeQName(qname)
+	if normalizedQName != "" {
+		res.RawRecord["query_name"] = normalizedQName
 	}
 	return res, nil
 }

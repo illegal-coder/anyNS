@@ -85,6 +85,7 @@
 - [x] RRSet mutation 在调用 PowerDNS 前拒绝 DNSKEY 非 apex owner、TLSA 非 `_port._protocol` owner、literal control-character presentation 和超过 4096 bytes 的单条记录内容，失败请求不会转发到 PowerDNS。
 - [x] HNS DNS backend 在构建 UDP/TCP wire query 前拒绝 malformed root label，同时保留 `_443._tcp.example.hns` 这类合法服务标签子名；失败请求不会触发 DNS exchange。
 - [x] HNS DNS backend 现在在 query 编码和响应解析边界拒绝超过 DNS 255-octet wire-name 上限的名称，并用回归测试覆盖 compression pointer loop、out-of-range pointer、short pointer 和 unsupported label encoding。
+- [x] HNS DNS backend 响应解析现在拒绝非 response packet 与 echo question name mismatch，并过滤 answer section 中与查询名无关的 RR，防止异常 backend 响应污染 HNS 解析结果。
 
 ## 测试与验收
 
@@ -123,6 +124,7 @@
 - [x] RRSet unsafe mutation 回归测试覆盖 direct client 与 Admin API 边界：`go test -buildvcs=false ./internal/powerdns ./internal/adminapi -run 'TestPatchAuthoritativeZoneRejectsUnsafeRRSetMutations|TestPowerDNSRRSetPatchRejectsUnsafeMutationsBeforePowerDNS|TestPatchAuthoritativeZoneValidatesDNSSECDANEAndCAARecords|TestPowerDNSZoneDetailAndRRSetPatch'`。
 - [x] HNS DNS backend malformed root-label 回归测试覆盖 query name translation、拒绝路径和未触发 DNS exchange：`go test -buildvcs=false ./internal/plugins/hns -run 'TestDNSBackendQNameTranslation|TestDNSBackendQNameRejectsMalformedRootLabels|TestDNSBackendResolveRejectsMalformedRootLabelBeforeExchange|TestDNSBackendFallsBackToTCPOnTruncatedUDP'`。
 - [x] HNS DNS backend malformed wire-name 回归测试覆盖 outbound overlong QNAME、response compression pointer loop/out-of-range/short pointer、unsupported label encoding 和 expanded-name 255-octet 上限：`go test -buildvcs=false ./internal/plugins/hns -run 'TestBuildDNSQueryRejectsOverlongQName|TestParseDNSResponseRejectsMalformedCompressedNames|TestParseDNSResponseRejectsOverlongExpandedName'`。
+- [x] HNS DNS backend response-boundary 回归测试覆盖非 response packet、echo question name mismatch 和 unrelated answer filtering：`go test -buildvcs=false ./internal/plugins/hns -run 'TestParseDNSResponseRejectsNonResponseAndQuestionMismatch|TestParseDNSResponseFiltersUnrelatedAnswerNames'`。
 - [x] `bash tests/acceptance/docker-soa-tld.sh` 现扩展验证 `example.` 单标签 TLD 经 BIND 明文 DNS、DoT 和 DoH 的 SOA 响应，且错误 DoT 证书主机名会被拒绝。
 - [x] `bash tests/acceptance/docker-hnsd-integration.sh` 默认 no-live 模式验证 hnsd/Recursor/BIND DoT/DoH profile model；live hnsd 运行仍需显式 `ANYNS_RUN_DOCKER_HNSD_INTEGRATION=1`。
 - [x] `ANYNS_RUN_DOCKER_HNSD_INTEGRATION=1 bash tests/acceptance/docker-hnsd-integration.sh` 在服务器隔离 Docker 网络中验证 live hnsd -> anyNS Runtime `hns` 路由 -> PowerDNS Recursor -> BIND 明文 DNS/DoT/DoH 链路；新 hnsd 未同步时接受 `SERVFAIL`，并验证不使用 static HNS fixture。
