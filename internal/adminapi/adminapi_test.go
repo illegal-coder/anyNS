@@ -19,6 +19,7 @@ import (
 	"github.com/anyns/anyns/internal/config"
 	"github.com/anyns/anyns/internal/httpapi"
 	"github.com/anyns/anyns/internal/powerdns"
+	"golang.org/x/crypto/ocsp"
 )
 
 func TestCapabilitiesDescribeAvailabilityAndWritableState(t *testing.T) {
@@ -734,6 +735,149 @@ func TestPrivateCARootTrustHandoffRequiresReadScopeAndReturnsNoSecrets(t *testin
 	}
 }
 
+func TestPrivateCAOCSPRequiresReadScopeAndReportsRevocation(t *testing.T) {
+	cfg := config.Default()
+	cfg.Management.AuthRequired = true
+	cfg.Management.Keys = []config.ManagementKey{
+		{
+			ID:     "certificate-operator",
+			APIKey: "cert" + "-operator",
+			Scopes: []string{httpapi.ScopeCertificatesRead, httpapi.ScopeCertificatesWrite},
+		},
+		{
+			ID:     "overview-reader",
+			APIKey: "overview" + "-read",
+			Scopes: []string{httpapi.ScopeManagementRead},
+		},
+	}
+	cfg.Certificates.Enabled = true
+	cfg.Certificates.IssuerMode = "private-ca"
+	cfg.Certificates.StorageDir = t.TempDir()
+	cfg.Certificates.MaxAttempts = 1
+	cfg.Certificates.RequestTimeout = 5 * time.Second
+	application, err := app.NewFromConfig(cfg)
+	if err != nil {
+		t.Fatalf("new app: %v", err)
+	}
+	mux := http.NewServeMux()
+	Register(mux, application, &cfg)
+	const operatorBearer = "Bearer cert-operator"
+
+	create := httptest.NewRequest(http.MethodPost, "/api/v1/certificates/orders", strings.NewReader(`{"domains":["ocsp.example"],"idempotency_key":"private-ca-ocsp"}`))
+	create.Header.Set("Authorization", operatorBearer)
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, create)
+	if rec.Code != http.StatusAccepted {
+		t.Fatalf("order status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	var job struct {
+		ID string `json:"id"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &job); err != nil {
+		t.Fatalf("decode job: %v", err)
+	}
+	waitCertificateJobStatus(t, mux, job.ID, operatorBearer, certificates.StatusIssued)
+
+	certReq := httptest.NewRequest(http.MethodGet, "/api/v1/certificates/orders/"+job.ID+"/certificate", nil)
+	certReq.Header.Set("Authorization", operatorBearer)
+	rec = httptest.NewRecorder()
+	mux.ServeHTTP(rec, certReq)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("certificate status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	chain := testCertificateChain(t, rec.Body.Bytes())
+	if len(chain) != 2 {
+		t.Fatalf("chain length=%d", len(chain))
+	}
+
+	rec = httptest.NewRecorder()
+	mux.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/v1/certificates/orders/"+job.ID+"/ocsp", nil))
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("unauthenticated OCSP status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	wrongScope := httptest.NewRequest(http.MethodGet, "/api/v1/certificates/orders/"+job.ID+"/ocsp", nil)
+	wrongScope.Header.Set("Authorization", "Bearer overview-read")
+	rec = httptest.NewRecorder()
+	mux.ServeHTTP(rec, wrongScope)
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("wrong-scope OCSP status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	post := httptest.NewRequest(http.MethodPost, "/api/v1/certificates/orders/"+job.ID+"/ocsp", nil)
+	post.Header.Set("Authorization", operatorBearer)
+	rec = httptest.NewRecorder()
+	mux.ServeHTTP(rec, post)
+	if rec.Code != http.StatusMethodNotAllowed {
+		t.Fatalf("POST OCSP status=%d body=%s", rec.Code, rec.Body.String())
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/certificates/orders/"+job.ID+"/ocsp", nil)
+	req.Header.Set("Authorization", operatorBearer)
+	rec = httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("OCSP status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if got := rec.Header().Get("Content-Type"); got != "application/ocsp-response" {
+		t.Fatalf("OCSP content-type=%q", got)
+	}
+	if strings.Contains(rec.Body.String(), "PRIVATE "+"KEY") || strings.Contains(rec.Body.String(), "BEGIN "+"CERTIFICATE") {
+		t.Fatalf("OCSP leaked PEM/key material: %s", rec.Body.String())
+	}
+	good, err := ocsp.ParseResponseForCert(rec.Body.Bytes(), chain[0], chain[1])
+	if err != nil {
+		t.Fatalf("parse good OCSP: %v", err)
+	}
+	if good.Status != ocsp.Good || good.SerialNumber.Cmp(chain[0].SerialNumber) != 0 {
+		t.Fatalf("good OCSP response=%+v want serial=%s", good, chain[0].SerialNumber)
+	}
+
+	revoke := httptest.NewRequest(http.MethodPost, "/api/v1/certificates/orders/"+job.ID+"/revoke", nil)
+	revoke.Header.Set("Authorization", operatorBearer)
+	rec = httptest.NewRecorder()
+	mux.ServeHTTP(rec, revoke)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("revoke status=%d body=%s", rec.Code, rec.Body.String())
+	}
+
+	req = httptest.NewRequest(http.MethodHead, "/api/v1/certificates/orders/"+job.ID+"/ocsp", nil)
+	req.Header.Set("Authorization", operatorBearer)
+	rec = httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK || rec.Body.Len() != 0 {
+		t.Fatalf("OCSP HEAD status=%d body_len=%d body=%s", rec.Code, rec.Body.Len(), rec.Body.String())
+	}
+
+	req = httptest.NewRequest(http.MethodGet, "/api/v1/certificates/orders/"+job.ID+"/ocsp", nil)
+	req.Header.Set("Authorization", operatorBearer)
+	rec = httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("revoked OCSP status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	revoked, err := ocsp.ParseResponseForCert(rec.Body.Bytes(), chain[0], chain[1])
+	if err != nil {
+		t.Fatalf("parse revoked OCSP: %v", err)
+	}
+	if revoked.Status != ocsp.Revoked || revoked.RevokedAt.IsZero() {
+		t.Fatalf("revoked OCSP response=%+v", revoked)
+	}
+
+	capReq := httptest.NewRequest(http.MethodGet, "/api/v1/capabilities", nil)
+	capReq.Header.Set("Authorization", operatorBearer)
+	rec = httptest.NewRecorder()
+	mux.ServeHTTP(rec, capReq)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("capabilities status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	var capabilities CapabilitiesResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &capabilities); err != nil {
+		t.Fatalf("decode capabilities: %v", err)
+	}
+	if !containsString(capabilities.Features["certificates"].Endpoints, "GET /api/v1/certificates/orders/{id}/ocsp") {
+		t.Fatalf("OCSP endpoint missing from capabilities: %+v", capabilities.Features["certificates"].Endpoints)
+	}
+}
+
 func TestPrivateCACRLPublicationUsesConfiguredPublicPath(t *testing.T) {
 	cfg := config.Default()
 	cfg.Management.AuthRequired = true
@@ -908,6 +1052,35 @@ func stringSlicesEqual(left, right []string) bool {
 		}
 	}
 	return true
+}
+
+func waitCertificateJobStatus(t *testing.T, mux http.Handler, jobID, bearer, want string) {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	var lastStatus string
+	for time.Now().Before(deadline) {
+		req := httptest.NewRequest(http.MethodGet, "/api/v1/certificates/orders/"+jobID, nil)
+		if bearer != "" {
+			req.Header.Set("Authorization", bearer)
+		}
+		rec := httptest.NewRecorder()
+		mux.ServeHTTP(rec, req)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("job status request=%d body=%s", rec.Code, rec.Body.String())
+		}
+		var current struct {
+			Status string `json:"status"`
+		}
+		if err := json.Unmarshal(rec.Body.Bytes(), &current); err != nil {
+			t.Fatalf("decode job status: %v", err)
+		}
+		lastStatus = current.Status
+		if current.Status == want {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatalf("job %s status=%q, want %q", jobID, lastStatus, want)
 }
 
 func containsString(values []string, want string) bool {

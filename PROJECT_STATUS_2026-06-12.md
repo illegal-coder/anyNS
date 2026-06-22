@@ -62,6 +62,7 @@
 - [x] 增加 `GET /api/v1/certificates/private-ca/root/certificate`，显式下载当前活动私有根 CA 公开证书 PEM，要求 `certificates:read`，不返回根私钥、叶私钥或存储路径。
 - [x] 增加 `GET /api/v1/certificates/private-ca/root/trust`，返回私有根信任交接元数据、根证书/CRL URL、安装目标和操作员动作，明确不属于公开 WebPKI，且不返回 PEM、私钥或存储路径。
 - [x] 增加 `GET /api/v1/certificates/private-ca/crl`，返回当前活动根签名的 PEM CRL，仅包含已标记 revoked 且由当前根签发的叶证书 serial，不返回证书链 PEM 或私钥。
+- [x] 增加 `GET /api/v1/certificates/orders/{id}/ocsp`，为 private-ca 证书作业返回当前活动根签名的 DER OCSP 响应，issued 作业为 `good`、revoked 作业为 `revoked`，不返回 PEM、私钥或存储路径。
 - [x] 增加 `certificates.crl_distribution_url`，为新 private-ca 叶证书写入 CRL Distribution Point；配置校验要求 HTTP(S) URL，并在 Admin 服务上发布配置 URL 的非保留路径，但不分发客户端 trust store。
 - [x] Admin 服务支持在 `certificates.crl_distribution_url` 的非保留路径发布无需管理凭据的 PEM CRL；普通 `/api/v1/certificates/private-ca/crl` 仍要求 `certificates:read`，公开路径不返回证书链、私钥或存储路径。
 - [x] 新增隔离 HNS private-ca demo smoke，将 `example.hns` 单标签 TLD 创建、apex SOA/NS/glue、DNSKEY/DS/RRSIG、private-ca 叶证书、根证书显式下载、disposable HTTPS origin、TLSA 发布、吊销和公开 CRL 串成同一可重复验收路径。
@@ -86,6 +87,7 @@
 - [x] Private CA root rotation 回归测试覆盖新活动根指纹、旧备份标记 `stale`、根私钥 `0600`、issuer 重载后新叶证书由轮换根签发，以及管理审计不包含 PEM、路径或私钥。
 - [x] Private CA root certificate 回归测试覆盖显式根证书 PEM 下载要求 `certificates:read`、`HEAD` 无 body、只返回当前活动根 CA 证书且不包含私钥。
 - [x] Private CA CRL 回归测试覆盖 revoked 叶证书 serial、当前根 CRL 签名校验、Admin API PEM CRL 输出，以及响应不包含证书链 PEM 或私钥。
+- [x] Private CA OCSP 回归测试覆盖 issued/revoked 作业的 DER OCSP 响应、当前根签名解析、`certificates:read` 鉴权、`HEAD` 无 body、capability 暴露，以及响应不包含 PEM 或私钥。
 - [x] Private CA CRL Distribution Point 回归测试覆盖配置解析、HTTP(S) URL 校验，以及新签发叶证书包含配置的 CRL Distribution Point。
 - [x] Private CA 配置路径 CRL 发布回归测试覆盖管理鉴权开启时 `/api` CRL 仍需认证、公开路径 GET 返回 revoked serial、HEAD 无 body、API/健康检查保留路径不会被注册为公开 CRL。
 - [x] Private CA 并发签发回归测试覆盖多个同时提交的签发任务全部进入 issued 清单、有效期窗口存在、公开清单不泄露 idempotency key，并验证底层 issuer 最大并发为 1。

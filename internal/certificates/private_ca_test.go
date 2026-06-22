@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/anyns/anyns/internal/config"
+	"golang.org/x/crypto/ocsp"
 )
 
 func TestPrivateRootIssuerCreatesRootAndIssuesLeafChain(t *testing.T) {
@@ -411,6 +412,53 @@ func TestPrivateRootCRLIncludesRevokedLeaf(t *testing.T) {
 	leaf := certificateChain(t, output.CertificatePEM)[0]
 	if len(crl.TBSCertList.RevokedCertificates) != 1 || crl.TBSCertList.RevokedCertificates[0].SerialNumber.Cmp(leaf.SerialNumber) != 0 {
 		t.Fatalf("revoked certificates=%+v want serial=%s", crl.TBSCertList.RevokedCertificates, leaf.SerialNumber)
+	}
+}
+
+func TestPrivateRootOCSPResponseReportsGoodAndRevokedLeaf(t *testing.T) {
+	cfg := config.CertificatesConfig{StorageDir: t.TempDir()}
+	issuer, err := NewPrivateRootIssuer(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	output, err := issuer.Issue(context.Background(), []string{"ocsp.example"}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	chain := certificateChain(t, output.CertificatePEM)
+	if len(chain) != 2 {
+		t.Fatalf("chain length=%d", len(chain))
+	}
+	leaf := chain[0]
+	root := chain[1]
+	now := time.Now().UTC().Truncate(time.Second)
+
+	goodDER, err := PrivateRootOCSPResponse(cfg, output.CertificatePEM, false, nil, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bytes.Contains(goodDER, []byte("PRIVATE "+"KEY")) || bytes.Contains(goodDER, []byte("BEGIN "+"CERTIFICATE")) {
+		t.Fatalf("OCSP response leaked PEM/key material: %q", goodDER)
+	}
+	good, err := ocsp.ParseResponseForCert(goodDER, leaf, root)
+	if err != nil {
+		t.Fatalf("parse good OCSP: %v", err)
+	}
+	if good.Status != ocsp.Good || good.SerialNumber.Cmp(leaf.SerialNumber) != 0 || good.NextUpdate.Before(good.ThisUpdate) {
+		t.Fatalf("good OCSP response=%+v want serial=%s", good, leaf.SerialNumber)
+	}
+
+	revokedAt := now.Add(2 * time.Minute)
+	revokedDER, err := PrivateRootOCSPResponse(cfg, output.CertificatePEM, true, &revokedAt, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	revoked, err := ocsp.ParseResponseForCert(revokedDER, leaf, root)
+	if err != nil {
+		t.Fatalf("parse revoked OCSP: %v", err)
+	}
+	if revoked.Status != ocsp.Revoked || !revoked.RevokedAt.Equal(revokedAt) {
+		t.Fatalf("revoked OCSP response=%+v want revoked_at=%s", revoked, revokedAt)
 	}
 }
 

@@ -196,6 +196,7 @@ func (h *Handler) capabilities(w http.ResponseWriter, r *http.Request) {
 			"POST /api/v1/certificates/orders",
 			"GET /api/v1/certificates/orders/{id}",
 			"GET /api/v1/certificates/orders/{id}/certificate",
+			"GET /api/v1/certificates/orders/{id}/ocsp",
 			"POST /api/v1/certificates/orders/{id}/renew",
 			"POST /api/v1/certificates/orders/{id}/revoke",
 			"GET /api/v1/certificates/private-ca/crl",
@@ -379,6 +380,45 @@ func (h *Handler) certificateOrder(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/x-pem-file")
 		w.Header().Set("Cache-Control", "no-store")
 		_, _ = w.Write(body)
+	case "ocsp":
+		if r.Method != http.MethodGet && r.Method != http.MethodHead {
+			httpapi.Error(w, http.StatusMethodNotAllowed, "method not allowed")
+			return
+		}
+		if !httpapi.RequireScope(w, r, current, httpapi.ScopeCertificatesRead) {
+			return
+		}
+		if strings.TrimSpace(current.Certificates.IssuerMode) != "private-ca" {
+			httpapi.Error(w, http.StatusNotFound, "private CA OCSP is not configured")
+			return
+		}
+		job, ok := h.certificates.Get(jobID)
+		if !ok {
+			httpapi.Error(w, http.StatusNotFound, "certificate job not found")
+			return
+		}
+		if job.Status != certificates.StatusIssued && job.Status != certificates.StatusRevoked {
+			httpapi.Error(w, http.StatusNotFound, "certificate is not available")
+			return
+		}
+		body, err := h.certificates.CertificatePEM(jobID)
+		if err != nil {
+			httpapi.Error(w, http.StatusNotFound, err.Error())
+			return
+		}
+		response, err := certificates.PrivateRootOCSPResponse(current.Certificates, body, job.Status == certificates.StatusRevoked, job.RevokedAt, time.Now().UTC())
+		if err != nil {
+			httpapi.Error(w, http.StatusServiceUnavailable, err.Error())
+			return
+		}
+		w.Header().Set("Content-Type", "application/ocsp-response")
+		w.Header().Set("Cache-Control", "no-store")
+		w.Header().Set("X-Content-Type-Options", "nosniff")
+		w.WriteHeader(http.StatusOK)
+		if r.Method == http.MethodHead {
+			return
+		}
+		_, _ = w.Write(response)
 	case "renew":
 		if r.Method != http.MethodPost {
 			httpapi.Error(w, http.StatusMethodNotAllowed, "method not allowed")

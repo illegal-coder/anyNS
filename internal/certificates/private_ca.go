@@ -21,6 +21,7 @@ import (
 	"time"
 
 	"github.com/anyns/anyns/internal/config"
+	"golang.org/x/crypto/ocsp"
 )
 
 const (
@@ -278,6 +279,47 @@ func PrivateRootCRLPEM(cfg config.CertificatesConfig, revokedChains [][]byte, no
 		return nil, fmt.Errorf("create private root CRL: %w", err)
 	}
 	return pem.EncodeToMemory(&pem.Block{Type: "X509 CRL", Bytes: crlDER}), nil
+}
+
+func PrivateRootOCSPResponse(cfg config.CertificatesConfig, certificateChainPEM []byte, revoked bool, revokedAt *time.Time, now time.Time) ([]byte, error) {
+	rootDir := privateRootDir(cfg)
+	key, root, _, err := loadPrivateRoot(filepath.Join(rootDir, privateRootKeyFile), filepath.Join(rootDir, privateRootCertFile))
+	if err != nil {
+		return nil, err
+	}
+	certs, err := parseCertificateChainPEM(certificateChainPEM)
+	if err != nil {
+		return nil, err
+	}
+	if len(certs) == 0 {
+		return nil, errors.New("certificate chain is empty")
+	}
+	leaf := certs[0]
+	if err := leaf.CheckSignatureFrom(root); err != nil {
+		return nil, errors.New("certificate was not issued by current private CA root")
+	}
+	if now.IsZero() {
+		now = time.Now().UTC()
+	}
+	status := ocsp.Good
+	var revokedTime time.Time
+	if revoked {
+		status = ocsp.Revoked
+		if revokedAt != nil && !revokedAt.IsZero() {
+			revokedTime = revokedAt.UTC()
+		} else {
+			revokedTime = now
+		}
+	}
+	return ocsp.CreateResponse(root, root, ocsp.Response{
+		Status:           status,
+		SerialNumber:     leaf.SerialNumber,
+		ThisUpdate:       now.UTC(),
+		NextUpdate:       now.UTC().Add(7 * 24 * time.Hour),
+		RevokedAt:        revokedTime,
+		RevocationReason: ocsp.Unspecified,
+		IssuerHash:       crypto.SHA256,
+	}, key)
 }
 
 func (i *PrivateRootIssuer) Issue(ctx context.Context, domains []string, state func(string)) (IssueOutput, error) {
