@@ -382,6 +382,50 @@ func TestParseDNSResponseFiltersUnrelatedAnswerNames(t *testing.T) {
 	}
 }
 
+func TestParseDNSResponseSkipsNameRDATAThatExceedsRDLength(t *testing.T) {
+	var buf bytes.Buffer
+	_ = binary.Write(&buf, binary.BigEndian, uint16(0x1234))
+	_ = binary.Write(&buf, binary.BigEndian, uint16(0x8180))
+	_ = binary.Write(&buf, binary.BigEndian, uint16(1))
+	_ = binary.Write(&buf, binary.BigEndian, uint16(2))
+	_ = binary.Write(&buf, binary.BigEndian, uint16(0))
+	_ = binary.Write(&buf, binary.BigEndian, uint16(0))
+	if err := writeDNSName(&buf, "example.hns."); err != nil {
+		t.Fatalf("write question: %v", err)
+	}
+	_ = binary.Write(&buf, binary.BigEndian, uint16(1))
+	_ = binary.Write(&buf, binary.BigEndian, uint16(1))
+
+	if err := writeDNSName(&buf, "example.hns."); err != nil {
+		t.Fatalf("write cname owner: %v", err)
+	}
+	_ = binary.Write(&buf, binary.BigEndian, uint16(5))
+	_ = binary.Write(&buf, binary.BigEndian, uint16(1))
+	_ = binary.Write(&buf, binary.BigEndian, uint32(30))
+	_ = binary.Write(&buf, binary.BigEndian, uint16(2))
+	buf.Write([]byte{1, 'x'})
+
+	if err := writeDNSName(&buf, "example.hns."); err != nil {
+		t.Fatalf("write a owner: %v", err)
+	}
+	_ = binary.Write(&buf, binary.BigEndian, uint16(1))
+	_ = binary.Write(&buf, binary.BigEndian, uint16(1))
+	_ = binary.Write(&buf, binary.BigEndian, uint32(120))
+	_ = binary.Write(&buf, binary.BigEndian, uint16(4))
+	buf.Write([]byte{198, 51, 100, 10})
+
+	result, err := parseDNSResponse(buf.Bytes(), 0x1234, "example.hns.", time.Now())
+	if err != nil {
+		t.Fatalf("parse dns response: %v", err)
+	}
+	if len(result.RRSet) != 1 {
+		t.Fatalf("rrset = %#v, want malformed CNAME skipped", result.RRSet)
+	}
+	if result.RRSet[0].Type != "A" || result.RRSet[0].Value != "198.51.100.10" {
+		t.Fatalf("rrset = %#v", result.RRSet)
+	}
+}
+
 func TestBuildDNSQueryRejectsOverlongQName(t *testing.T) {
 	label := strings.Repeat("a", 63)
 	overlongName := strings.Join([]string{label, label, label, label}, ".") + "."

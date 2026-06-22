@@ -87,6 +87,7 @@
 - [x] HNS DNS backend 现在在 query 编码和响应解析边界拒绝超过 DNS 255-octet wire-name 上限的名称，并用回归测试覆盖 compression pointer loop、out-of-range pointer、short pointer 和 unsupported label encoding。
 - [x] HNS DNS backend 响应解析现在拒绝非 response packet 与 echo question name mismatch，并过滤 answer section 中与查询名无关的 RR，防止异常 backend 响应污染 HNS 解析结果。
 - [x] HNS DNS backend 响应解析现在要求 backend echo 精确 1 个 IN-class question，拒绝 zero/multiple question count 和非 IN question class。
+- [x] HNS DNS backend 现在约束 NS/CNAME、MX 和 SRV name RDATA 解码不得越过 RDLEN，防止 malformed RDATA 借后续 RR 字节被错误接受。
 
 ## 测试与验收
 
@@ -127,6 +128,7 @@
 - [x] HNS DNS backend malformed wire-name 回归测试覆盖 outbound overlong QNAME、response compression pointer loop/out-of-range/short pointer、unsupported label encoding 和 expanded-name 255-octet 上限：`go test -buildvcs=false ./internal/plugins/hns -run 'TestBuildDNSQueryRejectsOverlongQName|TestParseDNSResponseRejectsMalformedCompressedNames|TestParseDNSResponseRejectsOverlongExpandedName'`。
 - [x] HNS DNS backend response-boundary 回归测试覆盖非 response packet、echo question name mismatch 和 unrelated answer filtering：`go test -buildvcs=false ./internal/plugins/hns -run 'TestParseDNSResponseRejectsNonResponseAndQuestionMismatch|TestParseDNSResponseFiltersUnrelatedAnswerNames'`。
 - [x] HNS DNS backend question-boundary 回归测试覆盖 zero/multiple echoed questions 和非 IN question class：`go test -buildvcs=false ./internal/plugins/hns -run 'TestParseDNSResponseRejectsQuestionCountAndClassMismatch'`。
+- [x] HNS DNS backend answer/RDATA 回归测试覆盖 name RDATA 解码不得越过 RDLEN 并错误吞入后续 RR 字节：`go test -buildvcs=false ./internal/plugins/hns -run 'TestParseDNSResponseSkipsNameRDATAThatExceedsRDLength'`。
 - [x] `bash tests/acceptance/docker-soa-tld.sh` 现扩展验证 `example.` 单标签 TLD 经 BIND 明文 DNS、DoT 和 DoH 的 SOA 响应，且错误 DoT 证书主机名会被拒绝。
 - [x] `bash tests/acceptance/docker-hnsd-integration.sh` 默认 no-live 模式验证 hnsd/Recursor/BIND DoT/DoH profile model；live hnsd 运行仍需显式 `ANYNS_RUN_DOCKER_HNSD_INTEGRATION=1`。
 - [x] `ANYNS_RUN_DOCKER_HNSD_INTEGRATION=1 bash tests/acceptance/docker-hnsd-integration.sh` 在服务器隔离 Docker 网络中验证 live hnsd -> anyNS Runtime `hns` 路由 -> PowerDNS Recursor -> BIND 明文 DNS/DoT/DoH 链路；新 hnsd 未同步时接受 `SERVFAIL`，并验证不使用 static HNS fixture。

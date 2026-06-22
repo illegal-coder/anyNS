@@ -455,6 +455,7 @@ func parseDNSResponse(packet []byte, wantID uint16, qname string, started time.T
 }
 
 func formatRDATA(packet []byte, offset int, rdata []byte, typ uint16) (string, bool) {
+	rdataEnd := offset + len(rdata)
 	switch typ {
 	case 1:
 		if len(rdata) != net.IPv4len {
@@ -467,15 +468,18 @@ func formatRDATA(packet []byte, offset int, rdata []byte, typ uint16) (string, b
 		}
 		return net.IP(rdata).String(), true
 	case 2, 5:
-		name, _, err := readDNSName(packet, offset)
-		return plugins.NormalizeQName(name), err == nil
+		name, next, err := readDNSName(packet, offset)
+		if err != nil || next > rdataEnd {
+			return "", false
+		}
+		return plugins.NormalizeQName(name), true
 	case 15:
 		if len(rdata) < 3 {
 			return "", false
 		}
 		pref := binary.BigEndian.Uint16(rdata[:2])
-		name, _, err := readDNSName(packet, offset+2)
-		if err != nil {
+		name, next, err := readDNSName(packet, offset+2)
+		if err != nil || next > rdataEnd {
 			return "", false
 		}
 		return fmt.Sprintf("%d %s", pref, plugins.NormalizeQName(name)), true
@@ -498,8 +502,8 @@ func formatRDATA(packet []byte, offset int, rdata []byte, typ uint16) (string, b
 		priority := binary.BigEndian.Uint16(rdata[0:2])
 		weight := binary.BigEndian.Uint16(rdata[2:4])
 		port := binary.BigEndian.Uint16(rdata[4:6])
-		target, _, err := readDNSName(packet, offset+6)
-		if err != nil {
+		target, next, err := readDNSName(packet, offset+6)
+		if err != nil || next > rdataEnd {
 			return "", false
 		}
 		return fmt.Sprintf("%d %d %d %s", priority, weight, port, plugins.NormalizeQName(target)), true
