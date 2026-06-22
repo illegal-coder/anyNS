@@ -364,6 +364,9 @@ func parseDNSResponse(packet []byte, wantID uint16, qname string, started time.T
 	rcode := flags & 0x000f
 	qdcount := int(binary.BigEndian.Uint16(packet[4:6]))
 	ancount := int(binary.BigEndian.Uint16(packet[6:8]))
+	if qdcount != 1 {
+		return plugins.ResolveResult{}, errors.New("DNS response question count mismatch")
+	}
 	offset := 12
 	normalizedQName := ""
 	if qname != "" {
@@ -381,6 +384,10 @@ func parseDNSResponse(packet []byte, wantID uint16, qname string, started time.T
 		}
 		if normalizedQName != "" && plugins.NormalizeQName(questionName) != normalizedQName {
 			return plugins.ResolveResult{}, errors.New("DNS question name mismatch")
+		}
+		qclass := binary.BigEndian.Uint16(packet[offset+2 : offset+4])
+		if qclass != 1 {
+			return plugins.ResolveResult{}, errors.New("DNS question class mismatch")
 		}
 		offset += 4
 	}

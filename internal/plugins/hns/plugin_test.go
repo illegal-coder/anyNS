@@ -327,6 +327,41 @@ func TestParseDNSResponseRejectsNonResponseAndQuestionMismatch(t *testing.T) {
 	})
 }
 
+func TestParseDNSResponseRejectsQuestionCountAndClassMismatch(t *testing.T) {
+	t.Run("zero questions", func(t *testing.T) {
+		packet := dnsResponsePacket(t, 0x1234, "example.hns.", []dnsAnswer{
+			{name: "example.hns.", typ: 1, ttl: 120, rdata: []byte{198, 51, 100, 10}},
+		})
+		binary.BigEndian.PutUint16(packet[4:6], 0)
+		_, err := parseDNSResponse(packet, 0x1234, "example.hns.", time.Now())
+		if err == nil || !strings.Contains(err.Error(), "DNS response question count mismatch") {
+			t.Fatalf("parse err = %v, want question count mismatch", err)
+		}
+	})
+
+	t.Run("multiple questions", func(t *testing.T) {
+		packet := dnsResponsePacket(t, 0x1234, "example.hns.", nil)
+		binary.BigEndian.PutUint16(packet[4:6], 2)
+		_, err := parseDNSResponse(packet, 0x1234, "example.hns.", time.Now())
+		if err == nil || !strings.Contains(err.Error(), "DNS response question count mismatch") {
+			t.Fatalf("parse err = %v, want question count mismatch", err)
+		}
+	})
+
+	t.Run("question class mismatch", func(t *testing.T) {
+		packet := dnsResponsePacket(t, 0x1234, "example.hns.", nil)
+		_, questionEnd, err := readDNSName(packet, 12)
+		if err != nil {
+			t.Fatalf("read question: %v", err)
+		}
+		binary.BigEndian.PutUint16(packet[questionEnd+2:questionEnd+4], 3)
+		_, err = parseDNSResponse(packet, 0x1234, "example.hns.", time.Now())
+		if err == nil || !strings.Contains(err.Error(), "DNS question class mismatch") {
+			t.Fatalf("parse err = %v, want question class mismatch", err)
+		}
+	})
+}
+
 func TestParseDNSResponseFiltersUnrelatedAnswerNames(t *testing.T) {
 	packet := dnsResponsePacket(t, 0x1234, "example.hns.", []dnsAnswer{
 		{name: "example.hns.", typ: 1, ttl: 120, rdata: []byte{198, 51, 100, 10}},
@@ -420,10 +455,15 @@ func TestParseDNSResponseRejectsOverlongExpandedName(t *testing.T) {
 	var buf bytes.Buffer
 	_ = binary.Write(&buf, binary.BigEndian, uint16(0x1234))
 	_ = binary.Write(&buf, binary.BigEndian, uint16(0x8180))
-	_ = binary.Write(&buf, binary.BigEndian, uint16(0))
+	_ = binary.Write(&buf, binary.BigEndian, uint16(1))
 	_ = binary.Write(&buf, binary.BigEndian, uint16(1))
 	_ = binary.Write(&buf, binary.BigEndian, uint16(0))
 	_ = binary.Write(&buf, binary.BigEndian, uint16(0))
+	if err := writeDNSName(&buf, "example.hns."); err != nil {
+		t.Fatalf("write question: %v", err)
+	}
+	_ = binary.Write(&buf, binary.BigEndian, uint16(1))
+	_ = binary.Write(&buf, binary.BigEndian, uint16(1))
 	for i := 0; i < 4; i++ {
 		buf.WriteByte(63)
 		buf.WriteString(strings.Repeat("a", 63))
