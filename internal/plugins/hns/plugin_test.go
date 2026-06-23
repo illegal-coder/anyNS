@@ -273,7 +273,7 @@ func TestParseDNSResponseMapsHNSDNSAnswers(t *testing.T) {
 		{name: "example.hns.", typ: 1, ttl: 120, rdata: []byte{198, 51, 100, 10}},
 		{name: "example.hns.", typ: 16, ttl: 180, rdata: append([]byte{11}, []byte("hello-world")...)},
 	})
-	result, err := parseDNSResponse(packet, 0x1234, "example.hns.", time.Now())
+	result, err := parseDNSResponse(packet, 0x1234, "example.hns.", 1, time.Now())
 	if err != nil {
 		t.Fatalf("parse dns response: %v", err)
 	}
@@ -294,7 +294,7 @@ func TestParseDNSResponseMapsHNSDNSAnswers(t *testing.T) {
 func TestParseDNSResponseMapsNXDomain(t *testing.T) {
 	packet := dnsResponsePacket(t, 0x1234, "missing.hns.", nil)
 	packet[3] = packet[3] | 3
-	result, err := parseDNSResponse(packet, 0x1234, "missing.hns.", time.Now())
+	result, err := parseDNSResponse(packet, 0x1234, "missing.hns.", 1, time.Now())
 	if err != nil {
 		t.Fatalf("parse nxdomain: %v", err)
 	}
@@ -310,7 +310,7 @@ func TestParseDNSResponseRejectsNonResponseAndQuestionMismatch(t *testing.T) {
 	t.Run("non-response packet", func(t *testing.T) {
 		packet := dnsResponsePacket(t, 0x1234, "example.hns.", nil)
 		packet[2] &^= 0x80
-		_, err := parseDNSResponse(packet, 0x1234, "example.hns.", time.Now())
+		_, err := parseDNSResponse(packet, 0x1234, "example.hns.", 1, time.Now())
 		if err == nil || !strings.Contains(err.Error(), "DNS packet is not a response") {
 			t.Fatalf("parse err = %v, want non-response error", err)
 		}
@@ -320,7 +320,7 @@ func TestParseDNSResponseRejectsNonResponseAndQuestionMismatch(t *testing.T) {
 		packet := dnsResponsePacket(t, 0x1234, "evil.hns.", []dnsAnswer{
 			{name: "example.hns.", typ: 1, ttl: 120, rdata: []byte{198, 51, 100, 10}},
 		})
-		_, err := parseDNSResponse(packet, 0x1234, "example.hns.", time.Now())
+		_, err := parseDNSResponse(packet, 0x1234, "example.hns.", 1, time.Now())
 		if err == nil || !strings.Contains(err.Error(), "DNS question name mismatch") {
 			t.Fatalf("parse err = %v, want question mismatch error", err)
 		}
@@ -333,7 +333,7 @@ func TestParseDNSResponseRejectsQuestionCountAndClassMismatch(t *testing.T) {
 			{name: "example.hns.", typ: 1, ttl: 120, rdata: []byte{198, 51, 100, 10}},
 		})
 		binary.BigEndian.PutUint16(packet[4:6], 0)
-		_, err := parseDNSResponse(packet, 0x1234, "example.hns.", time.Now())
+		_, err := parseDNSResponse(packet, 0x1234, "example.hns.", 1, time.Now())
 		if err == nil || !strings.Contains(err.Error(), "DNS response question count mismatch") {
 			t.Fatalf("parse err = %v, want question count mismatch", err)
 		}
@@ -342,7 +342,7 @@ func TestParseDNSResponseRejectsQuestionCountAndClassMismatch(t *testing.T) {
 	t.Run("multiple questions", func(t *testing.T) {
 		packet := dnsResponsePacket(t, 0x1234, "example.hns.", nil)
 		binary.BigEndian.PutUint16(packet[4:6], 2)
-		_, err := parseDNSResponse(packet, 0x1234, "example.hns.", time.Now())
+		_, err := parseDNSResponse(packet, 0x1234, "example.hns.", 1, time.Now())
 		if err == nil || !strings.Contains(err.Error(), "DNS response question count mismatch") {
 			t.Fatalf("parse err = %v, want question count mismatch", err)
 		}
@@ -355,9 +355,22 @@ func TestParseDNSResponseRejectsQuestionCountAndClassMismatch(t *testing.T) {
 			t.Fatalf("read question: %v", err)
 		}
 		binary.BigEndian.PutUint16(packet[questionEnd+2:questionEnd+4], 3)
-		_, err = parseDNSResponse(packet, 0x1234, "example.hns.", time.Now())
+		_, err = parseDNSResponse(packet, 0x1234, "example.hns.", 1, time.Now())
 		if err == nil || !strings.Contains(err.Error(), "DNS question class mismatch") {
 			t.Fatalf("parse err = %v, want question class mismatch", err)
+		}
+	})
+
+	t.Run("question type mismatch", func(t *testing.T) {
+		packet := dnsResponsePacket(t, 0x1234, "example.hns.", nil)
+		_, questionEnd, err := readDNSName(packet, 12)
+		if err != nil {
+			t.Fatalf("read question: %v", err)
+		}
+		binary.BigEndian.PutUint16(packet[questionEnd:questionEnd+2], 28)
+		_, err = parseDNSResponse(packet, 0x1234, "example.hns.", 1, time.Now())
+		if err == nil || !strings.Contains(err.Error(), "DNS question type mismatch") {
+			t.Fatalf("parse err = %v, want question type mismatch", err)
 		}
 	})
 }
@@ -367,7 +380,7 @@ func TestParseDNSResponseFiltersUnrelatedAnswerNames(t *testing.T) {
 		{name: "example.hns.", typ: 1, ttl: 120, rdata: []byte{198, 51, 100, 10}},
 		{name: "evil.hns.", typ: 1, ttl: 30, rdata: []byte{203, 0, 113, 66}},
 	})
-	result, err := parseDNSResponse(packet, 0x1234, "example.hns.", time.Now())
+	result, err := parseDNSResponse(packet, 0x1234, "example.hns.", 1, time.Now())
 	if err != nil {
 		t.Fatalf("parse dns response: %v", err)
 	}
@@ -414,7 +427,7 @@ func TestParseDNSResponseSkipsNameRDATAThatExceedsRDLength(t *testing.T) {
 	_ = binary.Write(&buf, binary.BigEndian, uint16(4))
 	buf.Write([]byte{198, 51, 100, 10})
 
-	result, err := parseDNSResponse(buf.Bytes(), 0x1234, "example.hns.", time.Now())
+	result, err := parseDNSResponse(buf.Bytes(), 0x1234, "example.hns.", 1, time.Now())
 	if err != nil {
 		t.Fatalf("parse dns response: %v", err)
 	}
@@ -487,7 +500,7 @@ func TestParseDNSResponseRejectsMalformedCompressedNames(t *testing.T) {
 			}
 			answerOffset := questionEnd + 4
 			packet = tc.mutate(packet, answerOffset)
-			_, err = parseDNSResponse(packet, 0x1234, "example.hns.", time.Now())
+			_, err = parseDNSResponse(packet, 0x1234, "example.hns.", 1, time.Now())
 			if err == nil || !strings.Contains(err.Error(), tc.wantErr) {
 				t.Fatalf("parse err = %v, want %q", err, tc.wantErr)
 			}
@@ -519,7 +532,7 @@ func TestParseDNSResponseRejectsOverlongExpandedName(t *testing.T) {
 	_ = binary.Write(&buf, binary.BigEndian, uint16(4))
 	buf.Write([]byte{198, 51, 100, 10})
 
-	_, err := parseDNSResponse(buf.Bytes(), 0x1234, "example.hns.", time.Now())
+	_, err := parseDNSResponse(buf.Bytes(), 0x1234, "example.hns.", 1, time.Now())
 	if err == nil || !strings.Contains(err.Error(), "DNS name too long") {
 		t.Fatalf("parse overlong name err = %v, want DNS name too long", err)
 	}

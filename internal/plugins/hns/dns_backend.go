@@ -96,7 +96,7 @@ func (p *Plugin) resolveDNSBackend(ctx context.Context, req plugins.ResolveReque
 	if err != nil {
 		return serviceFailure("dns_backend_exchange_failed", started), err
 	}
-	result, err := parseDNSResponse(response, id, queryName, started)
+	result, err := parseDNSResponse(response, id, queryName, qcode, started)
 	if err != nil {
 		return serviceFailure("dns_backend_decode_failed", started), err
 	}
@@ -350,7 +350,7 @@ func writeDNSName(buf *bytes.Buffer, qname string) error {
 	return nil
 }
 
-func parseDNSResponse(packet []byte, wantID uint16, qname string, started time.Time) (plugins.ResolveResult, error) {
+func parseDNSResponse(packet []byte, wantID uint16, qname string, qtype uint16, started time.Time) (plugins.ResolveResult, error) {
 	if len(packet) < 12 {
 		return plugins.ResolveResult{}, errors.New("short DNS response")
 	}
@@ -384,6 +384,10 @@ func parseDNSResponse(packet []byte, wantID uint16, qname string, started time.T
 		}
 		if normalizedQName != "" && plugins.NormalizeQName(questionName) != normalizedQName {
 			return plugins.ResolveResult{}, errors.New("DNS question name mismatch")
+		}
+		questionType := binary.BigEndian.Uint16(packet[offset : offset+2])
+		if qtype != 0 && questionType != qtype {
+			return plugins.ResolveResult{}, errors.New("DNS question type mismatch")
 		}
 		qclass := binary.BigEndian.Uint16(packet[offset+2 : offset+4])
 		if qclass != 1 {
