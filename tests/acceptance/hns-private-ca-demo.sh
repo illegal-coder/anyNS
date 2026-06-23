@@ -186,6 +186,7 @@ tools '
   openssl x509 -in /tmp/hns-demo-leaf.pem -noout -ext extendedKeyUsage | grep -q "TLS Web Server Authentication"
   openssl x509 -in /tmp/hns-demo-leaf.pem -noout -text | grep -q "URI:http://anyns-admin-api:8080/private-ca.crl"
   openssl verify -CAfile /tmp/hns-demo-root-from-chain.pem /tmp/hns-demo-leaf.pem
+  openssl x509 -in /tmp/hns-demo-leaf.pem -noout -fingerprint -sha256 >/tmp/hns-demo-fingerprint-before.txt
 
   curl -fsS http://anyns-admin-api:8080/api/v1/certificates/private-ca/root/certificate >/tmp/hns-demo-root-download.pem
   cmp /tmp/hns-demo-root-from-chain.pem /tmp/hns-demo-root-download.pem
@@ -256,6 +257,77 @@ tools '
   grep -Eq "^3 1 1 [0-9A-Fa-f]{64}$" /tmp/hns-demo-tlsa-answer.txt
 '
 
+echo "phase:inventory-and-renew"
+tools '
+  curl -fsS http://anyns-admin-api:8080/api/v1/certificates/orders >/tmp/hns-demo-orders.json
+'
+ORDERS_JSON="$("${COMPOSE[@]}" exec -T dns-tools cat /tmp/hns-demo-orders.json)" python3 - "$JOB_ID" <<'PY'
+import json
+import os
+import sys
+
+job_id = sys.argv[1]
+jobs = json.loads(os.environ["ORDERS_JSON"])
+matches = [job for job in jobs if job["id"] == job_id]
+if len(matches) != 1:
+    raise SystemExit(f"expected one inventory match for {job_id}, got {len(matches)}")
+job = matches[0]
+if job["status"] != "issued" or not job.get("not_before") or not job.get("not_after"):
+    raise SystemExit(f"unexpected issued inventory job: {job}")
+if "idempotency_key" in job:
+    raise SystemExit("inventory leaked idempotency_key")
+PY
+tools '
+  curl -fsS -X POST http://anyns-admin-api:8080/api/v1/certificates/orders/'"$JOB_ID"'/renew \
+    -H "Content-Type: application/json" \
+    --data "{\"idempotency_key\":\"hns-demo-private-ca-renew-1\",\"force\":true}" \
+    >/tmp/hns-demo-renew.json
+'
+RENEW_ID="$("${COMPOSE[@]}" exec -T dns-tools cat /tmp/hns-demo-renew.json | python3 -c '
+import json
+import sys
+
+original = sys.argv[1]
+job = json.load(sys.stdin)
+if job.get("renewal_of") != original:
+    raise SystemExit(f"renewal response missing renewal_of: {job}")
+print(job["id"])
+' "$JOB_ID")"
+poll_job "$RENEW_ID" issued
+tools '
+  curl -fsS http://anyns-admin-api:8080/api/v1/certificates/orders/'"$RENEW_ID"'/certificate >/tmp/hns-demo-renewed-chain.pem
+  if grep -q -- "-----BEGIN PRIVATE KEY-----" /tmp/hns-demo-renewed-chain.pem; then
+    echo "renewed certificate chain exposed private key material"
+    exit 1
+  fi
+  awk '"'"'
+    /-----BEGIN CERTIFICATE-----/ { n++ }
+    n == 1 { print > "/tmp/hns-demo-renewed-leaf.pem" }
+    n == 2 { print > "/tmp/hns-demo-renewed-root.pem" }
+  '"'"' /tmp/hns-demo-renewed-chain.pem
+  openssl verify -CAfile /tmp/hns-demo-renewed-root.pem /tmp/hns-demo-renewed-leaf.pem
+  openssl x509 -in /tmp/hns-demo-renewed-leaf.pem -noout -fingerprint -sha256 >/tmp/hns-demo-fingerprint-renewed.txt
+  if cmp -s /tmp/hns-demo-fingerprint-before.txt /tmp/hns-demo-fingerprint-renewed.txt; then
+    echo "renewed HNS private CA certificate reused the original certificate fingerprint"
+    exit 1
+  fi
+  curl -fsS http://anyns-admin-api:8080/api/v1/certificates/orders >/tmp/hns-demo-orders.json
+'
+ORDERS_JSON="$("${COMPOSE[@]}" exec -T dns-tools cat /tmp/hns-demo-orders.json)" python3 - "$JOB_ID" "$RENEW_ID" <<'PY'
+import json
+import os
+import sys
+
+original, renewed = sys.argv[1:3]
+jobs = {job["id"]: job for job in json.loads(os.environ["ORDERS_JSON"])}
+if jobs[original]["status"] != "issued":
+    raise SystemExit(f"original job is not still issued before revoke: {jobs[original]}")
+if jobs[renewed]["status"] != "issued" or jobs[renewed].get("renewal_of") != original:
+    raise SystemExit(f"renewed job missing issued renewal linkage: {jobs[renewed]}")
+if any("idempotency_key" in job for job in jobs.values()):
+    raise SystemExit("inventory leaked idempotency_key")
+PY
+
 echo "phase:revoke-and-crl"
 tools '
   serial=$(openssl x509 -in /tmp/hns-demo-leaf.pem -noout -serial | cut -d= -f2 | sed "s/^0*//")
@@ -283,4 +355,4 @@ tools '
   fi
 '
 
-echo "HNS private CA demo smoke passed: single-label TLD, SOA/NS/glue, DNSKEY/DS, private CA cert, HTTPS demo, root download, TLSA publish, OCSP, CRL reachability"
+echo "HNS private CA demo smoke passed: single-label TLD, SOA/NS/glue, DNSKEY/DS, private CA issue/inventory/renew/revoke, HTTPS demo, root download, TLSA publish, OCSP, CRL reachability"

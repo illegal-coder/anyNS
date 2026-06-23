@@ -38,6 +38,7 @@ jobs:
           go build -buildvcs=false -trimpath -o artifacts/anyns-log-forwarder ./cmd/anyns-log-forwarder
           go build -buildvcs=false -trimpath -o artifacts/anyns-config-check ./cmd/anyns-config-check
           go build -buildvcs=false -trimpath -o artifacts/anyns-management-key ./cmd/anyns-management-key
+          go build -buildvcs=false -trimpath -o artifacts/anyns-source-policy ./cmd/anyns-source-policy
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: anyns-linux-amd64
