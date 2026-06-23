@@ -439,6 +439,72 @@ func TestParseDNSResponseSkipsNameRDATAThatExceedsRDLength(t *testing.T) {
 	}
 }
 
+func TestParseDNSResponseValidatesAuthorityAndAdditionalSections(t *testing.T) {
+	t.Run("valid additional ignored", func(t *testing.T) {
+		packet := dnsResponsePacket(t, 0x1234, "example.hns.", []dnsAnswer{
+			{name: "example.hns.", typ: 1, ttl: 120, rdata: []byte{198, 51, 100, 10}},
+		})
+		binary.BigEndian.PutUint16(packet[10:12], 1)
+		var buf bytes.Buffer
+		buf.Write(packet)
+		if err := writeDNSName(&buf, "ns.example.hns."); err != nil {
+			t.Fatalf("write additional owner: %v", err)
+		}
+		_ = binary.Write(&buf, binary.BigEndian, uint16(1))
+		_ = binary.Write(&buf, binary.BigEndian, uint16(1))
+		_ = binary.Write(&buf, binary.BigEndian, uint32(60))
+		_ = binary.Write(&buf, binary.BigEndian, uint16(4))
+		buf.Write([]byte{203, 0, 113, 53})
+
+		result, err := parseDNSResponse(buf.Bytes(), 0x1234, "example.hns.", 1, time.Now())
+		if err != nil {
+			t.Fatalf("parse dns response: %v", err)
+		}
+		if len(result.RRSet) != 1 || result.RRSet[0].Value != "198.51.100.10" {
+			t.Fatalf("rrset = %#v", result.RRSet)
+		}
+	})
+
+	t.Run("short additional header", func(t *testing.T) {
+		packet := dnsResponsePacket(t, 0x1234, "example.hns.", []dnsAnswer{
+			{name: "example.hns.", typ: 1, ttl: 120, rdata: []byte{198, 51, 100, 10}},
+		})
+		binary.BigEndian.PutUint16(packet[10:12], 1)
+		var buf bytes.Buffer
+		buf.Write(packet)
+		if err := writeDNSName(&buf, "ns.example.hns."); err != nil {
+			t.Fatalf("write additional owner: %v", err)
+		}
+
+		_, err := parseDNSResponse(buf.Bytes(), 0x1234, "example.hns.", 1, time.Now())
+		if err == nil || !strings.Contains(err.Error(), "short DNS RR header") {
+			t.Fatalf("parse err = %v, want short DNS RR header", err)
+		}
+	})
+
+	t.Run("short authority rdata", func(t *testing.T) {
+		packet := dnsResponsePacket(t, 0x1234, "example.hns.", []dnsAnswer{
+			{name: "example.hns.", typ: 1, ttl: 120, rdata: []byte{198, 51, 100, 10}},
+		})
+		binary.BigEndian.PutUint16(packet[8:10], 1)
+		var buf bytes.Buffer
+		buf.Write(packet)
+		if err := writeDNSName(&buf, "ns.example.hns."); err != nil {
+			t.Fatalf("write authority owner: %v", err)
+		}
+		_ = binary.Write(&buf, binary.BigEndian, uint16(1))
+		_ = binary.Write(&buf, binary.BigEndian, uint16(1))
+		_ = binary.Write(&buf, binary.BigEndian, uint32(60))
+		_ = binary.Write(&buf, binary.BigEndian, uint16(4))
+		buf.Write([]byte{203, 0})
+
+		_, err := parseDNSResponse(buf.Bytes(), 0x1234, "example.hns.", 1, time.Now())
+		if err == nil || !strings.Contains(err.Error(), "short DNS RDATA") {
+			t.Fatalf("parse err = %v, want short DNS RDATA", err)
+		}
+	})
+}
+
 func TestBuildDNSQueryRejectsOverlongQName(t *testing.T) {
 	label := strings.Repeat("a", 63)
 	overlongName := strings.Join([]string{label, label, label, label}, ".") + "."

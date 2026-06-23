@@ -364,6 +364,8 @@ func parseDNSResponse(packet []byte, wantID uint16, qname string, qtype uint16, 
 	rcode := flags & 0x000f
 	qdcount := int(binary.BigEndian.Uint16(packet[4:6]))
 	ancount := int(binary.BigEndian.Uint16(packet[6:8]))
+	nscount := int(binary.BigEndian.Uint16(packet[8:10]))
+	arcount := int(binary.BigEndian.Uint16(packet[10:12]))
 	if qdcount != 1 {
 		return plugins.ResolveResult{}, errors.New("DNS response question count mismatch")
 	}
@@ -445,6 +447,12 @@ func parseDNSResponse(packet []byte, wantID uint16, qname string, qtype uint16, 
 			ttl = rrTTL
 		}
 	}
+	for i := 0; i < nscount+arcount; i++ {
+		offset, err = skipDNSRR(packet, offset)
+		if err != nil {
+			return plugins.ResolveResult{}, err
+		}
+	}
 	if ttl == 0 {
 		ttl = 60
 	}
@@ -456,6 +464,22 @@ func parseDNSResponse(packet []byte, wantID uint16, qname string, qtype uint16, 
 		res.RawRecord["query_name"] = normalizedQName
 	}
 	return res, nil
+}
+
+func skipDNSRR(packet []byte, offset int) (int, error) {
+	_, offset, err := readDNSName(packet, offset)
+	if err != nil {
+		return 0, err
+	}
+	if offset+10 > len(packet) {
+		return 0, errors.New("short DNS RR header")
+	}
+	rdlen := int(binary.BigEndian.Uint16(packet[offset+8 : offset+10]))
+	offset += 10
+	if offset+rdlen > len(packet) {
+		return 0, errors.New("short DNS RDATA")
+	}
+	return offset + rdlen, nil
 }
 
 func formatRDATA(packet []byte, offset int, rdata []byte, typ uint16) (string, bool) {
