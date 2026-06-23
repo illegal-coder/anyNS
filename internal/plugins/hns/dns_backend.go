@@ -453,6 +453,9 @@ func parseDNSResponse(packet []byte, wantID uint16, qname string, qtype uint16, 
 			return plugins.ResolveResult{}, err
 		}
 	}
+	if offset != len(packet) {
+		return plugins.ResolveResult{}, errors.New("extra DNS response data")
+	}
 	if ttl == 0 {
 		ttl = 60
 	}

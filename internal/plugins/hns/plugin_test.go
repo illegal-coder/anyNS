@@ -505,6 +505,18 @@ func TestParseDNSResponseValidatesAuthorityAndAdditionalSections(t *testing.T) {
 	})
 }
 
+func TestParseDNSResponseRejectsTrailingData(t *testing.T) {
+	packet := dnsResponsePacket(t, 0x1234, "example.hns.", []dnsAnswer{
+		{name: "example.hns.", typ: 1, ttl: 120, rdata: []byte{198, 51, 100, 10}},
+	})
+	packet = append(packet, 0xde, 0xad)
+
+	_, err := parseDNSResponse(packet, 0x1234, "example.hns.", 1, time.Now())
+	if err == nil || !strings.Contains(err.Error(), "extra DNS response data") {
+		t.Fatalf("parse err = %v, want extra DNS response data", err)
+	}
+}
+
 func TestBuildDNSQueryRejectsOverlongQName(t *testing.T) {
 	label := strings.Repeat("a", 63)
 	overlongName := strings.Join([]string{label, label, label, label}, ".") + "."

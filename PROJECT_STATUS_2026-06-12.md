@@ -89,6 +89,7 @@
 - [x] HNS DNS backend 响应解析现在要求 backend echo 精确 1 个 question，且 qtype 与 IN class 均匹配查询；拒绝 zero/multiple question count、question type mismatch 和非 IN question class。
 - [x] HNS DNS backend 现在约束 NS/CNAME、MX 和 SRV name RDATA 解码不得越过 RDLEN，防止 malformed RDATA 借后续 RR 字节被错误接受。
 - [x] HNS DNS backend 现在按 header count 跳过并校验 authority/additional section，拒绝 short trailing RR header/RDATA，且有效 additional 记录不会进入解析结果。
+- [x] HNS DNS backend 现在拒绝所有 declared DNS sections 之后的未声明尾随字节，避免 malformed backend response 夹带额外 wire data 被静默接受。
 
 ## 测试与验收
 
@@ -131,6 +132,7 @@
 - [x] HNS DNS backend question-boundary 回归测试覆盖 zero/multiple echoed questions、question type mismatch 和非 IN question class：`go test -buildvcs=false ./internal/plugins/hns -run 'TestParseDNSResponseRejectsQuestionCountAndClassMismatch'`。
 - [x] HNS DNS backend answer/RDATA 回归测试覆盖 name RDATA 解码不得越过 RDLEN 并错误吞入后续 RR 字节：`go test -buildvcs=false ./internal/plugins/hns -run 'TestParseDNSResponseSkipsNameRDATAThatExceedsRDLength'`。
 - [x] HNS DNS backend authority/additional section 回归测试覆盖 valid additional ignored、short additional RR header 和 short authority RDATA：`go test -buildvcs=false ./internal/plugins/hns -run 'TestParseDNSResponseValidatesAuthorityAndAdditionalSections'`。
+- [x] HNS DNS backend packet-boundary 回归测试覆盖 declared sections 之后的未声明尾随字节拒绝：`go test -buildvcs=false ./internal/plugins/hns -run 'TestParseDNSResponseRejectsTrailingData'`。
 - [x] `bash tests/acceptance/docker-soa-tld.sh` 现扩展验证 `example.` 单标签 TLD 经 BIND 明文 DNS、DoT 和 DoH 的 SOA 响应，且错误 DoT 证书主机名会被拒绝。
 - [x] `bash tests/acceptance/docker-hnsd-integration.sh` 默认 no-live 模式验证 hnsd/Recursor/BIND DoT/DoH profile model；live hnsd 运行仍需显式 `ANYNS_RUN_DOCKER_HNSD_INTEGRATION=1`。
 - [x] `ANYNS_RUN_DOCKER_HNSD_INTEGRATION=1 bash tests/acceptance/docker-hnsd-integration.sh` 在服务器隔离 Docker 网络中验证 live hnsd -> anyNS Runtime `hns` 路由 -> PowerDNS Recursor -> BIND 明文 DNS/DoT/DoH 链路；新 hnsd 未同步时接受 `SERVFAIL`，并验证不使用 static HNS fixture。
